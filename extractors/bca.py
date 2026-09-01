@@ -244,7 +244,13 @@ class BCAExtractor(BaseExtractor):
                         j = i + 1
                         while j < len(lines):
                             next_line = lines[j].strip()
-                            
+
+                            # Artifact page-break: kadang muncul fragmen "TANGGAL :dd/mm"
+                            # menempel di depan baris nama/nominal lanjutan (noise dari
+                            # header halaman berikutnya yang ikut ter-extract). Buang
+                            # fragmennya saja, sisa baris (nama/nominal asli) tetap dipakai.
+                            next_line = re.sub(r'^TANGGAL\s*:?\s*\d{2}/\d{2}\s*', '', next_line).strip()
+
                             # Stop jika baris baru dimulai dengan tanggal
                             if re.match(r'^\d{2}/\d{2}\s+', next_line):
                                 break
@@ -298,27 +304,38 @@ class BCAExtractor(BaseExtractor):
         if 'SALDO AWAL' in full_text.upper():
             return None
 
-        nominal_matches = re.findall(r'([\d,]+\.\d{2})', full_text)
+        # NOTE: pattern mengharuskan grup digit lengkap (word boundary di kedua sisi)
+        # supaya tidak "nyangkut" ke pecahan angka format Eropa (titik ribuan, koma desimal)
+        # yang kadang muncul akibat noise/OCR artifact di PDF, mis. "15.840.000,B" —
+        # tanpa boundary ini, regex lama bisa salah menangkap "15.84" sebagai nominal.
+        nominal_matches = re.findall(r'(?<![\d.])\d{1,3}(?:,\d{3})*\.\d{2}(?!\d)', full_text)
         if not nominal_matches:
             return None
 
         nominal_str = nominal_matches[0]
 
-        # Tentukan jenis mutasi
-        if 'KR OTOMATIS' in full_text or 'KR ' in full_text[:20]:
+        # Tentukan jenis mutasi — HANYA dari baris pertama (header transaksi), bukan
+        # dari full_text gabungan. full_text ikut memuat baris nama/keterangan lanjutan,
+        # dan scan " DB" di situ bisa salah kena nama seperti "DBS" (Bank DBS Indonesia)
+        # atau "S WIDYANINGSIH" -> transaksi Kredit jadi salah tercatat sebagai Debit.
+        first_line = lines[0] if lines else ''
+        first_line_upper = first_line.upper()
+
+        if 'KR OTOMATIS' in full_text or re.match(r'^KR\b', first_line_upper):
             is_debit = False
+        elif re.search(r'\bCR\b', first_line_upper):
+            # "TRSF E-BANKING CR", "BI-FAST CR ... DR 002", "SWITCHING CR DR 008", dst.
+            # "DR" di baris ini adalah kode bank pengirim, bukan penanda Debit — CR menang.
+            is_debit = False
+        elif re.search(r'\bDB\b', first_line_upper):
+            # "TRSF E-BANKING DB", "SWITCHING DB KE", "DB OTOMATIS B.ADM KLIRING", dst.
+            is_debit = True
         else:
-            # CRITICAL FIX: Jangan check 'BIAYA' di full_text (bisa match transaksi berikutnya)
-            # Check di first_line saja atau dengan context "BIAYA ADM", "BIAYA TRANSFER"
-            first_line = lines[0] if lines else ''
-            
-            has_db_marker = ' DB' in full_text
-            has_tarikan = 'TARIKAN' in first_line
-            has_biaya = ('BIAYA ADM' in full_text or 'BIAYA TRANSFER' in full_text or 
-                         'BIAYA ADMINISTRASI' in full_text or 'BIAYA TXN' in first_line)
-            has_pajak = 'PAJAK' in full_text
-            
-            is_debit = has_db_marker or has_tarikan or has_biaya or has_pajak
+            has_tarikan = 'TARIKAN' in first_line_upper
+            has_biaya = ('BIAYA ADM' in first_line_upper or 'BIAYA TRANSFER' in first_line_upper or
+                         'BIAYA ADMINISTRASI' in first_line_upper or 'BIAYA TXN' in first_line_upper)
+            has_pajak = 'PAJAK' in first_line_upper
+            is_debit = has_tarikan or has_biaya or has_pajak
 
         try:
             nominal = int(nominal_str.replace(',', '').split('.')[0])
@@ -326,12 +343,14 @@ class BCAExtractor(BaseExtractor):
             return None
 
         jenis_mutasi = 'Debit' if is_debit else 'Kredit'
-        nama         = self._extract_nama(lines)
+        nama         = self._clean_nama(self._extract_nama(lines))
 
         keterangan = full_text
         for nom in nominal_matches:
             keterangan = keterangan.replace(nom, '')
-        keterangan = keterangan.replace('DB', '').strip()
+        # Hapus token "DB" berdiri sendiri saja (word boundary) — bukan setiap
+        # kemunculan substring "DB" (yang bisa memakan nama seperti "DBS" jadi "S").
+        keterangan = re.sub(r'\bDB\b', '', keterangan).strip()
         keterangan = ' '.join(keterangan.split())
 
         return {
@@ -342,6 +361,17 @@ class BCAExtractor(BaseExtractor):
             'Nama Pengirim/Penerima': nama,
             'Keterangan Transaksi': keterangan
         }
+
+    def _clean_nama(self, nama: str) -> str:
+        """
+        Bersihkan sisa kode/nomor referensi yang kadang ikut terbawa di depan nama,
+        misal hasil VA/FTFVA "20239/TIKET KERETA" -> "TIKET KERETA".
+        """
+        if not nama or nama == '-':
+            return nama
+        # Buang prefix nomor referensi + slash, mis. "20239/TIKET KERETA"
+        cleaned = re.sub(r'^\d{3,}/', '', nama).strip()
+        return cleaned if cleaned else nama
 
     def _extract_nama(self, lines: list) -> str:
         """Extract nama pengirim/penerima dari lines."""
@@ -411,9 +441,18 @@ class BCAExtractor(BaseExtractor):
         
         if 'KR OTOMATIS' in first_line:
             # RTGS (usually line 3), LLG (usually line 2)
-            for line in lines[1:]:
-                if not self._is_junk_line(line) and 'Clearing' not in line:
-                    return ' '.join(line.strip().split()[:4])
+            candidates = [
+                line.strip() for line in lines[1:]
+                if not self._is_junk_line(line) and 'Clearing' not in line
+            ]
+            if candidates:
+                # Format "NTRF@..." menyusun baris sebagai [catatan, ..., kode
+                # pengirim singkat] — semuanya berawalan "@". Kalau begitu, kode
+                # pengirim ada di baris TERAKHIR, bukan yang pertama (yang biasanya
+                # cuma catatan/keterangan barang, misal "@Pengeras beton").
+                if all(c.startswith('@') for c in candidates):
+                    return ' '.join(candidates[-1].lstrip('@').split()[:4])
+                return ' '.join(candidates[0].split()[:4])
 
         # --- Type: TRSF / BI-FAST (The most complex) ---
         # User guideline: Name is usually on the LAST or 2nd to LAST line.
@@ -458,16 +497,22 @@ class BCAExtractor(BaseExtractor):
         # Common technical markers in BCA PDFs
         # Added more patterns based on analysis (WSID, FTFVA, FTSCY, etc.)
         junk_markers = [
-            'CBG:', 'REG:', 'WSID:', 'FTFVA/', 'FTSCY/', 'ADSCY/', 'ZDW', 
-            'WS95', 'Clearing', 'TANGGAL:', 'Hal:', '/Web', '/NEW BRI'
+            'CBG:', 'REG:', 'WSID:', 'FTFVA/', 'FTSCY/', 'ADSCY/', 'ZDW',
+            'WS95', 'Clearing', 'TANGGAL:', 'TANGGAL :', 'Hal:', '/Web', '/NEW BRI',
+            '#WARKAT',
         ]
         if any(marker in lc for marker in junk_markers):
             return True
-            
+
+        # Referensi akun/VA style "12345678@BCA26060822196" — kode notifikasi
+        # transfer otomatis, bukan nama.
+        if re.match(r'^\d+@[A-Z]+\d+$', lc.upper()):
+            return True
+
         # Check against ROUTING_CODES as well
         if any(code in lc.upper() for code in ROUTING_CODES):
             return True
-            
+
         # Pure numeric strings (Phone numbers, VA numbers, policy numbers, or amounts)
         # Matches strings with only digits, spaces, dots, commas, or dashes
         if re.match(r'^[0-9\s\.\,\-]+$', lc):
