@@ -506,9 +506,18 @@ class BCAExtractor(BaseExtractor):
             return True
         
         # User requested exclusions
-        if lc in ['KBB', 'MyBCA']:
+        if lc in ['KBB']:
             return True
-            
+
+        # Nama channel/aplikasi mobile banking BCA — selalu baris penutup
+        # transaksi (mis. setelah nama pengirim/penerima "PRIHANTARA"),
+        # bukan bagian dari nama. Dicek case-insensitive & exact match
+        # karena beberapa varian ejaan pernah dipakai BCA dari waktu ke
+        # waktu: "MyBCA", "myBCA", "M-BCA" (versi lama), "KlikBCA".
+        if lc.upper() in ['MYBCA', 'M-BCA', 'MBCA', 'KLIKBCA']:
+            return True
+
+
         # Common technical markers in BCA PDFs
         # Added more patterns based on analysis (WSID, FTFVA, FTSCY, etc.)
         junk_markers = [
