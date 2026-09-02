@@ -29,6 +29,7 @@ from engine.categorizer import (
     KATEGORI_DEBIT_KEYWORDS,
     KATEGORI_KREDIT_KEYWORDS,
 )
+from engine.anomaly_detector import detect_anomalies
 
 BULAN_ORDER = [
     'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
@@ -88,7 +89,7 @@ def hitung_rata_rata_pengendapan(df) -> int:
 # ============================================================
 
 def create_excel(saldo_per_bulan: dict, transaksi_per_bulan: dict,
-                 output_path: str, bank_name: str = 'BANK') -> None:
+                 output_path: str, bank_name: str = 'BANK', pdf_path: str = None) -> None:
     """
     Buat file Excel multi-sheet dari data saldo & transaksi.
 
@@ -97,6 +98,11 @@ def create_excel(saldo_per_bulan: dict, transaksi_per_bulan: dict,
         transaksi_per_bulan: Output dari BaseExtractor.extract_transaksi()
         output_path:         Path file .xlsx yang akan disimpan
         bank_name:           Nama bank untuk label (misal 'BCA', 'MANDIRI')
+        pdf_path:            Path PDF sumber — dipakai Sheet 9 (Indikasi Kejanggalan)
+                              untuk pemeriksaan berbasis halaman mentah (running
+                              balance, nomor halaman, metadata, dst). Opsional —
+                              kalau tidak diberikan, sheet tetap dibuat tapi hanya
+                              memuat pemeriksaan yang tidak butuh PDF mentah.
     """
     wb = Workbook()
 
@@ -113,6 +119,7 @@ def create_excel(saldo_per_bulan: dict, transaksi_per_bulan: dict,
     _build_sheet6_kategori_debit(wb, transaksi_per_bulan, bulan_list, saldo_per_bulan)
     _build_sheet7_kategori_kredit(wb, transaksi_per_bulan, bulan_list, saldo_per_bulan)
     _build_sheet8_summary(wb, saldo_per_bulan, transaksi_per_bulan, bulan_list, bank_name)
+    _build_sheet9_indikasi(wb, saldo_per_bulan, transaksi_per_bulan, pdf_path)
 
     wb.save(output_path)
 
@@ -1038,3 +1045,146 @@ def _build_sheet8_summary(wb, saldo_per_bulan, transaksi_per_bulan,
         if sig_border:
             c.border = sig_border
         ws.row_dimensions[sig_row].height = 20 if sig_row == sig_start else 18
+
+
+# ============================================================
+# SHEET 9 — INDIKASI KEJANGGALAN
+# ============================================================
+
+TINGKAT_STYLE = {
+    'Tinggi': ('FCE4EC', 'C00000'),
+    'Sedang': ('FFF2CC', '7D6608'),
+    'Rendah': ('E2EFDA', '375623'),
+}
+
+
+def _build_sheet9_indikasi(wb, saldo_per_bulan, transaksi_per_bulan, pdf_path):
+    ws = wb.create_sheet(title='Indikasi Kejanggalan')
+    ws.sheet_view.showGridLines = False
+
+    widths = {'A': 4, 'B': 26, 'C': 10, 'D': 10, 'E': 8, 'F': 8,
+              'G': 46, 'H': 55, 'I': 16}
+    for col, w in widths.items():
+        ws.column_dimensions[col].width = w
+
+    findings = detect_anomalies(pdf_path, saldo_per_bulan, transaksi_per_bulan) if pdf_path else []
+
+    # ---- Disclaimer ----
+    disclaimer = (
+        "PERHATIAN: Sheet ini berisi indikasi otomatis yang PERLU DIVERIFIKASI MANUAL, "
+        "bukan kesimpulan akhir bahwa rekening tidak wajar. Beberapa temuan (mis. transaksi bulat "
+        "atau berulang) bisa jadi wajar tergantung profil nasabah. Gunakan sebagai titik awal review, "
+        "bukan pengganti audit atau uji kelayakan (due diligence) manual."
+    )
+    ws.merge_cells(start_row=1, start_column=1, end_row=2, end_column=9)
+    c = ws.cell(row=1, column=1, value=disclaimer)
+    c.font      = Font(size=10, italic=True, bold=True, color='DC2626')
+    c.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+    c.fill      = PatternFill(start_color='FEE2E2', end_color='FEE2E2', fill_type='solid')
+    c.border    = Border(left=Side(style='medium'), right=Side(style='medium'),
+                         top=Side(style='medium'),  bottom=Side(style='medium'))
+    ws.row_dimensions[1].height = 42
+    ws.row_dimensions[2].height = 15
+
+    if not pdf_path:
+        c = ws.cell(row=4, column=1, value=(
+            'Pemeriksaan tidak dijalankan — file PDF sumber tidak tersedia untuk sheet ini.'
+        ))
+        c.font = Font(italic=True, color='595959')
+        return
+
+    # ---- Skor risiko ringkas ----
+    n_tinggi = sum(1 for f in findings if f['tingkat'] == 'Tinggi')
+    n_sedang = sum(1 for f in findings if f['tingkat'] == 'Sedang')
+    n_rendah = sum(1 for f in findings if f['tingkat'] == 'Rendah')
+
+    if n_tinggi > 0:
+        skor_label, skor_bg, skor_font = 'RISIKO TINGGI', 'FCE4EC', 'C00000'
+    elif n_sedang > 0:
+        skor_label, skor_bg, skor_font = 'RISIKO SEDANG', 'FFF2CC', '7D6608'
+    else:
+        skor_label, skor_bg, skor_font = 'RISIKO RENDAH', 'E2EFDA', '375623'
+
+    score_row = 4
+    ws.row_dimensions[score_row].height = 30
+    ws.merge_cells(start_row=score_row, start_column=1, end_row=score_row, end_column=9)
+    c = ws.cell(row=score_row, column=1,
+                value=f'  {skor_label}  —  {len(findings)} temuan  '
+                      f'(Tinggi: {n_tinggi}, Sedang: {n_sedang}, Rendah: {n_rendah})')
+    c.font      = Font(bold=True, size=13, color=skor_font)
+    c.fill      = PatternFill(fill_type='solid', fgColor=skor_bg)
+    c.alignment = Alignment(horizontal='left', vertical='center')
+    c.border    = Border(left=Side(style='medium', color=skor_font),
+                         right=Side(style='medium', color=skor_font),
+                         top=Side(style='medium', color=skor_font),
+                         bottom=Side(style='medium', color=skor_font))
+
+    # ---- Ringkasan per kategori ----
+    kat_row = score_row + 2
+    style_header(ws.cell(row=kat_row, column=1, value='Kategori Indikasi'))
+    ws.merge_cells(start_row=kat_row, start_column=1, end_row=kat_row, end_column=4)
+    style_header(ws.cell(row=kat_row, column=5, value='Jumlah'))
+    ws.merge_cells(start_row=kat_row, start_column=5, end_row=kat_row, end_column=6)
+    style_header(ws.cell(row=kat_row, column=7, value='Tingkat Tertinggi'))
+    ws.merge_cells(start_row=kat_row, start_column=7, end_row=kat_row, end_column=9)
+    ws.row_dimensions[kat_row].height = 22
+
+    per_kategori = {}
+    tingkat_order = {'Tinggi': 0, 'Sedang': 1, 'Rendah': 2}
+    for f in findings:
+        entry = per_kategori.setdefault(f['kategori'], {'jumlah': 0, 'tingkat': f['tingkat']})
+        entry['jumlah'] += 1
+        if tingkat_order[f['tingkat']] < tingkat_order[entry['tingkat']]:
+            entry['tingkat'] = f['tingkat']
+
+    r = kat_row
+    for kategori, info in sorted(per_kategori.items(),
+                                  key=lambda kv: tingkat_order[kv[1]['tingkat']]):
+        r += 1
+        bg, font_col = TINGKAT_STYLE[info['tingkat']]
+        ws.row_dimensions[r].height = 18
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=4)
+        c = ws.cell(row=r, column=1, value=kategori)
+        style_data(c, align='left')
+        ws.merge_cells(start_row=r, start_column=5, end_row=r, end_column=6)
+        c = ws.cell(row=r, column=5, value=info['jumlah'])
+        style_data(c, align='center', bold=True)
+        ws.merge_cells(start_row=r, start_column=7, end_row=r, end_column=9)
+        c = ws.cell(row=r, column=7, value=info['tingkat'])
+        style_data(c, align='center', bold=True, bg_color=bg)
+        c.font = Font(bold=True, size=10, color=font_col)
+
+    if not findings:
+        r += 1
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=9)
+        c = ws.cell(row=r, column=1, value='Tidak ditemukan indikasi kejanggalan pada rekening ini.')
+        c.font = Font(italic=True, color='375623', bold=True)
+        c.alignment = Alignment(horizontal='left', vertical='center')
+
+    # ---- Tabel detail temuan ----
+    tbl_row = r + 3
+    headers = ['No', 'Kategori', 'Tingkat', 'Bulan', 'Tanggal', 'Halaman',
+               'Deskripsi Temuan', 'Detail / Bukti', 'Nilai Terkait (Rp)']
+    ws.row_dimensions[tbl_row].height = 26
+    for col, h in enumerate(headers, start=1):
+        style_header(ws.cell(row=tbl_row, column=col, value=h))
+    ws.freeze_panes = ws.cell(row=tbl_row + 1, column=1)
+    ws.auto_filter.ref = f'A{tbl_row}:I{tbl_row}'
+
+    for i, f in enumerate(findings, start=1):
+        row = tbl_row + i
+        bg, font_col = TINGKAT_STYLE[f['tingkat']]
+        ws.row_dimensions[row].height = 30
+
+        vals = [i, f['kategori'], f['tingkat'], f['bulan'], f['tanggal'],
+                f['halaman'], f['deskripsi'], f['detail'], f['nilai_rp']]
+        for col, v in enumerate(vals, start=1):
+            c = ws.cell(row=row, column=col, value=v)
+            align = 'center' if col in (1, 3, 4, 5, 6) else 'left'
+            style_data(c, align=align, bg_color=bg if col == 3 else None)
+            if col == 3:
+                c.font = Font(bold=True, size=10, color=font_col)
+            if col == 9 and v is not None:
+                c.number_format = '#,##0'
+            if col in (7, 8):
+                c.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)

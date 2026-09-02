@@ -619,6 +619,7 @@ def upload_file():
             transaksi_per_bulan,
             output_path,
             bank_name=file_prefix,
+            pdf_path=filepath,
         )
 
         os.remove(filepath)
