@@ -67,6 +67,7 @@ def detect_anomalies(pdf_path: str, saldo_per_bulan: dict,
     findings += _check_duplikasi(transaksi_per_bulan)
     findings += _check_gap_transaksi(transaksi_per_bulan)
     findings += _check_setoran_tunai_libur(transaksi_per_bulan, saldo_per_bulan)
+    findings += _check_rtgs_libur(transaksi_per_bulan, saldo_per_bulan)
     findings += _check_round_number_bias(transaksi_per_bulan)
     findings += _check_structuring(transaksi_per_bulan)
     findings += _check_rasio_pajak_bunga(transaksi_per_bulan)
@@ -204,6 +205,30 @@ def _check_gap_transaksi(transaksi_per_bulan, min_streak=5, min_total_txn=30):
 
 
 # ============================================================
+# Helper hari libur — dipakai bersama oleh check 9 & 9b
+# ============================================================
+
+def _cek_hari_libur(tahun, bulan_num, tanggal):
+    """
+    Kembalikan (True, alasan) kalau tanggal jatuh di hari Minggu atau salah
+    satu hari libur nasional tanggal-tetap (lihat LIBUR_TANGGAL_TETAP di
+    atas — TIDAK mencakup libur lunar/hijriah seperti Lebaran/Nyepi/Imlek,
+    yang tanggalnya berubah tiap tahun dan butuh referensi kalender
+    eksternal). Kembalikan (False, None) kalau tanggal tidak valid atau
+    bukan hari libur yang kita kenali.
+    """
+    try:
+        d = datetime.date(int(tahun), bulan_num, tanggal)
+    except ValueError:
+        return False, None, None
+    if d.weekday() == 6:
+        return True, 'hari Minggu', d
+    if (bulan_num, tanggal) in LIBUR_TANGGAL_TETAP:
+        return True, 'tanggal merah (libur nasional)', d
+    return False, None, d
+
+
+# ============================================================
 # CHECK 9 — Setoran Tunai di hari Minggu/hari libur
 # ============================================================
 
@@ -220,20 +245,58 @@ def _check_setoran_tunai_libur(transaksi_per_bulan, saldo_per_bulan):
         mask = df['Keterangan Transaksi'].str.upper().str.contains('SETORAN TUNAI', na=False)
         for _, row in df[mask].iterrows():
             tanggal = int(row['Tanggal'])
-            try:
-                d = datetime.date(int(tahun), bulan_num, tanggal)
-            except ValueError:
-                continue
-            is_minggu = d.weekday() == 6
-            is_libur_tetap = (bulan_num, tanggal) in LIBUR_TANGGAL_TETAP
-            if is_minggu or is_libur_tetap:
-                alasan = 'hari Minggu' if is_minggu else 'tanggal merah (libur nasional)'
+            is_libur, alasan, d = _cek_hari_libur(tahun, bulan_num, tanggal)
+            if is_libur:
                 out.append({
                     'kategori': 'Setoran Tunai di Hari Libur',
                     'tingkat': 'Tinggi',
                     'bulan': bulan, 'tanggal': tanggal, 'halaman': '-',
                     'deskripsi': f'Setoran tunai tercatat pada {alasan} ({d.strftime("%d/%m/%Y")})',
                     'detail': f"Rp{int(row['Mutasi']):,} — \"{row['Keterangan Transaksi']}\"",
+                    'nilai_rp': int(row['Mutasi']),
+                })
+    return out
+
+
+# ============================================================
+# CHECK 9b — Transaksi RTGS di hari Minggu/hari libur
+# ============================================================
+
+def _check_rtgs_libur(transaksi_per_bulan, saldo_per_bulan):
+    """
+    RTGS diproses lewat sistem settlement BI-RTGS, yang TIDAK beroperasi
+    di luar hari & jam kerja bank (bukan seperti setoran tunai via CDM
+    yang bisa 24/7). Transaksi RTGS bertanggal Minggu/libur nasional
+    karenanya lebih kuat indikasinya dibanding setoran tunai — bisa
+    berarti dokumen diedit atau ada anomali pencatatan tanggal.
+
+    Deteksi hanya untuk baris yang Keterangan Transaksi-nya eksplisit
+    mengandung kata "RTGS". Extractor BCA saat ini tidak selalu
+    membedakan RTGS dari jenis KR OTOMATIS lain (LLG, dst.) kalau kata
+    "RTGS" tidak tercetak eksplisit di PDF — pada kasus begitu, check ini
+    tidak akan menyala (bukan berarti tidak ada RTGS, tapi tidak
+    teridentifikasi sebagai RTGS dari teksnya).
+    """
+    out = []
+    for bulan, df in transaksi_per_bulan.items():
+        if df is None or df.empty:
+            continue
+        tahun = saldo_per_bulan.get(bulan, {}).get('tahun')
+        bulan_num = BULAN_TO_NUM.get(bulan)
+        if not tahun or not bulan_num:
+            continue
+
+        mask = df['Keterangan Transaksi'].str.upper().str.contains('RTGS', na=False)
+        for _, row in df[mask].iterrows():
+            tanggal = int(row['Tanggal'])
+            is_libur, alasan, d = _cek_hari_libur(tahun, bulan_num, tanggal)
+            if is_libur:
+                out.append({
+                    'kategori': 'Transaksi RTGS di Hari Libur',
+                    'tingkat': 'Tinggi',
+                    'bulan': bulan, 'tanggal': tanggal, 'halaman': '-',
+                    'deskripsi': f'Transaksi RTGS tercatat pada {alasan} ({d.strftime("%d/%m/%Y")}) — sistem BI-RTGS tidak beroperasi di luar hari/jam kerja bank',
+                    'detail': f"{row['Jenis Mutasi']} Rp{int(row['Mutasi']):,} — \"{row['Keterangan Transaksi']}\"",
                     'nilai_rp': int(row['Mutasi']),
                 })
     return out
