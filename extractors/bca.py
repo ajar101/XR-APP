@@ -371,6 +371,15 @@ class BCAExtractor(BaseExtractor):
             return nama
         # Buang prefix nomor referensi + slash, mis. "20239/TIKET KERETA"
         cleaned = re.sub(r'^\d{3,}/', '', nama).strip()
+        # Buang prefix nominal duplikat "00000.00" yang nempel tanpa spasi ke nama
+        # merchant pada transaksi QRIS/kartu debit, mis. "00000.00SPBU 34.42" ->
+        # "SPBU 34.42", "00000.006487 HERO" -> "6487 HERO".
+        cleaned = re.sub(r'^0+\.00(?=\S)', '', cleaned).strip()
+        # Buang sisa pecahan nominal lain (bukan nol) yang nempel langsung ke huruf
+        # tanpa spasi, mis. "13917.60WATSONS" -> "WATSONS". Dibatasi ke huruf (bukan
+        # digit) di sisi kanan supaya kode toko murni angka seperti "6487 HERO"
+        # (sudah dipisah spasi) tidak ikut kepotong.
+        cleaned = re.sub(r'^\d+\.\d{2}(?=[A-Za-z])', '', cleaned).strip()
         return cleaned if cleaned else nama
 
     def _extract_nama(self, lines: list) -> str:
@@ -447,11 +456,17 @@ class BCAExtractor(BaseExtractor):
             ]
             if candidates:
                 # Format "NTRF@..." menyusun baris sebagai [catatan, ..., kode
-                # pengirim singkat] — semuanya berawalan "@". Kalau begitu, kode
-                # pengirim ada di baris TERAKHIR, bukan yang pertama (yang biasanya
-                # cuma catatan/keterangan barang, misal "@Pengeras beton").
-                if all(c.startswith('@') for c in candidates):
-                    return ' '.join(candidates[-1].lstrip('@').split()[:4])
+                # pengirim singkat] — biasanya semua baris berawalan "@", tapi
+                # kadang baris terbungkus (word-wrap) menyisakan awalan huruf
+                # nyasar sebelum "@", mis. "i @AFR" (dari ".../7 Jul" + "i").
+                # Kalau baris PERTAMA berupa catatan ("@Lunas...", "@Pengeras
+                # beton"), kode pengirim singkat ada di baris TERAKHIR — ambil
+                # token setelah "@" di baris itu saja, buang awalan nyasarnya.
+                if candidates[0].startswith('@'):
+                    last = candidates[-1]
+                    at_token = re.search(r'@(\S+)\s*$', last)
+                    kode = at_token.group(1) if at_token else last.lstrip('@')
+                    return ' '.join(kode.split()[:4])
                 return ' '.join(candidates[0].split()[:4])
 
         # --- Type: TRSF / BI-FAST (The most complex) ---
@@ -504,9 +519,10 @@ class BCAExtractor(BaseExtractor):
         if any(marker in lc for marker in junk_markers):
             return True
 
-        # Referensi akun/VA style "12345678@BCA26060822196" — kode notifikasi
+        # Referensi akun/VA style "12345678@BCA26060822196" atau "lA0@BCA26051765988"
+        # (prefix bisa digit/huruf, kadang salah baca OCR) — kode notifikasi
         # transfer otomatis, bukan nama.
-        if re.match(r'^\d+@[A-Z]+\d+$', lc.upper()):
+        if re.match(r'^\w+@[A-Z]{2,}\d+$', lc.upper()):
             return True
 
         # Kode channel/cabang berawalan "/", mis. "/KBB", "/Web", "/NEW BRI",
