@@ -15,6 +15,7 @@ import os
 from flask import Flask, render_template_string, request, send_file, jsonify
 
 from extractors.registry import get_enabled_banks, get_extractor
+from extractors.pdf_utils import is_probably_scanned
 from engine.excel_builder import create_excel
 from engine.multi_pdf_merger import merge_extractions, MergeValidationError
 
@@ -616,6 +617,20 @@ def upload_file():
             f.save(filepath)
             saved_paths.append(filepath)
 
+            # Cek dulu sebelum ekstraksi (yang bisa makan puluhan detik untuk
+            # PDF ratusan halaman) — PDF hasil scan/foto tidak punya layer
+            # teks sama sekali, jadi extractor apa pun pasti gagal. Lebih
+            # baik gagal cepat dengan pesan jelas daripada nunggu extractor
+            # jalan penuh lalu gagal dengan pesan generik.
+            if is_probably_scanned(filepath):
+                return (
+                    f"File '{f.filename}' terdeteksi sebagai PDF hasil scan/foto (gambar), "
+                    f"bukan PDF teks asli dari sistem bank. Ekstraksi otomatis saat ini hanya "
+                    f"mendukung PDF rekening koran yang diunduh langsung dari internet "
+                    f"banking/e-statement resmi (bukan hasil scan atau foto kamera). Silakan "
+                    f"unduh ulang PDF aslinya, atau hubungi bank untuk mendapatkan e-statement."
+                ), 400
+
             extractor = ExtractorClass(filepath)
             if first_extractor is None:
                 first_extractor = extractor
@@ -644,9 +659,6 @@ def upload_file():
             pdf_path=saved_paths,
         )
 
-        for p in saved_paths:
-            os.remove(p)
-
         return send_file(
             output_path,
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -658,13 +670,18 @@ def upload_file():
         # Give some time for file handles to close (Windows fix)
         import time
         time.sleep(0.1)
+        return f'Error: {str(e)}', 500
+    finally:
+        # Bersihkan PDF yang diupload apa pun hasil akhirnya — sukses,
+        # exception, ATAU return dini karena validasi gagal (mis. terdeteksi
+        # scan, bulan bentrok). output_path (file xlsx hasil) sengaja tidak
+        # ikut dihapus di sini karena send_file() masih perlu membacanya.
         for p in saved_paths:
             if os.path.exists(p):
                 try:
                     os.remove(p)
-                except:
+                except Exception:
                     pass
-        return f'Error: {str(e)}', 500
 
 
 if __name__ == '__main__':
