@@ -50,6 +50,13 @@ LIBUR_TANGGAL_TETAP = {
 TOLERANSI_SALDO = 100          # toleransi pembulatan int() saldo (Rp)
 TOLERANSI_RUNNING_BALANCE = 5  # toleransi pembulatan running balance (Rp)
 
+# PPh Final atas bunga tabungan/giro yang berlaku umum = 20%. Nilai bukan
+# bulat karena hasil bagi int() dua nominal yang sudah dibulatkan duluan
+# (Pajak Bunga dan Bunga masing-masing sudah dibulatkan rupiah penuh),
+# jadi rasio sebenarnya jarang persis 0.2 — beri toleransi tipis.
+RASIO_PAJAK_BUNGA_MIN = 0.195
+RASIO_PAJAK_BUNGA_MAX = 0.205
+
 
 def detect_anomalies(pdf_path: str, saldo_per_bulan: dict,
                       transaksi_per_bulan: dict) -> list:
@@ -62,6 +69,7 @@ def detect_anomalies(pdf_path: str, saldo_per_bulan: dict,
     findings += _check_setoran_tunai_libur(transaksi_per_bulan, saldo_per_bulan)
     findings += _check_round_number_bias(transaksi_per_bulan)
     findings += _check_structuring(transaksi_per_bulan)
+    findings += _check_rasio_pajak_bunga(transaksi_per_bulan)
 
     # Pemeriksaan yang butuh baca ulang PDF mentah (running balance, nomor
     # halaman, template, format angka, metadata). Kalau PDF tak terbaca
@@ -274,6 +282,59 @@ def _check_structuring(transaksi_per_bulan, ambang_bawah=400_000_000, ambang_ata
                 'detail': f"{len(grp)} transaksi, total Rp{int(grp['Mutasi'].sum()):,} — perlu verifikasi bukan upaya menghindari pelaporan",
                 'nilai_rp': int(grp['Mutasi'].sum()),
             })
+    return out
+
+
+# ============================================================
+# CHECK 10c — Rasio Pajak Bunga terhadap Bunga tidak wajar (≈20%)
+# ============================================================
+
+def _check_rasio_pajak_bunga(transaksi_per_bulan):
+    """
+    Bank umumnya memotong PPh Final 20% atas bunga tabungan/giro, jadi
+    Pajak Bunga / Bunga seharusnya ≈0.20. Hanya cocokkan baris yang
+    Keterangan Transaksi-nya PERSIS "BUNGA" / "PAJAK BUNGA" (bukan
+    sekadar mengandung kata "bunga") — extractor BCA juga memberi label
+    Nama "Bunga" untuk transaksi tak terkait seperti "KARANGAN BUNGA"
+    (papan bunga dukacita), yang tidak boleh ikut ke perhitungan ini.
+    """
+    out = []
+    for bulan, df in transaksi_per_bulan.items():
+        if df is None or df.empty:
+            continue
+        ket = df['Keterangan Transaksi'].astype(str).str.strip().str.upper()
+
+        bunga_rows = df[(df['Jenis Mutasi'] == 'Kredit') & (ket == 'BUNGA')]
+        pajak_rows = df[(df['Jenis Mutasi'] == 'Debit') & (ket == 'PAJAK BUNGA')]
+
+        tanggal_terkait = sorted(set(bunga_rows['Tanggal']) | set(pajak_rows['Tanggal']))
+        for tanggal in tanggal_terkait:
+            bunga_amt = int(bunga_rows[bunga_rows['Tanggal'] == tanggal]['Mutasi'].sum())
+            pajak_amt = int(pajak_rows[pajak_rows['Tanggal'] == tanggal]['Mutasi'].sum())
+
+            if bunga_amt == 0 or pajak_amt == 0:
+                # Salah satu tidak ditemukan — bisa jadi wajar (mis. bunga di
+                # bawah ambang bebas pajak), tapi tetap layak dicatat sebagai info.
+                out.append({
+                    'kategori': 'Rasio Pajak Bunga Tidak Wajar',
+                    'tingkat': 'Rendah',
+                    'bulan': bulan, 'tanggal': int(tanggal), 'halaman': '-',
+                    'deskripsi': 'Bunga tercatat tanpa pasangan Pajak Bunga (atau sebaliknya)',
+                    'detail': f'Bunga: Rp{bunga_amt:,} | Pajak Bunga: Rp{pajak_amt:,} — cek apakah salah satunya hilang saat ekstraksi',
+                    'nilai_rp': None,
+                })
+                continue
+
+            rasio = pajak_amt / bunga_amt
+            if not (RASIO_PAJAK_BUNGA_MIN <= rasio <= RASIO_PAJAK_BUNGA_MAX):
+                out.append({
+                    'kategori': 'Rasio Pajak Bunga Tidak Wajar',
+                    'tingkat': 'Sedang',
+                    'bulan': bulan, 'tanggal': int(tanggal), 'halaman': '-',
+                    'deskripsi': f'Rasio Pajak Bunga/Bunga {rasio:.4f} di luar rentang wajar ({RASIO_PAJAK_BUNGA_MIN}-{RASIO_PAJAK_BUNGA_MAX}, PPh Final 20%)',
+                    'detail': f'Bunga: Rp{bunga_amt:,} | Pajak Bunga: Rp{pajak_amt:,} | Rasio: {rasio:.4f}',
+                    'nilai_rp': pajak_amt,
+                })
     return out
 
 
