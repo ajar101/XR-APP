@@ -509,6 +509,12 @@ class BCAExtractor(BaseExtractor):
         if re.match(r'^\d+@[A-Z]+\d+$', lc.upper()):
             return True
 
+        # Kode channel/cabang berawalan "/", mis. "/KBB", "/Web", "/NEW BRI",
+        # "/BTNMobile", "/SMB" — selalu baris penutup transaksi SWITCHING, bukan
+        # nama. Nama sebenarnya ada di baris SEBELUM kode channel ini.
+        if lc.startswith('/'):
+            return True
+
         # Check against ROUTING_CODES as well
         if any(code in lc.upper() for code in ROUTING_CODES):
             return True
