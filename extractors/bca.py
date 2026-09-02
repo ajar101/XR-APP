@@ -400,7 +400,6 @@ class BCAExtractor(BaseExtractor):
             'BIAYA TRANSFER': 'Biaya Transfer',
             'PENERIMAAN NEGARA': 'Penerimaan Negara',
             'BPJS': 'BPJS',
-            'INDOMOBIL': 'INDOMOBIL FINANCE'
         }
         
         for kw, result in special_keywords.items():

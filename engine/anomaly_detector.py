@@ -25,6 +25,7 @@ Untuk menambah indikasi baru: tulis fungsi `_check_xxx(...)` yang
 mengembalikan list finding, lalu daftarkan di `detect_anomalies()`.
 """
 
+import os
 import re
 import datetime
 
@@ -58,9 +59,20 @@ RASIO_PAJAK_BUNGA_MIN = 0.195
 RASIO_PAJAK_BUNGA_MAX = 0.205
 
 
-def detect_anomalies(pdf_path: str, saldo_per_bulan: dict,
+def detect_anomalies(pdf_path, saldo_per_bulan: dict,
                       transaksi_per_bulan: dict) -> list:
-    """Jalankan semua pemeriksaan dan kembalikan list finding (belum diurutkan)."""
+    """
+    Jalankan semua pemeriksaan dan kembalikan list finding (belum diurutkan).
+
+    `pdf_path` boleh satu path (str) atau list path — dipakai saat user
+    upload beberapa PDF sekaligus (lihat engine/multi_pdf_merger.py).
+    Pemeriksaan berbasis data gabungan (saldo/transaksi) jalan sekali atas
+    seluruh bulan; pemeriksaan berbasis PDF mentah (running balance, nomor
+    halaman, template, format angka, metadata) jalan PER FILE karena
+    masing-masing PDF py punya nomor halaman & metadata sendiri-sendiri —
+    kalau lebih dari satu file, nama filenya disertakan di kolom halaman
+    supaya temuan bisa dilacak ke file yang mana.
+    """
     findings = []
 
     findings += _check_saldo_balance(saldo_per_bulan, transaksi_per_bulan)
@@ -72,26 +84,40 @@ def detect_anomalies(pdf_path: str, saldo_per_bulan: dict,
     findings += _check_structuring(transaksi_per_bulan)
     findings += _check_rasio_pajak_bunga(transaksi_per_bulan)
 
+    pdf_paths = [pdf_path] if isinstance(pdf_path, str) else list(pdf_path)
+    beri_label_file = len(pdf_paths) > 1
+
     # Pemeriksaan yang butuh baca ulang PDF mentah (running balance, nomor
-    # halaman, template, format angka, metadata). Kalau PDF tak terbaca
-    # (mis. path tidak valid), lewati saja tanpa menggagalkan seluruh laporan.
-    try:
-        raw = _scan_pdf_raw(pdf_path)
-        findings += _check_running_balance(raw)
-        findings += _check_halaman_sequence(raw)
-        findings += _check_template_halaman(raw)
-        findings += _check_format_nominal(raw)
-        findings += _check_mutasi_hilang(raw, transaksi_per_bulan)
-        findings += _check_metadata_pdf(pdf_path)
-    except Exception as e:
-        findings.append({
-            'kategori': 'Kesalahan Pemeriksaan',
-            'tingkat': 'Rendah',
-            'bulan': '-', 'tanggal': '-', 'halaman': '-',
-            'deskripsi': 'Sebagian pemeriksaan berbasis PDF mentah gagal dijalankan',
-            'detail': f'{type(e).__name__}: {e}',
-            'nilai_rp': None,
-        })
+    # halaman, template, format angka, metadata) — per file. Kalau satu file
+    # tak terbaca (mis. path tidak valid), lewati file itu saja, jangan
+    # gagalkan seluruh laporan.
+    for path in pdf_paths:
+        label = os.path.basename(path)
+        try:
+            raw = _scan_pdf_raw(path)
+            file_findings = []
+            file_findings += _check_running_balance(raw)
+            file_findings += _check_halaman_sequence(raw)
+            file_findings += _check_template_halaman(raw)
+            file_findings += _check_format_nominal(raw)
+            file_findings += _check_mutasi_hilang(raw, transaksi_per_bulan)
+            file_findings += _check_metadata_pdf(path)
+            if beri_label_file:
+                for f in file_findings:
+                    if f['halaman'] not in (None, '-'):
+                        f['halaman'] = f'{f["halaman"]} ({label})'
+                    else:
+                        f['halaman'] = label
+            findings += file_findings
+        except Exception as e:
+            findings.append({
+                'kategori': 'Kesalahan Pemeriksaan',
+                'tingkat': 'Rendah',
+                'bulan': '-', 'tanggal': '-', 'halaman': label if beri_label_file else '-',
+                'deskripsi': 'Sebagian pemeriksaan berbasis PDF mentah gagal dijalankan',
+                'detail': f'{type(e).__name__}: {e}',
+                'nilai_rp': None,
+            })
 
     tingkat_order = {'Tinggi': 0, 'Sedang': 1, 'Rendah': 2}
     findings.sort(key=lambda f: (

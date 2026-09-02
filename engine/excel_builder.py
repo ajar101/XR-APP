@@ -89,19 +89,22 @@ def hitung_rata_rata_pengendapan(df) -> int:
 # ============================================================
 
 def create_excel(saldo_per_bulan: dict, transaksi_per_bulan: dict,
-                 output_path: str, bank_name: str = 'BANK', pdf_path: str = None) -> None:
+                 output_path: str, bank_name: str = 'BANK', pdf_path=None) -> None:
     """
     Buat file Excel multi-sheet dari data saldo & transaksi.
 
     Args:
-        saldo_per_bulan:     Output dari BaseExtractor.extract_saldo()
-        transaksi_per_bulan: Output dari BaseExtractor.extract_transaksi()
+        saldo_per_bulan:     Output dari BaseExtractor.extract_saldo() — kalau user
+                              upload beberapa PDF sekaligus, ini adalah hasil gabungan
+                              dari engine/multi_pdf_merger.merge_extractions().
+        transaksi_per_bulan: Output dari BaseExtractor.extract_transaksi() (idem, hasil gabungan).
         output_path:         Path file .xlsx yang akan disimpan
         bank_name:           Nama bank untuk label (misal 'BCA', 'MANDIRI')
-        pdf_path:            Path PDF sumber — dipakai Sheet 9 (Indikasi Kejanggalan)
-                              untuk pemeriksaan berbasis halaman mentah (running
-                              balance, nomor halaman, metadata, dst). Opsional —
-                              kalau tidak diberikan, sheet tetap dibuat tapi hanya
+        pdf_path:            Path PDF sumber (str), ATAU list path kalau user upload
+                              beberapa PDF sekaligus — dipakai Sheet 9 (Indikasi
+                              Kejanggalan) untuk pemeriksaan berbasis halaman mentah
+                              (running balance, nomor halaman, metadata, dst), dijalankan
+                              per file. Opsional — kalau tidak diberikan, sheet tetap dibuat tapi hanya
                               memuat pemeriksaan yang tidak butuh PDF mentah.
     """
     wb = Workbook()
