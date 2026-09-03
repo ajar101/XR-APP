@@ -28,6 +28,7 @@ mengembalikan list finding, lalu daftarkan di `detect_anomalies()`.
 import os
 import re
 import datetime
+import calendar
 
 import pdfplumber
 
@@ -83,6 +84,7 @@ def detect_anomalies(pdf_path, saldo_per_bulan: dict,
     findings += _check_round_number_bias(transaksi_per_bulan)
     findings += _check_structuring(transaksi_per_bulan)
     findings += _check_rasio_pajak_bunga(transaksi_per_bulan)
+    findings += _check_jadwal_biaya_adm(transaksi_per_bulan, saldo_per_bulan)
 
     pdf_paths = [pdf_path] if isinstance(pdf_path, str) else list(pdf_path)
     beri_label_file = len(pdf_paths) > 1
@@ -423,6 +425,98 @@ def _check_rasio_pajak_bunga(transaksi_per_bulan):
                     'deskripsi': f'Rasio Pajak Bunga/Bunga {rasio:.4f} di luar rentang wajar ({RASIO_PAJAK_BUNGA_MIN}-{RASIO_PAJAK_BUNGA_MAX}, PPh Final 20%)',
                     'detail': f'Bunga: Rp{bunga_amt:,} | Pajak Bunga: Rp{pajak_amt:,} | Rasio: {rasio:.4f}',
                     'nilai_rp': pajak_amt,
+                })
+    return out
+
+
+# ============================================================
+# CHECK 13 — Jadwal pendebetan BIAYA ADM tidak sesuai ketentuan BCA
+# ============================================================
+
+# Cutover aturan jadwal biaya admin BCA: mulai periode Juni 2026, SEMUA
+# jenis rekening (Giro maupun Tabungan) didebet tanggal 1. Sebelum itu,
+# jadwalnya beda per jenis rekening (dikonfirmasi user dari data riil):
+#   - GIRO    : tanggal terakhir bulan berjalan
+#   - TAHAPAN : Jumat minggu ke-3 bulan berjalan
+BIAYA_ADM_CUTOVER = (2026, 6)  # (tahun, bulan) mulai berlaku aturan baru
+
+
+def _hari_jumat_minggu_ke3(tahun: int, bulan: int):
+    """Tanggal Jumat minggu ke-3 (Jumat ke-3) di bulan itu, atau None kalau bulan tidak valid."""
+    try:
+        _, ndays = calendar.monthrange(tahun, bulan)
+    except calendar.IllegalMonthError:
+        return None
+    jumat = [d for d in range(1, ndays + 1) if datetime.date(tahun, bulan, d).weekday() == 4]
+    return jumat[2] if len(jumat) >= 3 else None
+
+
+def _tanggal_seharusnya_biaya_adm(jenis_rekening: str, tahun: int, bulan: int):
+    """Kembalikan tanggal (int) BIAYA ADM seharusnya didebet, atau None kalau
+    tidak bisa ditentukan (jenis rekening tak dikenal / tanggal tak valid)."""
+    if (tahun, bulan) >= BIAYA_ADM_CUTOVER:
+        return 1
+    if jenis_rekening == 'GIRO':
+        try:
+            _, ndays = calendar.monthrange(tahun, bulan)
+        except calendar.IllegalMonthError:
+            return None
+        return ndays
+    if jenis_rekening == 'TAHAPAN':
+        return _hari_jumat_minggu_ke3(tahun, bulan)
+    return None  # jenis rekening lain/tak terdeteksi — aturan belum diketahui
+
+
+def _check_jadwal_biaya_adm(transaksi_per_bulan, saldo_per_bulan):
+    """
+    Per 1 Juni 2026 BCA mengubah jadwal pendebetan BIAYA ADM (sebelumnya
+    beda per jenis rekening, sekarang seragam tanggal 1 untuk semua jenis
+    rekening). Kalau tanggal aktual di statement tidak sesuai jadwal yang
+    berlaku untuk periode & jenis rekening itu, itu indikasi kejanggalan
+    (mis. statement diedit, atau tanggal transaksi tidak konsisten).
+    """
+    out = []
+    jenis_rekening = saldo_per_bulan.get('_jenis_rekening', '-')
+
+    for bulan, df in transaksi_per_bulan.items():
+        if df is None or df.empty:
+            continue
+        tahun = saldo_per_bulan.get(bulan, {}).get('tahun')
+        bulan_num = BULAN_TO_NUM.get(bulan)
+        if not tahun or not bulan_num:
+            continue
+        tahun = int(tahun)
+
+        mask = (df['Jenis Mutasi'] == 'Debit') & \
+               df['Keterangan Transaksi'].str.upper().str.contains('BIAYA ADM', na=False)
+        rows = df[mask]
+        if rows.empty:
+            continue
+
+        tanggal_seharusnya = _tanggal_seharusnya_biaya_adm(jenis_rekening, tahun, bulan_num)
+        if tanggal_seharusnya is None:
+            # Jenis rekening tak terdeteksi atau bukan GIRO/TAHAPAN — aturan
+            # jadwalnya belum kita ketahui, jangan menebak dan menghasilkan
+            # false-positive.
+            continue
+
+        aturan = 'tanggal 1 (aturan baru per Juni 2026)' if (tahun, bulan_num) >= BIAYA_ADM_CUTOVER \
+            else (f'akhir bulan/tanggal {tanggal_seharusnya} (aturan lama GIRO)' if jenis_rekening == 'GIRO'
+                  else f'Jumat minggu ke-3/tanggal {tanggal_seharusnya} (aturan lama TAHAPAN)')
+
+        for _, row in rows.iterrows():
+            tanggal_aktual = int(row['Tanggal'])
+            if tanggal_aktual != tanggal_seharusnya:
+                out.append({
+                    'kategori': 'Jadwal Biaya Admin Tidak Wajar',
+                    'tingkat': 'Sedang',
+                    'bulan': bulan, 'tanggal': tanggal_aktual, 'halaman': '-',
+                    'deskripsi': (
+                        f'BIAYA ADM didebet tanggal {tanggal_aktual}, seharusnya {aturan} '
+                        f'untuk rekening {jenis_rekening or "?"}'
+                    ),
+                    'detail': f"Rp{int(row['Mutasi']):,} — \"{row['Keterangan Transaksi']}\"",
+                    'nilai_rp': int(row['Mutasi']),
                 })
     return out
 

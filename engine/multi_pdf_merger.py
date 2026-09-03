@@ -40,6 +40,7 @@ def merge_extractions(per_file_results: list) -> tuple:
     transaksi_gabungan = {}
     no_rekening_ref = None
     nama_pemilik_ref = None
+    jenis_rekening_ref = None
     sumber_rekening_ref = None
     sumber_bulan = {}  # bulan -> nama file yang pertama mengklaimnya
 
@@ -48,6 +49,7 @@ def merge_extractions(per_file_results: list) -> tuple:
         if no_rekening_ref is None:
             no_rekening_ref = no_rek
             nama_pemilik_ref = saldo.get('_nama_pemilik', '-')
+            jenis_rekening_ref = saldo.get('_jenis_rekening', '-')
             sumber_rekening_ref = filename
         elif no_rek != no_rekening_ref:
             raise MergeValidationError(
@@ -87,5 +89,6 @@ def merge_extractions(per_file_results: list) -> tuple:
 
     saldo_gabungan['_no_rekening'] = no_rekening_ref
     saldo_gabungan['_nama_pemilik'] = nama_pemilik_ref
+    saldo_gabungan['_jenis_rekening'] = jenis_rekening_ref
 
     return saldo_gabungan, transaksi_gabungan

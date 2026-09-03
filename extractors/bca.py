@@ -61,9 +61,18 @@ class BCAExtractor(BaseExtractor):
         # Identitas pemilik rekening (dari halaman pertama)
         nama_pemilik = '-'
         no_rekening  = '-'
+        # Jenis rekening ("REKENING GIRO" / "REKENING TAHAPAN") — baris
+        # pertama halaman pertama. Dipakai anomaly_detector untuk aturan
+        # yang beda antar jenis rekening, mis. jadwal BIAYA ADM.
+        jenis_rekening = '-'
         with pdfplumber.open(self.pdf_path) as pdf:
             first_text = pdf.pages[0].extract_text() or ''
-            for line in first_text.split('\n'):
+            first_lines = first_text.split('\n')
+            if first_lines:
+                match_jenis = re.match(r'^REKENING\s+(\w+)', first_lines[0].strip().upper())
+                if match_jenis:
+                    jenis_rekening = match_jenis.group(1)
+            for line in first_lines:
                 if 'NO. REKENING' in line or 'NO REKENING' in line:
                     match_nama = re.match(
                         r'^(.+?)\s+NO\.?\s*REKENING\s*:\s*(\d+)', line
@@ -175,8 +184,9 @@ class BCAExtractor(BaseExtractor):
             }
 
         # Metadata
-        result['_nama_pemilik'] = nama_pemilik
-        result['_no_rekening']  = no_rekening
+        result['_nama_pemilik']   = nama_pemilik
+        result['_no_rekening']    = no_rekening
+        result['_jenis_rekening'] = jenis_rekening
         for bulan, saldo_awal in saldo_awal_bulan.items():
             result[f'_saldo_awal_{bulan}'] = saldo_awal
 
