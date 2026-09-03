@@ -613,6 +613,22 @@ def upload_file():
 
         transaksi_per_bulan = extractor.extract_transaksi()
 
+        # Checksum internal extractor (kalau tersedia): cocokkan hasil parsing
+        # dengan angka resmi yang tercetak di PDF. Hanya nama pemeriksaan yang
+        # dicatat — nominal & isi transaksi sengaja tidak ikut di-log.
+        if hasattr(extractor, 'validate'):
+            laporan = extractor.validate()
+            if not laporan.get('ok', True):
+                gagal = sorted({
+                    k for per in laporan.get('periods', [])
+                    for k, v in per.get('checks', {}).items() if v is False
+                })
+                app.logger.warning(
+                    'Checksum %s %s TIDAK COCOK dengan ringkasan resmi PDF '
+                    '(pemeriksaan gagal: %s). Angka pada laporan perlu diperiksa manual.',
+                    file_prefix, nama_file, ', '.join(gagal) or 'tidak diketahui',
+                )
+
         output_path = os.path.join(app.config['EXPORT_FOLDER'], nama_file)
         create_excel(
             saldo_per_bulan,
