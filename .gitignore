@@ -8,3 +8,7 @@ venv/
 # Output parser
 Parsed_*.xlsx
 ~$*.xlsx
+
+# Folder runtime aplikasi
+uploads/
+exports/
