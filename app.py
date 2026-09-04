@@ -15,7 +15,9 @@ import os
 from flask import Flask, render_template_string, request, send_file, jsonify
 
 from extractors.registry import get_enabled_banks, get_extractor
+from extractors.pdf_utils import is_probably_scanned
 from engine.excel_builder import create_excel
+from engine.multi_pdf_merger import merge_extractions, MergeValidationError
 
 # DEBUG: Print enabled banks
 print("\n" + "="*60)
@@ -34,7 +36,7 @@ os.makedirs(EXPORT_FOLDER, exist_ok=True)
 
 app.config['UPLOAD_FOLDER']      = UPLOAD_FOLDER
 app.config['EXPORT_FOLDER']      = EXPORT_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
+app.config['MAX_CONTENT_LENGTH'] = 64 * 1024 * 1024  # dinaikkan dari 16MB — mendukung upload multi-PDF sekaligus
 
 # ============================================================
 # HTML TEMPLATE
@@ -370,11 +372,11 @@ HTML_TEMPLATE = '''
                     </svg>
                 </div>
                 <div class="upload-label" id="uploadLabel">Klik atau drop file di sini</div>
-                <div class="upload-hint"  id="uploadHint">Format PDF · Maks 16 MB</div>
+                <div class="upload-hint"  id="uploadHint">Bisa pilih lebih dari 1 PDF · Maks 6 bulan mutasi total · Maks 64 MB</div>
                 <div class="file-selected" id="fileName"></div>
             </div>
 
-            <input type="file" id="fileInput" name="file" accept=".pdf">
+            <input type="file" id="fileInput" name="file" accept=".pdf" multiple>
 
             <div id="loadingState" class="loading-state">
                 <div class="progress-bar"><div class="progress-fill"></div></div>
@@ -452,13 +454,16 @@ HTML_TEMPLATE = '''
 
     fileInput.addEventListener('change', function(e) {
         if (e.target.files.length > 0) {
-            setFileSelected(e.target.files[0].name);
+            setFilesSelected(e.target.files);
         }
     });
 
-    function setFileSelected(name) {
-        fileName.textContent    = name;
-        uploadLabel.textContent = 'File terpilih';
+    function setFilesSelected(files) {
+        const names = Array.from(files).map(f => f.name);
+        fileName.textContent    = names.join(', ');
+        uploadLabel.textContent = files.length > 1
+            ? `${files.length} file terpilih`
+            : 'File terpilih';
         uploadHint.textContent  = 'Klik untuk ganti file';
         uploadZone.classList.add('has-file');
         iconPdf.style.display   = 'none';
@@ -471,10 +476,10 @@ HTML_TEMPLATE = '''
     function handleDrop(e) {
         e.preventDefault();
         uploadZone.classList.remove('dragover');
-        const file = e.dataTransfer.files[0];
-        if (file && file.name.endsWith('.pdf')) {
+        const files = Array.from(e.dataTransfer.files);
+        if (files.length > 0 && files.every(f => f.name.toLowerCase().endsWith('.pdf'))) {
             fileInput.files = e.dataTransfer.files;
-            setFileSelected(file.name);
+            setFilesSelected(e.dataTransfer.files);
         } else {
             showError('Hanya file PDF yang didukung.');
         }
@@ -507,7 +512,9 @@ HTML_TEMPLATE = '''
         }, 1800);
 
         const formData = new FormData();
-        formData.append('file',      fileInput.files[0]);
+        for (const f of fileInput.files) {
+            formData.append('file', f);
+        }
         formData.append('bank_code', selectedBank);
 
         try {
@@ -582,36 +589,66 @@ def upload_file():
     if not bank_code:
         return 'Pilih bank terlebih dahulu.', 400
 
-    if 'file' not in request.files:
-        return 'Tidak ada file yang diupload.', 400
-
-    file = request.files['file']
-    if not file.filename:
+    # Mendukung upload beberapa PDF sekaligus (mis. tiap file 1-3 bulan,
+    # tidak perlu di-merge manual dulu jadi satu PDF) — lihat
+    # engine/multi_pdf_merger.py untuk aturan validasinya (rekening harus
+    # sama, bulan tidak boleh bentrok, total maks 6 bulan).
+    files = [f for f in request.files.getlist('file') if f.filename]
+    if not files:
         return 'Tidak ada file yang dipilih.', 400
-    if not file.filename.lower().endswith('.pdf'):
-        return 'File harus berformat PDF.', 400
+    for f in files:
+        if not f.filename.lower().endswith('.pdf'):
+            return f"File '{f.filename}' harus berformat PDF.", 400
 
     try:
         ExtractorClass = get_extractor(bank_code)
     except ValueError as e:
         return str(e), 400
 
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
-    file.save(filepath)
-
+    saved_paths = []
     try:
-        extractor = ExtractorClass(filepath)
+        per_file_results = []
+        first_extractor = None
 
-        no_rekening  = extractor.extract_no_rekening() or 'unknown'
-        file_prefix  = extractor.get_file_prefix()
-        nama_file    = f'{file_prefix}_{no_rekening}.xlsx'
+        for idx, f in enumerate(files):
+            # Prefix indeks supaya nama file yang sama dari beberapa upload
+            # tidak saling menimpa di UPLOAD_FOLDER.
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], f'{idx}_{f.filename}')
+            f.save(filepath)
+            saved_paths.append(filepath)
 
-        saldo_per_bulan     = extractor.extract_saldo()
-        if not saldo_per_bulan:
-            os.remove(filepath)
-            return 'Gagal mengekstrak data saldo. Pastikan format PDF sesuai.', 500
+            # Cek dulu sebelum ekstraksi (yang bisa makan puluhan detik untuk
+            # PDF ratusan halaman) — PDF hasil scan/foto tidak punya layer
+            # teks sama sekali, jadi extractor apa pun pasti gagal. Lebih
+            # baik gagal cepat dengan pesan jelas daripada nunggu extractor
+            # jalan penuh lalu gagal dengan pesan generik.
+            if is_probably_scanned(filepath):
+                return (
+                    f"File '{f.filename}' terdeteksi sebagai PDF hasil scan/foto (gambar), "
+                    f"bukan PDF teks asli dari sistem bank. Ekstraksi otomatis saat ini hanya "
+                    f"mendukung PDF rekening koran yang diunduh langsung dari internet "
+                    f"banking/e-statement resmi (bukan hasil scan atau foto kamera). Silakan "
+                    f"unduh ulang PDF aslinya, atau hubungi bank untuk mendapatkan e-statement."
+                ), 400
 
-        transaksi_per_bulan = extractor.extract_transaksi()
+            extractor = ExtractorClass(filepath)
+            if first_extractor is None:
+                first_extractor = extractor
+
+            saldo = extractor.extract_saldo()
+            if not saldo:
+                return f"Gagal mengekstrak data saldo dari '{f.filename}'. Pastikan format PDF sesuai.", 500
+            trans = extractor.extract_transaksi()
+            per_file_results.append((f.filename, saldo, trans))
+
+        try:
+            saldo_per_bulan, transaksi_per_bulan = merge_extractions(per_file_results)
+        except MergeValidationError as e:
+            return str(e), 400
+
+        no_rekening = saldo_per_bulan.get('_no_rekening') or 'unknown'
+        file_prefix = first_extractor.get_file_prefix()
+        nama_file   = f'{file_prefix}_{no_rekening}.xlsx'
 
         # Checksum internal extractor (kalau tersedia): cocokkan hasil parsing
         # dengan angka resmi yang tercetak di PDF. Hanya nama pemeriksaan yang
@@ -635,9 +672,8 @@ def upload_file():
             transaksi_per_bulan,
             output_path,
             bank_name=file_prefix,
+            pdf_path=saved_paths,
         )
-
-        os.remove(filepath)
 
         return send_file(
             output_path,
@@ -650,12 +686,18 @@ def upload_file():
         # Give some time for file handles to close (Windows fix)
         import time
         time.sleep(0.1)
-        if os.path.exists(filepath):
-            try:
-                os.remove(filepath)
-            except:
-                pass
         return f'Error: {str(e)}', 500
+    finally:
+        # Bersihkan PDF yang diupload apa pun hasil akhirnya — sukses,
+        # exception, ATAU return dini karena validasi gagal (mis. terdeteksi
+        # scan, bulan bentrok). output_path (file xlsx hasil) sengaja tidak
+        # ikut dihapus di sini karena send_file() masih perlu membacanya.
+        for p in saved_paths:
+            if os.path.exists(p):
+                try:
+                    os.remove(p)
+                except Exception:
+                    pass
 
 
 if __name__ == '__main__':

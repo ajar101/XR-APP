@@ -30,7 +30,7 @@ BANK_REGISTRY = {
         'color':       '#003D7C',   # biru Mandiri
         'logo_text':   'MDR',       # logo placeholder
         'description': 'Rekening Giro & Tabungan Mandiri (Auto-detect: Kopra/E-Banking/Statement)',
-        'enabled':     True,   # ✓ Sudah aktif!
+        'enabled':     True,   # ✓ Aktif — parser Kopra sudah divalidasi checksum
     },
     'bni': {
         'name':        'Bank Negara Indonesia (BNI)',
@@ -39,7 +39,7 @@ BANK_REGISTRY = {
         'color':       '#F47920',   # oranye BNI
         'logo_text':   'BNI',
         'description': 'Rekening Giro BNI (e-Statement)',
-        'enabled':     True,   # ✓ Sudah aktif!
+        'enabled':     False,  # ⏸ Dinonaktifkan sementara — fokus stabilisasi BCA
     },
 }
 
