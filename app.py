@@ -609,6 +609,7 @@ def upload_file():
     try:
         per_file_results = []
         first_extractor = None
+        laporan_checksum = []
 
         for idx, f in enumerate(files):
             # Prefix indeks supaya nama file yang sama dari beberapa upload
@@ -635,6 +636,11 @@ def upload_file():
             if first_extractor is None:
                 first_extractor = extractor
 
+            # Checksum dikumpulkan per file — kalau hanya extractor terakhir
+            # yang diperiksa, file lain lolos tanpa validasi sama sekali.
+            if hasattr(extractor, 'validate'):
+                laporan_checksum.append((f.filename, extractor.validate()))
+
             saldo = extractor.extract_saldo()
             if not saldo:
                 return f"Gagal mengekstrak data saldo dari '{f.filename}'. Pastikan format PDF sesuai.", 500
@@ -650,20 +656,30 @@ def upload_file():
         file_prefix = first_extractor.get_file_prefix()
         nama_file   = f'{file_prefix}_{no_rekening}.xlsx'
 
-        # Checksum internal extractor (kalau tersedia): cocokkan hasil parsing
-        # dengan angka resmi yang tercetak di PDF. Hanya nama pemeriksaan yang
-        # dicatat — nominal & isi transaksi sengaja tidak ikut di-log.
-        if hasattr(extractor, 'validate'):
-            laporan = extractor.validate()
+        # Checksum internal extractor: cocokkan hasil parsing dengan angka
+        # resmi yang tercetak di PDF. Hanya nama pemeriksaan & jumlah baris
+        # yang dicatat — nominal & isi transaksi sengaja tidak ikut di-log.
+        for nama_sumber, laporan in laporan_checksum:
             if not laporan.get('ok', True):
                 gagal = sorted({
                     k for per in laporan.get('periods', [])
                     for k, v in per.get('checks', {}).items() if v is False
                 })
                 app.logger.warning(
-                    'Checksum %s %s TIDAK COCOK dengan ringkasan resmi PDF '
+                    'Checksum %s / %s TIDAK COCOK dengan ringkasan resmi PDF '
                     '(pemeriksaan gagal: %s). Angka pada laporan perlu diperiksa manual.',
-                    file_prefix, nama_file, ', '.join(gagal) or 'tidak diketahui',
+                    file_prefix, nama_sumber, ', '.join(gagal) or 'tidak diketahui',
+                )
+            # Periode yang tumpang tindih TIDAK menggagalkan checksum, jadi
+            # tanpa baris ini penggabungan duplikat terjadi tanpa diketahui
+            # siapa pun — persis yang harus dihindari pada data sumber.
+            digabung = laporan.get('duplikat_digabung') or 0
+            if digabung:
+                app.logger.warning(
+                    '%s / %s memuat periode yang tumpang tindih: %d transaksi ganda '
+                    'digabung menjadi satu. Total mutasi laporan lebih kecil dari '
+                    'penjumlahan mentah tiap periode — ini disengaja.',
+                    file_prefix, nama_sumber, digabung,
                 )
 
         output_path = os.path.join(app.config['EXPORT_FOLDER'], nama_file)

@@ -91,3 +91,12 @@ class MandiriExtractor(BaseExtractor):
     def extract_no_rekening(self) -> str:
         """Delegate to sub-extractor."""
         return self.extractor.extract_no_rekening()
+
+    def validate(self) -> dict:
+        """
+        Teruskan checksum sub-extractor.
+
+        Tanpa delegasi ini app.py hanya melihat dispatcher, yang tidak punya
+        validate(), sehingga pemeriksaan checksum diam-diam tidak pernah jalan.
+        """
+        return self.extractor.validate()

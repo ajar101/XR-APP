@@ -496,6 +496,7 @@ class MandiriKopraExtractor(BaseExtractor):
                 'Blok ringkasan terbaca tetapi tidak ada baris transaksi yang terdeteksi.'
             )
 
+        report['duplikat_digabung'] = len(doc['rows']) - len(self._merged_rows())
         overlap = self._overlap_warning()
         if overlap:
             report['warnings'].append(overlap)
@@ -601,7 +602,7 @@ class MandiriKopraExtractor(BaseExtractor):
     # Kode cabang yang menempel tanpa spasi di ekor nama: "...EXIM PT12124"
     _GLUED_CODE_RE = re.compile(r'(?<=[A-Za-z])\d{5,6}$')
     # Ekor kode bank tujuan: "... - CENAIDJA12124"
-    _TAIL_BANK_RE = re.compile(r'\s*-\s*[A-Z]{4}IDJA\d*\s*$')
+    _TAIL_BANK_RE = re.compile(r'\s*-\s*[A-Z]{4}IDJ[A-Z0-9]\d*\s*$')
 
     def _clean_nama(self, s: str) -> str:
         s = ' '.join((s or '').split())
@@ -669,8 +670,10 @@ class MandiriKopraExtractor(BaseExtractor):
             if nama:
                 return nama
 
-        # 2. Transfer antar bank: <KODEBANK>IDJA/<NAMA>  (~15%)
-        m = re.search(r'[A-Z]{4}IDJA/(.+)', text)
+        # 2. Transfer antar bank: <KODEBANK>IDJ?/<NAMA>  (~15%).
+        #    Kode bank umumnya berakhiran 'A' (CENAIDJA) tapi ada juga yang
+        #    berakhiran angka (BUSTIDJ1, DANAIDJ1), jadi jangan dipatok 'IDJA'.
+        m = re.search(r'[A-Z]{4}IDJ[A-Z0-9]/(.+)', text)
         if m:
             tail = re.split(r'\s*\d{5,}', m.group(1))[0]
             nama = self._clean_nama(self._cut_at_lowercase(tail))
@@ -733,7 +736,7 @@ class MandiriKopraExtractor(BaseExtractor):
         # ("20260301BMRIIDJA010O9 933021416 99102").
         # Satu token berita dari baris sebelumnya kadang ikut di depan
         # ("Angsuran99102 20260310BMRIIDJA010O9 935480393 99102").
-        if re.match(r'^(?:\S+\s+)?\d{6,}[A-Z]{4}IDJA\w*(?:\s+\d+)*\s*$', text.strip()):
+        if re.match(r'^(?:\S+\s+)?\d{6,}[A-Z]{4}IDJ[A-Z0-9]\w*(?:\s+\d+)*\s*$', text.strip()):
             return 'Biaya Transfer Antar Bank'
 
         # 6. Pembayaran tagihan (UBP). Remark UBP hanya berisi kode biller,
