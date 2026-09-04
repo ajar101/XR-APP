@@ -506,6 +506,38 @@ class MandiriKopraExtractor(BaseExtractor):
         m = self._NAME_STOP_RE.search(s)
         return s[:m.start()] if m else s
 
+    def _strip_berita(self, tail: str, prefix: str) -> str:
+        """
+        Buang berita transaksi yang menempel setelah nama.
+
+        Kopra mencetak berita dua kali: versi terpotong ~20 karakter sebagai
+        baris di ATAS tanggal, lalu versi penuh langsung setelah nama. Versi
+        terpotong itu dipakai sebagai penanda di mana nama berakhir.
+        """
+        prefix = ' '.join((prefix or '').split())
+        if len(prefix) < 12:
+            return tail
+        probe = prefix[:20].strip()
+        idx = tail.find(probe)
+        # idx > 0: berita ketemu SETELAH nama (idx == 0 berarti tak ada nama).
+        return tail[:idx] if idx > 0 else tail
+
+    def _cut_at_lowercase(self, s: str) -> str:
+        """
+        Potong di kata pertama yang bukan bagian nama.
+
+        Nama lawan transaksi di rekening koran Kopra selalu dicetak huruf
+        besar, sedangkan berita transaksi bercampur huruf kecil
+        ("BSMDIDJA/YAYASAN HUMALAH BAIT AL HIKMAH Zakat Maal dan Infaq")
+        atau diawali penomoran ("CENAIDJA/M. HARIS 1. Ritase LPG Brgkt").
+        """
+        out = []
+        for tok in s.split():
+            if re.search(r'[a-z]', tok) or re.match(r'^\d+\.?$', tok):
+                break
+            out.append(tok)
+        return ' '.join(out) if out else s
+
     def _extract_nama(self, keterangan: str) -> str:
         """
         Pipeline berurutan: pola paling spesifik lebih dulu.
@@ -521,25 +553,40 @@ class MandiriKopraExtractor(BaseExtractor):
         # 1. MCM InhouseTrf KE/DARI <NAMA>  (pola terbesar, ~40% data)
         m = re.search(r'InhouseTrf\s+(?:KE|DARI)\s+(.+)', text, re.IGNORECASE)
         if m:
-            nama = self._clean_nama(self._cut_at_stop(m.group(1)))
+            tail = self._cut_at_stop(m.group(1))
+            tail = self._strip_berita(tail, text[:m.start()])
+            nama = self._clean_nama(self._cut_at_lowercase(tail))
             if nama:
                 return nama
 
         # 2. Transfer antar bank: <KODEBANK>IDJA/<NAMA>  (~15%)
         m = re.search(r'[A-Z]{4}IDJA/(.+)', text)
         if m:
-            nama = self._clean_nama(re.split(r'\s*\d{5,}', m.group(1))[0])
+            tail = re.split(r'\s*\d{5,}', m.group(1))[0]
+            nama = self._clean_nama(self._cut_at_lowercase(tail))
             if nama:
                 return nama
 
-        # 3. Transfer ATM: "DARI/KE <NAMA> Transfer ATM <kode terminal>"
+        # 3. Transfer masuk/keluar antar bank: "<NAMA> - <kode> Trf Inw CN <BANK>"
+        m = re.search(r'^(.*?)\s+-\s+\d{2,3}\s+Trf\s+(?:Inw|Outw)\b', text, re.IGNORECASE)
+        if m:
+            head = m.group(1)
+            # Berita/kode invoice kadang mengawali; buang token berkode di depan.
+            toks = head.split()
+            while toks and (re.search(r'[/\\]', toks[0]) or re.search(r'\d', toks[0])):
+                toks.pop(0)
+            nama = self._clean_nama(self._cut_at_lowercase(' '.join(toks)))
+            if nama:
+                return nama
+
+        # 4. Transfer ATM: "DARI/KE <NAMA> Transfer ATM <kode terminal>"
         m = re.match(r'^(?:DARI|KE)\s+(.+?)\s+Transfer\s+ATM\b', text, re.IGNORECASE)
         if m:
             nama = self._clean_nama(m.group(1))
             if nama:
                 return nama
 
-        # 4. Kliring keluar: MCM Outw CN <NAMA> ... Clearing Fee
+        # 5. Kliring keluar: MCM Outw CN <NAMA> ... Clearing Fee
         m = re.search(r'Outw\s+(?:CN|DN)\s+(.+)', text, re.IGNORECASE)
         if m:
             nama = self._clean_nama(self._cut_at_stop(m.group(1)))
@@ -553,12 +600,19 @@ class MandiriKopraExtractor(BaseExtractor):
         text = re.sub(r'^(?:\d{1,4}\s+)+', '', text) or text
         upper = text.upper()
 
-        # 5. Pembayaran tagihan (UBP). Remark UBP hanya berisi kode biller,
+        # Baris biaya SKN/RTGS: hanya nomor referensi + kode cabang, tanpa nama
+        # ("20260301BMRIIDJA010O9 933021416 99102").
+        # Satu token berita dari baris sebelumnya kadang ikut di depan
+        # ("Angsuran99102 20260310BMRIIDJA010O9 935480393 99102").
+        if re.match(r'^(?:\S+\s+)?\d{6,}[A-Z]{4}IDJA\w*(?:\s+\d+)*\s*$', text.strip()):
+            return 'Biaya Transfer Antar Bank'
+
+        # 6. Pembayaran tagihan (UBP). Remark UBP hanya berisi kode biller,
         #    tidak memuat nama — jadi dipakai label kategori.
         if re.match(r'^UBP\d', text.strip(), re.IGNORECASE):
             return 'Pembayaran Tagihan (UBP)'
 
-        # 6. Kategori tetap.
+        # 7. Kategori tetap.
         if re.match(r'^DARI\s+\d+\s+KE\s+\d+', text.strip(), re.IGNORECASE):
             return 'Pindah Buku / Sweep'
         if 'MONTHLY CARD CHARGE' in upper:
@@ -580,7 +634,7 @@ class MandiriKopraExtractor(BaseExtractor):
         if re.match(r'^CLEARING\s+FEE\b', text.strip(), re.IGNORECASE):
             return 'Biaya Kliring'
 
-        # 7. Biaya/bunga/pajak — PALING AKHIR, dan hanya kalau remark memang
+        # 8. Biaya/bunga/pajak — PALING AKHIR, dan hanya kalau remark memang
         #    berdiri sendiri sebagai transaksi biaya (bukan sekadar memuat
         #    kata "Fee" sebagai pelengkap transfer).
         if re.match(r'^BUNGA\b', upper):
@@ -592,7 +646,7 @@ class MandiriKopraExtractor(BaseExtractor):
         if re.match(r'^BIAYA\s+MATERAI\b', upper) or re.match(r'^MATERAI\b', upper):
             return 'Biaya Materai'
 
-        # 8. Fallback: remark yang sudah dibersihkan, apa adanya.
+        # 9. Fallback: remark yang sudah dibersihkan, apa adanya.
         #    Bukan "-" (buang informasi) dan bukan "Biaya Admin" (salah label).
         fallback = self._clean_nama(text)
         return fallback if fallback else '-'
