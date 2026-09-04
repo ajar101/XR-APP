@@ -483,12 +483,22 @@ class MandiriKopraExtractor(BaseExtractor):
     # Penanda batas akhir nama. "Transfer Fee"/"Clearing Fee" adalah label
     # biaya yang MENYERTAI transfer, bukan penanda transaksi biaya.
     _NAME_STOP_RE = re.compile(
-        r'\s+(?:Transfer\s+Fee|Clearing\s+Fee|Deposit|Sweep)\b|\s+\d{5,}', re.IGNORECASE
+        r'\s+(?:Transfer\s+(?:Fee|ATM)|Clearing\s+Fee|Deposit|Sweep)\b|\s+\d{5,}',
+        re.IGNORECASE,
     )
+    # Nomor rekening yang mengawali remark: "8205290229 - JUMA BERLIAN EXIM"
+    _LEAD_ACCT_RE = re.compile(r'^\d{6,}\s*-\s*')
+    # Kode cabang yang menempel tanpa spasi di ekor nama: "...EXIM PT12124"
+    _GLUED_CODE_RE = re.compile(r'(?<=[A-Za-z])\d{5,6}$')
+    # Ekor kode bank tujuan: "... - CENAIDJA12124"
+    _TAIL_BANK_RE = re.compile(r'\s*-\s*[A-Z]{4}IDJA\d*\s*$')
 
     def _clean_nama(self, s: str) -> str:
         s = ' '.join((s or '').split())
+        s = self._LEAD_ACCT_RE.sub('', s)
+        s = self._TAIL_BANK_RE.sub('', s)
         s = self._TAIL_CODE_RE.sub('', s)
+        s = self._GLUED_CODE_RE.sub('', s)
         s = s.strip(' .,-/')
         return ' '.join(s.split())
 
@@ -522,7 +532,14 @@ class MandiriKopraExtractor(BaseExtractor):
             if nama:
                 return nama
 
-        # 3. Kliring keluar: MCM Outw CN <NAMA> ... Clearing Fee
+        # 3. Transfer ATM: "DARI/KE <NAMA> Transfer ATM <kode terminal>"
+        m = re.match(r'^(?:DARI|KE)\s+(.+?)\s+Transfer\s+ATM\b', text, re.IGNORECASE)
+        if m:
+            nama = self._clean_nama(m.group(1))
+            if nama:
+                return nama
+
+        # 4. Kliring keluar: MCM Outw CN <NAMA> ... Clearing Fee
         m = re.search(r'Outw\s+(?:CN|DN)\s+(.+)', text, re.IGNORECASE)
         if m:
             nama = self._clean_nama(self._cut_at_stop(m.group(1)))
@@ -536,16 +553,26 @@ class MandiriKopraExtractor(BaseExtractor):
         text = re.sub(r'^(?:\d{1,4}\s+)+', '', text) or text
         upper = text.upper()
 
-        # 4. Pembayaran tagihan (UBP). Remark UBP hanya berisi kode biller,
+        # 5. Pembayaran tagihan (UBP). Remark UBP hanya berisi kode biller,
         #    tidak memuat nama — jadi dipakai label kategori.
         if re.match(r'^UBP\d', text.strip(), re.IGNORECASE):
             return 'Pembayaran Tagihan (UBP)'
 
-        # 5. Kategori tetap.
+        # 6. Kategori tetap.
         if re.match(r'^DARI\s+\d+\s+KE\s+\d+', text.strip(), re.IGNORECASE):
             return 'Pindah Buku / Sweep'
         if 'MONTHLY CARD CHARGE' in upper:
             return 'Biaya Kartu Bulanan'
+        # Tarik/Setor tunai mencantumkan nama pemegang rekening setelah labelnya
+        # ("PEMBAYARAN TPP Tarik Tunai JUMA BERLIAN EXIM 12124"). Nama itu yang
+        # dipakai; label hanya jadi cadangan kalau tidak ada nama menyusul.
+        # ".*" di depan memaksa kecocokan TERAKHIR — remark kadang mengulang
+        # labelnya ("TARIK TUNAI Tarik Tunai <NAMA> 12124").
+        m = re.match(r'.*\b(?:Tarik|Setor)\s+Tunai\s+(.+)', text, re.IGNORECASE)
+        if m:
+            nama = self._clean_nama(self._cut_at_stop(m.group(1)))
+            if nama:
+                return nama
         if 'TARIK TUNAI' in upper or 'PENARIKAN TUNAI' in upper:
             return 'Tarik Tunai'
         if 'SETOR TUNAI' in upper or 'SETORAN TUNAI' in upper:
@@ -553,7 +580,7 @@ class MandiriKopraExtractor(BaseExtractor):
         if re.match(r'^CLEARING\s+FEE\b', text.strip(), re.IGNORECASE):
             return 'Biaya Kliring'
 
-        # 6. Biaya/bunga/pajak — PALING AKHIR, dan hanya kalau remark memang
+        # 7. Biaya/bunga/pajak — PALING AKHIR, dan hanya kalau remark memang
         #    berdiri sendiri sebagai transaksi biaya (bukan sekadar memuat
         #    kata "Fee" sebagai pelengkap transfer).
         if re.match(r'^BUNGA\b', upper):
@@ -565,7 +592,7 @@ class MandiriKopraExtractor(BaseExtractor):
         if re.match(r'^BIAYA\s+MATERAI\b', upper) or re.match(r'^MATERAI\b', upper):
             return 'Biaya Materai'
 
-        # 7. Fallback: remark yang sudah dibersihkan, apa adanya.
+        # 8. Fallback: remark yang sudah dibersihkan, apa adanya.
         #    Bukan "-" (buang informasi) dan bukan "Biaya Admin" (salah label).
         fallback = self._clean_nama(text)
         return fallback if fallback else '-'
