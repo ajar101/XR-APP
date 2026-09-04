@@ -412,10 +412,16 @@ class MandiriKopraExtractor(BaseExtractor):
                     '_no_rekening': doc['meta']['no_rekening']}
 
         buckets = {}
+        awal_bulan = {}     # (tahun, bulan) -> saldo awal bulan itu
         prev = None
         for d in sorted(covered):
             if d in opening_on and prev is None:
                 prev = opening_on[d]
+            # Saldo awal sebuah bulan = saldo sebelum transaksi hari pertama:
+            # dari Opening Balance kalau periode mulai di sini, selain itu
+            # saldo akhir hari terakhir bulan sebelumnya.
+            if (d.year, d.month) not in awal_bulan:
+                awal_bulan[(d.year, d.month)] = opening_on.get(d, prev)
             if d in per_day:
                 prev = per_day[d]
             buckets.setdefault((d.year, d.month), []).append(
@@ -427,15 +433,9 @@ class MandiriKopraExtractor(BaseExtractor):
         for (year, month), data in buckets.items():
             bulan_id = BULAN_ORDER[month - 1]
             result[bulan_id] = {'df': pd.DataFrame(data), 'tahun': str(year)}
-            first = date(year, month, 1)
-            if first in opening_on:
-                result[f'_saldo_awal_{bulan_id}'] = opening_on[first]
-            else:
-                # Bulan lanjutan: saldo awal = saldo akhir hari sebelumnya.
-                start = opening_on.get(min(d for d in covered if d.month == month
-                                           and d.year == year))
-                if start is not None:
-                    result[f'_saldo_awal_{bulan_id}'] = start
+            saldo_awal = awal_bulan.get((year, month))
+            if saldo_awal is not None:
+                result[f'_saldo_awal_{bulan_id}'] = saldo_awal
 
         result['_nama_pemilik'] = doc['meta']['nama_pemilik']
         result['_no_rekening'] = doc['meta']['no_rekening']

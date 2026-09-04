@@ -258,10 +258,9 @@ def _build_rekap_sheet(ws, transaksi_per_bulan, bulan_list,
                        jenis_filter, label_total, show_concentration=False):
     ws.sheet_view.showGridLines = False
 
-    bulan_ada = sorted(
-        [b for b in bulan_list if b in transaksi_per_bulan],
-        key=lambda b: BULAN_ORDER.index(b) if b in BULAN_ORDER else 99
-    )
+    # bulan_list sudah urut kronologis (tahun lalu bulan); cukup disaring,
+    # jangan diurutkan ulang tanpa tahun — itu merusak urutan lintas-tahun.
+    bulan_ada = [b for b in bulan_list if b in transaksi_per_bulan]
 
     frames = [transaksi_per_bulan[b][transaksi_per_bulan[b]['Jenis Mutasi'] == jenis_filter].copy()
               for b in bulan_ada]
@@ -279,9 +278,10 @@ def _build_rekap_sheet(ws, transaksi_per_bulan, bulan_list,
     pivot_nom['Total'] = pivot_nom.sum(axis=1)
     pivot_qty['Total'] = pivot_qty.sum(axis=1)
 
-    total_nom = {b: int(df_all[df_all['Bulan'] == b]['Mutasi'].sum()) for b in bulan_ada}
+    total_nom = {b: round(float(df_all[df_all['Bulan'] == b]['Mutasi'].sum()), 2)
+                 for b in bulan_ada}
     total_qty = {b: int(df_all[df_all['Bulan'] == b]['Mutasi'].count()) for b in bulan_ada}
-    total_nom['Total'] = int(df_all['Mutasi'].sum())
+    total_nom['Total'] = round(float(df_all['Mutasi'].sum()), 2)
     total_qty['Total'] = int(df_all['Mutasi'].count())
 
     pivot_nom = pivot_nom.sort_values('Total', ascending=False)
@@ -590,7 +590,7 @@ def _build_kategori_sheet(ws, df_all, kategori_keys, label_total,
         for bulan in bulan_ada:
             subset = df_all[(df_all['Kategori'] == kategori) & (df_all['Bulan'] == bulan)]
             qty = len(subset)
-            nom = int(subset['Mutasi'].sum()) if qty > 0 else 0
+            nom = round(float(subset['Mutasi'].sum()), 2) if qty > 0 else 0
             pivot_data[kategori][bulan] = {'qty': qty, 'nom': nom}
         pivot_data[kategori]['Total'] = {
             'qty': sum(v['qty'] for v in pivot_data[kategori].values()),
@@ -701,10 +701,9 @@ def _build_sheet6_kategori_debit(wb, transaksi_per_bulan, bulan_list, saldo_per_
     ws = wb.create_sheet(title='Kategori Debit')
 
     nama_perusahaan = saldo_per_bulan.get('_nama_pemilik', '')
-    bulan_ada = sorted(
-        [b for b in bulan_list if b in transaksi_per_bulan],
-        key=lambda b: BULAN_ORDER.index(b) if b in BULAN_ORDER else 99
-    )
+    # bulan_list sudah urut kronologis (tahun lalu bulan); cukup disaring,
+    # jangan diurutkan ulang tanpa tahun — itu merusak urutan lintas-tahun.
+    bulan_ada = [b for b in bulan_list if b in transaksi_per_bulan]
 
     frames = []
     for bulan in bulan_ada:
@@ -736,10 +735,9 @@ def _build_sheet7_kategori_kredit(wb, transaksi_per_bulan, bulan_list, saldo_per
     ws = wb.create_sheet(title='Kategori Kredit')
 
     nama_perusahaan = saldo_per_bulan.get('_nama_pemilik', '')
-    bulan_ada = sorted(
-        [b for b in bulan_list if b in transaksi_per_bulan],
-        key=lambda b: BULAN_ORDER.index(b) if b in BULAN_ORDER else 99
-    )
+    # bulan_list sudah urut kronologis (tahun lalu bulan); cukup disaring,
+    # jangan diurutkan ulang tanpa tahun — itu merusak urutan lintas-tahun.
+    bulan_ada = [b for b in bulan_list if b in transaksi_per_bulan]
 
     frames = []
     for bulan in bulan_ada:
@@ -781,10 +779,7 @@ def _build_sheet8_summary(wb, saldo_per_bulan, transaksi_per_bulan,
     nama_pemilik = saldo_per_bulan.get('_nama_pemilik', '-')
     no_rekening  = saldo_per_bulan.get('_no_rekening', '-')
 
-    bulan_summary = sorted(
-        [b for b in bulan_list if b in transaksi_per_bulan],
-        key=lambda b: BULAN_ORDER.index(b) if b in BULAN_ORDER else 99
-    )
+    bulan_summary = [b for b in bulan_list if b in transaksi_per_bulan]
     n_bulan = len(bulan_summary)
 
     for i in range(n_bulan + 2):
@@ -839,8 +834,10 @@ def _build_sheet8_summary(wb, saldo_per_bulan, transaksi_per_bulan,
     for bulan in bulan_summary:
         df_t   = transaksi_per_bulan[bulan]
         df_s   = saldo_per_bulan[bulan]['df']
-        kredit = int(df_t[df_t['Jenis Mutasi'] == 'Kredit']['Mutasi'].sum())
-        debit  = int(df_t[df_t['Jenis Mutasi'] == 'Debit']['Mutasi'].sum())
+        # round(), bukan int(): nominal Mandiri berdesimal, dan memotong sen
+        # per bulan membuat kolom Total meleset dari angka resmi di PDF.
+        kredit = round(float(df_t[df_t['Jenis Mutasi'] == 'Kredit']['Mutasi'].sum()), 2)
+        debit  = round(float(df_t[df_t['Jenis Mutasi'] == 'Debit']['Mutasi'].sum()), 2)
         rata   = hitung_rata_rata_pengendapan(df_s)
         if not df_s.empty:
             saldo_akhir = int(df_s['Saldo Akhir Harian'].iloc[-1])
