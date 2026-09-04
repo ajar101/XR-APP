@@ -140,8 +140,10 @@ def create_excel(saldo_per_bulan: dict, transaksi_per_bulan: dict,
     _build_sheet5_cashflow(wb, saldo_per_bulan, transaksi_per_bulan, bulan_list)
     _build_sheet6_kategori_debit(wb, transaksi_per_bulan, bulan_list, saldo_per_bulan)
     _build_sheet7_kategori_kredit(wb, transaksi_per_bulan, bulan_list, saldo_per_bulan)
-    _build_sheet8_summary(wb, saldo_per_bulan, transaksi_per_bulan, bulan_list, bank_name)
+    _build_sheet_daftar_indikator(wb)
     _build_sheet9_indikasi(wb, saldo_per_bulan, transaksi_per_bulan, pdf_path)
+    # Summary sengaja dibuat paling akhir supaya jadi sheet terakhir di file.
+    _build_sheet8_summary(wb, saldo_per_bulan, transaksi_per_bulan, bulan_list, bank_name)
 
     wb.save(output_path)
 
@@ -559,6 +561,152 @@ def _build_sheet_summary_rekap_debit(wb, transaksi_per_bulan, bulan_list):
     ws = wb.create_sheet(title='Summary Rekap Debit')
     _build_summary_rekap_sheet(ws, transaksi_per_bulan, bulan_list,
                                'Debit', 'Total Mutasi Debit')
+
+
+# ============================================================
+# SHEET DAFTAR INDIKATOR — penjelasan pemeriksaan kejanggalan
+# ============================================================
+
+# Deskripsi tiap pemeriksaan di engine/anomaly_detector.py, supaya tim tahu
+# apa saja yang diperiksa dan bagaimana cara mendeteksinya — bukan cuma
+# melihat hasil temuannya. Urutannya mengikuti urutan pemanggilan di
+# detect_anomalies(). Kolom "Sumber" membedakan pemeriksaan atas data hasil
+# ekstraksi dari pemeriksaan yang membaca ulang PDF mentah.
+DAFTAR_INDIKATOR = [
+    ('Saldo Tidak Balance', 'Tinggi', 'Data ekstraksi',
+     'Saldo awal + total kredit − total debit tidak sama dengan saldo akhir bulan.',
+     'Dihitung per bulan dan dibandingkan dengan saldo akhir harian terakhir, '
+     f'dengan toleransi pembulatan Rp100.'),
+
+    ('Duplikasi Transaksi', 'Sedang / Tinggi', 'Data ekstraksi',
+     'Beberapa baris transaksi identik dalam satu bulan.',
+     'Dikelompokkan atas tanggal, jenis mutasi, nominal, dan keterangan yang sama persis. '
+     'Lebih dari 3 kemunculan dinilai Tinggi.'),
+
+    ('Mutasi Hilang / Gap Tidak Wajar', 'Sedang / Tinggi', 'Data ekstraksi + PDF mentah',
+     'Ada rentang hari tanpa transaksi sama sekali, atau jumlah transaksi kurang '
+     'dari yang tertulis di footer PDF.',
+     'Gap: minimal 5 hari kerja beruntun kosong pada bulan yang punya ≥30 transaksi. '
+     'Selisih jumlah: jumlah baris hasil ekstraksi dibandingkan angka MUTASI CR/DB '
+     'yang dicetak di PDF.'),
+
+    ('Setoran Tunai di Hari Libur', 'Tinggi', 'Data ekstraksi',
+     'Setoran tunai bertanggal Minggu atau libur nasional.',
+     'Baris yang keterangannya memuat "SETORAN TUNAI" dicek terhadap hari Minggu '
+     'dan daftar libur nasional tanggal tetap.'),
+
+    ('Transaksi RTGS di Hari Libur', 'Tinggi', 'Data ekstraksi',
+     'Transaksi RTGS bertanggal Minggu atau libur nasional.',
+     'Indikasinya lebih kuat dari setoran tunai: sistem BI-RTGS tidak beroperasi di '
+     'luar hari kerja bank, sedangkan setoran tunai lewat CDM bisa 24/7. '
+     'Hanya baris yang keterangannya eksplisit memuat "RTGS".'),
+
+    ('Nominal Bulat Berulang', 'Rendah', 'Data ekstraksi',
+     'Banyak transaksi bernilai sangat bulat.',
+     'Minimal 5 transaksi ≥Rp50 juta yang merupakan kelipatan Rp10 juta dalam satu bulan.'),
+
+    ('Indikasi Structuring', 'Sedang', 'Data ekstraksi',
+     'Transaksi tunai yang nilainya mendekati batas pelaporan.',
+     'Transaksi berketerangan "TUNAI" bernilai Rp400 juta sampai di bawah Rp500 juta, '
+     'dikelompokkan per tanggal.'),
+
+    ('Rasio Pajak Bunga Tidak Wajar', 'Rendah / Sedang', 'Data ekstraksi',
+     'Pajak bunga tidak sebanding dengan bunga yang diterima.',
+     'PPh Final atas bunga tabungan/giro umumnya 20%, jadi rasio Pajak Bunga terhadap '
+     'Bunga seharusnya mendekati 0,20. Hanya baris berketerangan persis "BUNGA" / '
+     '"PAJAK BUNGA" yang dihitung.'),
+
+    ('Jadwal Biaya Admin Tidak Wajar', 'Sedang', 'Data ekstraksi',
+     'Tanggal pendebetan biaya administrasi tidak sesuai jadwal bank.',
+     'Dicocokkan dengan jadwal yang berlaku untuk periode dan jenis rekening tersebut. '
+     'Pemeriksaan ini khusus pola BCA — lihat catatan di bawah.'),
+
+    ('Running Balance Tidak Konsisten', 'Tinggi', 'PDF mentah',
+     'Saldo berjalan antar baris di PDF tidak menyambung.',
+     'Saldo tiap baris dihitung ulang dari baris sebelumnya (+kredit −debit) langsung '
+     'dari teks PDF, dengan toleransi Rp5. Saldo di-reset tiap ganti periode.'),
+
+    ('Halaman/Periode Tidak Berurutan', 'Sedang / Tinggi', 'PDF mentah',
+     'Nomor halaman meloncat atau periode tidak berurutan.',
+     'Nomor halaman dalam satu periode harus naik satu per satu.'),
+
+    ('Template Halaman Berbeda', 'Sedang', 'PDF mentah',
+     'Halaman berisi transaksi tapi header kolom standar tidak ditemukan.',
+     'Bisa berarti halaman disisipkan dari sumber lain atau layout diubah.'),
+
+    ('Format Nominal Tidak Konsisten', 'Sedang', 'PDF mentah',
+     'Ada baris memakai format angka yang berbeda dari sisa dokumen.',
+     'Mendeteksi campuran format ribuan/desimal gaya Eropa di antara baris '
+     'berformat standar — pola yang lazim muncul pada dokumen yang diedit.'),
+
+    ('Metadata PDF', 'Rendah / Sedang', 'PDF mentah',
+     'Informasi pembuat, aplikasi, dan waktu pembuatan/modifikasi berkas.',
+     'Selalu ditampilkan apa adanya untuk direview manual. Ditandai mencurigakan bila '
+     'aplikasi pembuatnya bukan sistem perbankan, atau waktu modifikasi berbeda dari '
+     'waktu pembuatan.'),
+]
+
+CATATAN_INDIKATOR = [
+    'Sistem hanya menyatakan INDIKASI yang perlu diperiksa manusia — bukan kesimpulan '
+    'bahwa dokumen dipalsukan. Satu temuan tidak berarti dokumen bermasalah, dan tidak '
+    'adanya temuan tidak menjamin dokumen asli.',
+    'Daftar libur nasional yang dipakai baru mencakup 4 tanggal tetap '
+    '(1 Januari, 1 Mei, 17 Agustus, 25 Desember) ditambah hari Minggu. Libur yang '
+    'mengikuti kalender lunar/hijriah dan cuti bersama BELUM tercakup, sehingga '
+    'transaksi di hari-hari itu tidak akan tertandai.',
+    'Pemeriksaan "Jadwal Biaya Admin Tidak Wajar" mengikuti pola penjadwalan BCA. '
+    'Untuk bank lain pemeriksaan ini bisa tidak relevan — perlakukan temuannya '
+    'dengan hati-hati.',
+    'Pemeriksaan berbasis PDF mentah dijalankan per berkas. Pada upload beberapa PDF, '
+    'nama berkas dicantumkan di kolom halaman supaya temuan bisa dilacak.',
+]
+
+
+def _build_sheet_daftar_indikator(wb):
+    """Daftar seluruh indikator kejanggalan beserta cara deteksinya."""
+    ws = wb.create_sheet(title='Daftar Indikator')
+    ws.sheet_view.showGridLines = False
+
+    judul = ('DAFTAR INDIKATOR KEJANGGALAN — apa saja yang diperiksa sistem '
+             'dan bagaimana cara mendeteksinya')
+    c = ws.cell(row=1, column=1, value=judul)
+    style_header(c)
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=5)
+    ws.row_dimensions[1].height = 26
+
+    headers = ['No', 'Indikator', 'Tingkat', 'Sumber', 'Yang Diperiksa & Cara Deteksi']
+    for i, h in enumerate(headers):
+        style_header(ws.cell(row=2, column=1 + i, value=h), bg_color='2E75B6')
+    ws.row_dimensions[2].height = 20
+
+    r = 3
+    for idx, (nama, tingkat, sumber, apa, cara) in enumerate(DAFTAR_INDIKATOR, start=1):
+        bg = 'F2F7FF' if idx % 2 else 'FFFFFF'
+        style_data(ws.cell(row=r, column=1, value=idx), align='center', bg_color=bg)
+        style_data(ws.cell(row=r, column=2, value=nama), align='left', bold=True, bg_color=bg)
+        style_data(ws.cell(row=r, column=3, value=tingkat), align='center', bg_color=bg)
+        style_data(ws.cell(row=r, column=4, value=sumber), align='center', bg_color=bg)
+        c = ws.cell(row=r, column=5, value=f'{apa} {cara}')
+        style_data(c, align='left', bg_color=bg)
+        c.alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
+        ws.row_dimensions[r].height = 46
+        r += 1
+
+    r += 1
+    c = ws.cell(row=r, column=1, value='CATATAN PENTING')
+    style_header(c, bg_color='C00000')
+    ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=5)
+    r += 1
+    for catatan in CATATAN_INDIKATOR:
+        c = ws.cell(row=r, column=1, value=catatan)
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=5)
+        style_data(c, align='left', bg_color='FFF2CC')
+        c.alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
+        ws.row_dimensions[r].height = 32
+        r += 1
+
+    for col, width in zip('ABCDE', (5, 34, 16, 22, 95)):
+        ws.column_dimensions[col].width = width
 
 
 def _build_sheet3_rekap_kredit(wb, transaksi_per_bulan, bulan_list):
