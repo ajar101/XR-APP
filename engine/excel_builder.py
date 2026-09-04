@@ -18,6 +18,8 @@ Sheet yang dihasilkan:
   8. Summary (+ HHI Score)
 """
 
+import re
+
 import pandas as pd
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
@@ -133,6 +135,8 @@ def create_excel(saldo_per_bulan: dict, transaksi_per_bulan: dict,
     _build_sheet2_transaksi(wb, transaksi_per_bulan, bulan_list)
     _build_sheet3_rekap_kredit(wb, transaksi_per_bulan, bulan_list)
     _build_sheet4_rekap_debit(wb, transaksi_per_bulan, bulan_list)
+    _build_sheet_summary_rekap_kredit(wb, transaksi_per_bulan, bulan_list)
+    _build_sheet_summary_rekap_debit(wb, transaksi_per_bulan, bulan_list)
     _build_sheet5_cashflow(wb, saldo_per_bulan, transaksi_per_bulan, bulan_list)
     _build_sheet6_kategori_debit(wb, transaksi_per_bulan, bulan_list, saldo_per_bulan)
     _build_sheet7_kategori_kredit(wb, transaksi_per_bulan, bulan_list, saldo_per_bulan)
@@ -423,6 +427,138 @@ def _build_rekap_sheet(ws, transaksi_per_bulan, bulan_list,
     if show_concentration:
         ws.column_dimensions[get_column_letter(kolom_pct)].width = 15
         ws.column_dimensions[get_column_letter(kolom_kum)].width = 15
+
+
+# ============================================================
+# SHEET SUMMARY REKAP — versi ringkas dari Rekap Kredit/Debit
+# ============================================================
+
+# Label tunggal untuk semua transaksi yang namanya tidak bisa dirapikan.
+LABEL_LAINNYA = 'Transaksi Lainnya / Tanpa Keterangan'
+
+# Nama-nama yang memang label kategori, bukan hasil ekstraksi yang gagal.
+# Ini tetap berdiri sendiri — meleburnya justru membuang informasi.
+LABEL_KATEGORI = {
+    'Pembayaran Tagihan (UBP)', 'Biaya Transfer Antar Bank', 'Biaya Kliring',
+    'Biaya Administrasi', 'Biaya Kartu Bulanan', 'Biaya Materai',
+    'Bunga', 'Pajak', 'Tarik Tunai', 'Setor Tunai',
+    'Pindah Buku / Sweep', 'Transaksi ATM', 'Pembayaran EDC/Merchant',
+    'Transaksi Kartu Debit',
+}
+
+
+def _nama_tidak_rapi(nama: str) -> bool:
+    """
+    Apakah nama ini gagal diekstrak jadi identitas yang bisa dibaca?
+
+    Satu-satunya tempat aturan ini didefinisikan, supaya bisa diperketat
+    seiring parser membaik — dan supaya ukuran keranjang "lainnya" bisa
+    dipantau, bukan jadi tempat menyembunyikan kegagalan ekstraksi.
+
+    Yang dianggap tidak rapi: masih memuat kode ber-slash, deretan angka
+    panjang, terlalu panjang untuk sebuah nama, atau nyaris tanpa huruf.
+    """
+    n = (nama or '').strip()
+    if not n or n in LABEL_KATEGORI:
+        return False
+    if '/' in n or '\\' in n:
+        return True
+    if len(n) > 40:
+        return True
+    if re.search(r'\d{5,}', n):
+        return True
+    if len(re.findall(r'[A-Za-z]', n)) < 3:
+        return True
+    return False
+
+
+def _build_summary_rekap_sheet(ws, transaksi_per_bulan, bulan_list,
+                               jenis_filter, label_total):
+    """
+    Rekap ringkas: hanya nominal (tanpa kolom qty), dan seluruh transaksi
+    yang namanya tidak bisa dirapikan digabung ke satu baris.
+
+    Totalnya wajib sama persis dengan sheet Rekap yang penuh — penggabungan
+    baris tidak boleh mengubah satu rupiah pun.
+    """
+    ws.sheet_view.showGridLines = False
+
+    bulan_ada = [b for b in bulan_list if b in transaksi_per_bulan]
+    frames = [transaksi_per_bulan[b][transaksi_per_bulan[b]['Jenis Mutasi'] == jenis_filter].copy()
+              for b in bulan_ada]
+    if not frames:
+        return
+
+    df_all = pd.concat(frames, ignore_index=True)
+    df_all['_nama'] = df_all['Nama Pengirim/Penerima'].apply(
+        lambda n: LABEL_LAINNYA if _nama_tidak_rapi(n) else n
+    )
+
+    pivot = df_all.groupby(['_nama', 'Bulan'])['Mutasi'].sum().unstack(fill_value=0)
+    pivot = pivot.reindex(columns=bulan_ada, fill_value=0)
+    pivot['Total'] = pivot.sum(axis=1)
+
+    total_per_bulan = {b: round(float(df_all[df_all['Bulan'] == b]['Mutasi'].sum()), 2)
+                       for b in bulan_ada}
+    grand_total = round(float(df_all['Mutasi'].sum()), 2)
+
+    # Urut nominal terbesar, tapi baris gabungan selalu di paling bawah —
+    # ia bukan lawan transaksi, jadi tidak layak bersaing di peringkat atas.
+    pivot = pivot.sort_values('Total', ascending=False)
+    if LABEL_LAINNYA in pivot.index:
+        pivot = pd.concat([pivot.drop(index=LABEL_LAINNYA), pivot.loc[[LABEL_LAINNYA]]])
+
+    # ---- Header ----
+    style_header(ws.cell(row=1, column=1, value='Nama Pengirim/Penerima'))
+    ws.row_dimensions[1].height = 24
+    for i, b in enumerate(bulan_ada):
+        style_header(ws.cell(row=1, column=2 + i, value=b), bg_color='2E75B6')
+    kolom_total = 2 + len(bulan_ada)
+    style_header(ws.cell(row=1, column=kolom_total, value=label_total), bg_color='2E75B6')
+
+    # ---- Baris data ----
+    nilai = pivot.replace(0, None)
+    for row_idx, nama in enumerate(pivot.index):
+        r  = row_idx + 2
+        is_lain = (nama == LABEL_LAINNYA)
+        bg = 'FFF2CC' if is_lain else ('F2F7FF' if row_idx % 2 == 0 else 'FFFFFF')
+
+        style_data(ws.cell(row=r, column=1, value=nama),
+                   align='left', bold=is_lain, bg_color=bg)
+        for i, b in enumerate(bulan_ada):
+            c = ws.cell(row=r, column=2 + i, value=nilai.loc[nama, b])
+            c.number_format = '#,##0'
+            style_data(c, align='right', bg_color=bg)
+        c = ws.cell(row=r, column=kolom_total, value=nilai.loc[nama, 'Total'])
+        c.number_format = '#,##0'
+        style_data(c, align='right', bold=True, bg_color='EBF3FB' if not is_lain else bg)
+
+    # ---- Baris total ----
+    total_row = len(pivot) + 2
+    style_total_row(ws.cell(row=total_row, column=1, value=label_total), align='left')
+    for i, b in enumerate(bulan_ada):
+        c = ws.cell(row=total_row, column=2 + i, value=total_per_bulan[b])
+        c.number_format = '#,##0'
+        style_total_row(c, align='right')
+    c = ws.cell(row=total_row, column=kolom_total, value=grand_total)
+    c.number_format = '#,##0'
+    style_total_row(c, align='right')
+
+    ws.column_dimensions['A'].width = 40
+    for i in range(len(bulan_ada) + 1):
+        ws.column_dimensions[get_column_letter(2 + i)].width = 20
+
+
+def _build_sheet_summary_rekap_kredit(wb, transaksi_per_bulan, bulan_list):
+    ws = wb.create_sheet(title='Summary Rekap Kredit')
+    _build_summary_rekap_sheet(ws, transaksi_per_bulan, bulan_list,
+                               'Kredit', 'Total Mutasi Kredit')
+
+
+def _build_sheet_summary_rekap_debit(wb, transaksi_per_bulan, bulan_list):
+    ws = wb.create_sheet(title='Summary Rekap Debit')
+    _build_summary_rekap_sheet(ws, transaksi_per_bulan, bulan_list,
+                               'Debit', 'Total Mutasi Debit')
 
 
 def _build_sheet3_rekap_kredit(wb, transaksi_per_bulan, bulan_list):
