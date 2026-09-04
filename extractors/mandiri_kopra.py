@@ -21,6 +21,7 @@ tidak tahu apa pun soal Excel/styling.
 
 import re
 import calendar
+from datetime import date, timedelta
 import pdfplumber
 import pandas as pd
 
@@ -232,14 +233,22 @@ class MandiriKopraExtractor(BaseExtractor):
             for page in pdf.pages:
                 text = page.extract_text() or ''
 
-                # Blok ringkasan menandai awal satu periode laporan.
-                per = self._parse_period(text)
-                if per:
-                    per.update(self._parse_summary(text))
-                    periods.append(per)
+                # Blok ringkasan menandai awal satu periode laporan. Satu PDF
+                # bisa memuat beberapa laporan yang digabung, dan rentangnya
+                # bisa saling tumpang tindih.
+                if 'Account Statement Summary' in text:
+                    per = self._parse_period(text)
+                    if per:
+                        per.update(self._parse_summary(text))
+                        per['page'] = page.page_number
+                        periods.append(per)
 
+                # Baris dimiliki oleh blok ringkasan terakhir sebelum halaman
+                # ini — bukan ditebak dari bulannya.
                 for r in self._page_rows(page):
                     r['page'] = page.page_number
+                    r['period_idx'] = len(periods) - 1
+                    r['date'] = date(r['year'], r['month'], r['day'])
                     rows.append(r)
 
             meta = self._parse_identity(pdf)
@@ -247,14 +256,67 @@ class MandiriKopraExtractor(BaseExtractor):
         self._cache = {'periods': periods, 'rows': rows, 'meta': meta}
         return self._cache
 
+    def _merged_rows(self) -> list:
+        """
+        Baris gabungan untuk pelaporan, tanpa duplikat antar blok laporan.
+
+        PDF gabungan sering memuat dua laporan yang rentangnya beririsan,
+        sehingga transaksi di bagian yang beririsan tercetak dua kali. Baris
+        dianggap sama kalau tanggal, nominal, dan saldo berjalannya sama.
+        Remark sengaja TIDAK ikut jadi kunci: transaksi yang sama bisa
+        tercetak dengan pembungkusan baris berbeda di dua laporan. Saldo
+        berjalan berubah di setiap transaksi, jadi kunci ini praktis tidak
+        mungkin bentrok. Duplikat DALAM satu blok tidak pernah dibuang.
+        """
+        doc = self._parse_document()
+        seen = {}
+        for r in doc['rows']:
+            k = (r['date'], r['debit'], r['credit'], r['balance'])
+            prev = seen.get(k)
+            if prev is None or prev['period_idx'] == r['period_idx']:
+                # Blok yang sama: simpan keduanya lewat kunci berbeda.
+                if prev is not None:
+                    k = k + (r['page'], len(seen))
+                seen[k] = r
+            # Blok berbeda dengan isi identik: laporan yang lebih baru menang.
+            else:
+                seen[k] = r
+        return sorted(seen.values(), key=lambda r: (r['date'], r['page']))
+
+    def _overlap_warning(self) -> str | None:
+        """Rentang periode yang saling tumpang tindih = transaksi ganda."""
+        doc = self._parse_document()
+        pers = [p for p in doc['periods'] if p.get('start') and p.get('end')]
+        for i in range(len(pers)):
+            for j in range(i + 1, len(pers)):
+                a, b = pers[i], pers[j]
+                if a['start'] <= b['end'] and b['start'] <= a['end']:
+                    dup = len(doc['rows']) - len(self._merged_rows())
+                    return (
+                        f"Periode {a['start']}..{a['end']} dan "
+                        f"{b['start']}..{b['end']} saling tumpang tindih; "
+                        f"{dup} transaksi ganda digabung menjadi satu."
+                    )
+        return None
+
     def _parse_period(self, text: str) -> dict | None:
+        """
+        Ambil rentang periode laporan.
+
+        Satu blok ringkasan bisa menjangkau beberapa bulan sekaligus
+        ("01 Nov 2025 - 23 Feb 2026"), jadi yang disimpan rentang tanggalnya
+        — bukan hanya bulan awal.
+        """
         m = re.search(
             r'(\d{1,2})\s+([A-Z][a-z]{2})\s+(\d{4})\s*-\s*(\d{1,2})\s+([A-Z][a-z]{2})\s+(\d{4})',
             text,
         )
-        if not m or m.group(2) not in BULAN_EN:
+        if not m or m.group(2) not in BULAN_EN or m.group(5) not in BULAN_EN:
             return None
-        return {'month': BULAN_EN[m.group(2)], 'year': int(m.group(3))}
+        return {
+            'start': date(int(m.group(3)), BULAN_EN[m.group(2)], int(m.group(1))),
+            'end':   date(int(m.group(6)), BULAN_EN[m.group(5)], int(m.group(4))),
+        }
 
     def _parse_summary(self, text: str) -> dict:
         """
@@ -322,45 +384,67 @@ class MandiriKopraExtractor(BaseExtractor):
 
     def extract_saldo(self) -> dict:
         doc = self._parse_document()
+        rows = self._merged_rows()
+
+        # Saldo akhir per hari; laporan yang lebih baru menang di hari yang sama.
+        per_day = {}
+        for r in rows:
+            if r['balance'] is not None:
+                per_day[r['date']] = r['balance']
+
+        # Saldo awal berlaku pada hari pertama periodenya.
+        opening_on = {}
+        for p in doc['periods']:
+            if p.get('start') and p.get('opening') is not None:
+                opening_on.setdefault(p['start'], p['opening'])
+
+        # Hari yang benar-benar dicakup laporan (gabungan semua periode).
+        covered = set()
+        for p in doc['periods']:
+            if not (p.get('start') and p.get('end')):
+                continue
+            d = p['start']
+            while d <= p['end']:
+                covered.add(d)
+                d += timedelta(days=1)
+        if not covered:
+            return {'_nama_pemilik': doc['meta']['nama_pemilik'],
+                    '_no_rekening': doc['meta']['no_rekening']}
+
+        buckets = {}
+        prev = None
+        for d in sorted(covered):
+            if d in opening_on and prev is None:
+                prev = opening_on[d]
+            if d in per_day:
+                prev = per_day[d]
+            buckets.setdefault((d.year, d.month), []).append(
+                {'Bulan': BULAN_ORDER[d.month - 1], 'Tanggal': d.day,
+                 'Saldo Akhir Harian': prev}
+            )
+
         result = {}
-
-        for per in doc['periods']:
-            bulan_id = BULAN_ORDER[per['month'] - 1]
-            tahun = str(per['year'])
-
-            # Saldo akhir harian = balance transaksi terakhir pada hari itu.
-            per_day = {}
-            for r in doc['rows']:
-                if r['month'] == per['month'] and r['year'] == per['year']:
-                    if r['balance'] is not None:
-                        per_day[r['day']] = r['balance']
-
-            total_hari = calendar.monthrange(per['year'], per['month'])[1]
-            # Hari sebelum transaksi pertama memakai Opening Balance resmi.
-            prev = per['opening']
-            data = []
-            for day in range(1, total_hari + 1):
-                if day in per_day:
-                    prev = per_day[day]
-                data.append({
-                    'Bulan': bulan_id,
-                    'Tanggal': day,
-                    'Saldo Akhir Harian': prev,
-                })
-
-            result[bulan_id] = {'df': pd.DataFrame(data), 'tahun': tahun}
-            if per['opening'] is not None:
-                result[f'_saldo_awal_{bulan_id}'] = per['opening']
+        for (year, month), data in buckets.items():
+            bulan_id = BULAN_ORDER[month - 1]
+            result[bulan_id] = {'df': pd.DataFrame(data), 'tahun': str(year)}
+            first = date(year, month, 1)
+            if first in opening_on:
+                result[f'_saldo_awal_{bulan_id}'] = opening_on[first]
+            else:
+                # Bulan lanjutan: saldo awal = saldo akhir hari sebelumnya.
+                start = opening_on.get(min(d for d in covered if d.month == month
+                                           and d.year == year))
+                if start is not None:
+                    result[f'_saldo_awal_{bulan_id}'] = start
 
         result['_nama_pemilik'] = doc['meta']['nama_pemilik']
         result['_no_rekening'] = doc['meta']['no_rekening']
         return result
 
     def extract_transaksi(self) -> dict:
-        doc = self._parse_document()
         buckets = {}
 
-        for r in doc['rows']:
+        for r in self._merged_rows():
             if r['debit'] == 0 and r['credit'] == 0:
                 continue
             bulan_id = BULAN_ORDER[r['month'] - 1]
@@ -385,19 +469,19 @@ class MandiriKopraExtractor(BaseExtractor):
 
     def validate(self) -> dict:
         """
-        Cocokkan hasil parsing dengan angka resmi yang tercetak di tiap
-        blok ringkasan PDF: No. of Debit/Credit, Total Amount Debited/
-        Credited, Opening Balance, dan Closing Balance.
+        Cocokkan hasil parsing dengan angka resmi yang tercetak di tiap blok
+        ringkasan PDF: No. of Debit/Credit, Total Amount Debited/Credited,
+        Opening Balance, dan Closing Balance.
+
+        Pencocokan dilakukan PER BLOK LAPORAN (bukan per bulan), karena satu
+        blok bisa menjangkau beberapa bulan sekaligus dan satu PDF bisa memuat
+        beberapa laporan yang digabung.
 
         Mengembalikan {'ok': bool, 'periods': [...], 'warnings': [...]}.
-        Setiap ketidakcocokan dicatat sebagai warning — parser tidak boleh
-        diam-diam lanjut dengan angka yang salah.
         """
         doc = self._parse_document()
         report = {'ok': True, 'periods': [], 'warnings': list(self.warnings)}
 
-        # Tidak ada blok ringkasan sama sekali = PDF ini bukan format Kopra
-        # (atau gagal dibaca). Jangan laporkan "cocok" untuk hasil kosong.
         if not doc['periods']:
             report['ok'] = False
             report['warnings'].append(
@@ -412,18 +496,23 @@ class MandiriKopraExtractor(BaseExtractor):
                 'Blok ringkasan terbaca tetapi tidak ada baris transaksi yang terdeteksi.'
             )
 
-        for per in doc['periods']:
-            rows = [r for r in doc['rows']
-                    if r['month'] == per['month'] and r['year'] == per['year']]
+        overlap = self._overlap_warning()
+        if overlap:
+            report['warnings'].append(overlap)
+
+        for idx, per in enumerate(doc['periods']):
+            rows = [r for r in doc['rows'] if r['period_idx'] == idx]
             got = {
                 'n_debit': sum(1 for r in rows if r['debit'] > 0),
                 'n_credit': sum(1 for r in rows if r['credit'] > 0),
                 'total_debit': sum(r['debit'] for r in rows),
                 'total_credit': sum(r['credit'] for r in rows),
             }
-            # Closing balance = saldo transaksi terakhir periode ini.
             last = [r['balance'] for r in rows if r['balance'] is not None]
             got['closing'] = last[-1] if last else None
+
+            label = (f"{per['start']}..{per['end']}"
+                     if per.get('start') else f"blok {idx + 1}")
 
             checks = {}
             for key, expected in (
@@ -443,19 +532,40 @@ class MandiriKopraExtractor(BaseExtractor):
                 if not ok:
                     report['ok'] = False
                     report['warnings'].append(
-                        f"{BULAN_ORDER[per['month'] - 1]} {per['year']}: {key} "
-                        f"hasil parsing {actual} != angka resmi {expected}"
+                        f"Periode {label}: {key} hasil parsing {actual} "
+                        f"!= angka resmi {expected}"
                     )
 
             if per['opening'] is None:
                 report['warnings'].append(
-                    f"{BULAN_ORDER[per['month'] - 1]} {per['year']}: "
-                    f"Opening Balance tidak terbaca dari PDF."
+                    f"Periode {label}: Opening Balance tidak terbaca dari PDF."
                 )
+            else:
+                # Rantai saldo berjalan: saldo tiap baris harus sama dengan
+                # saldo sebelumnya + kredit - debit. Ini pemeriksaan bebas
+                # yang menangkap baris terlewat atau nominal salah kolom,
+                # dan hanya berlaku DI DALAM satu blok — antar blok bisa ada
+                # celah tanggal yang sah.
+                prev = per['opening']
+                putus = 0
+                for r in rows:
+                    if r['balance'] is None:
+                        continue
+                    if abs(prev + r['credit'] - r['debit'] - r['balance']) > 0.005:
+                        putus += 1
+                    prev = r['balance']
+                checks['rantai_saldo'] = (putus == 0)
+                if putus:
+                    report['ok'] = False
+                    report['warnings'].append(
+                        f"Periode {label}: rantai saldo berjalan putus di "
+                        f"{putus} baris — ada transaksi terlewat atau salah baca."
+                    )
 
             report['periods'].append({
-                'bulan': BULAN_ORDER[per['month'] - 1],
-                'tahun': per['year'],
+                'label': label,
+                'bulan': BULAN_ORDER[per['start'].month - 1] if per.get('start') else '-',
+                'tahun': per['start'].year if per.get('start') else '-',
                 'expected': per,
                 'actual': got,
                 'checks': checks,
@@ -599,6 +709,25 @@ class MandiriKopraExtractor(BaseExtractor):
         # kategori, pecahan itu diabaikan — teks aslinya tidak diubah.
         text = re.sub(r'^(?:\d{1,4}\s+)+', '', text) or text
         upper = text.upper()
+
+        # Transaksi kartu debit / ATM / EDC:
+        #   "<terminal> /<urut>/<TIPE>- <merchant> <no kartu> <lokasi><cabang>"
+        # Nama merchant atau lokasi ATM ada SETELAH nomor kartu 16 digit.
+        m = re.search(r'/(VAP|ATM|JPN|LNK|ATB|CB)-\s*(.+)', text)
+        if m:
+            tail = m.group(2)
+            parts = re.split(r'\b\d{16}\b', tail)
+            cand = parts[-1] if len(parts) > 1 else tail
+            cand = re.sub(r'ID\d{4,6}\s*$', '', cand.strip())
+            # Nama merchant sering bercampur huruf besar-kecil, jadi di sini
+            # TIDAK dipotong di huruf kecil seperti pada nama perorangan.
+            cand = self._clean_nama(cand)
+            if re.search(r'[A-Za-z]{2,}', cand):
+                return cand
+            return {
+                'VAP': 'Pembayaran EDC/Merchant',
+                'ATM': 'Transaksi ATM',
+            }.get(m.group(1), 'Transaksi Kartu Debit')
 
         # Baris biaya SKN/RTGS: hanya nomor referensi + kode cabang, tanpa nama
         # ("20260301BMRIIDJA010O9 933021416 99102").
