@@ -576,19 +576,20 @@ DAFTAR_INDIKATOR = [
     ('Saldo Tidak Balance', 'Tinggi', 'Data ekstraksi',
      'Saldo awal + total kredit − total debit tidak sama dengan saldo akhir bulan.',
      'Dihitung per bulan dan dibandingkan dengan saldo akhir harian terakhir, '
-     f'dengan toleransi pembulatan Rp100.'),
+     'dengan toleransi pembulatan Rp100.'),
 
-    ('Duplikasi Transaksi', 'Sedang / Tinggi', 'Data ekstraksi',
+    ('Duplikasi Transaksi', 'Sedang', 'Data ekstraksi',
      'Beberapa baris transaksi identik dalam satu bulan.',
      'Dikelompokkan atas tanggal, jenis mutasi, nominal, dan keterangan yang sama persis. '
-     'Lebih dari 3 kemunculan dinilai Tinggi.'),
+     'Jumlah pengulangan TIDAK menaikkan tingkat indikasi — transaksi rutin memang wajar '
+     'berulang identik (setoran per shift, pembayaran per unit), jadi temuan ini selalu '
+     'perlu dicek konteksnya, bukan langsung dianggap janggal.'),
 
-    ('Mutasi Hilang / Gap Tidak Wajar', 'Sedang / Tinggi', 'Data ekstraksi + PDF mentah',
-     'Ada rentang hari tanpa transaksi sama sekali, atau jumlah transaksi kurang '
-     'dari yang tertulis di footer PDF.',
-     'Gap: minimal 5 hari kerja beruntun kosong pada bulan yang punya ≥30 transaksi. '
-     'Selisih jumlah: jumlah baris hasil ekstraksi dibandingkan angka MUTASI CR/DB '
-     'yang dicetak di PDF.'),
+    ('Mutasi Hilang / Gap Tidak Wajar', 'Sedang', 'Data ekstraksi',
+     'Ada rentang hari tanpa transaksi sama sekali.',
+     'Minimal 5 hari beruntun kosong pada bulan yang punya ≥30 transaksi. Gap belum tentu '
+     'janggal: libur panjang, rekening musiman, atau pola bisnis tertentu bisa '
+     'menjelaskannya — bandingkan dengan pola bulan lain sebelum menyimpulkan.'),
 
     ('Setoran Tunai di Hari Libur', 'Tinggi', 'Data ekstraksi',
      'Setoran tunai bertanggal Minggu atau libur nasional.',
@@ -617,9 +618,27 @@ DAFTAR_INDIKATOR = [
      '"PAJAK BUNGA" yang dihitung.'),
 
     ('Jadwal Biaya Admin Tidak Wajar', 'Sedang', 'Data ekstraksi',
-     'Tanggal pendebetan biaya administrasi tidak sesuai jadwal bank.',
-     'Dicocokkan dengan jadwal yang berlaku untuk periode dan jenis rekening tersebut. '
-     'Pemeriksaan ini khusus pola BCA — lihat catatan di bawah.'),
+     'KHUSUS BCA — tanggal pendebetan biaya administrasi tidak sesuai jadwal.',
+     'Saat ini hanya jadwal BCA yang datanya tersedia, jadi pemeriksaan ini hanya '
+     'berlaku untuk rekening BCA dan tidak dijalankan sebagai aturan umum. Jadwal bank '
+     'lain akan ditambahkan setelah datanya dipastikan; sampai itu terjadi, ketiadaan '
+     'temuan di bank lain BUKAN berarti jadwalnya sudah benar.'),
+
+    ('Selisih dengan Ringkasan PDF', 'Tinggi', 'Data ekstraksi + PDF mentah',
+     'Jumlah transaksi atau total nominal hasil ekstraksi tidak sama dengan angka '
+     'ringkasan yang tercetak di PDF itu sendiri.',
+     'Dicocokkan terhadap angka resmi di footer/blok ringkasan bila PDF mencantumkannya: '
+     'jumlah transaksi debit & kredit, total nominal debit & kredit, dan saldo akhir. '
+     'Jumlah dan nominal dicek terpisah — baris yang hilang bisa terkompensasi jumlahnya '
+     'oleh baris ganda, sehingga hanya selisih nominal yang menangkapnya. '
+     'PDF yang tidak mencantumkan ringkasan tidak bisa diperiksa dengan cara ini.'),
+
+    ('Urutan Tanggal Tidak Wajar', 'Tinggi', 'Data ekstraksi',
+     'Tanggal transaksi mundur dari baris sebelumnya.',
+     'Rekening koran dicetak kronologis, jadi urutan seperti 01, 02, 03, 01, 04 — atau '
+     'transaksi tanggal 15 muncul setelah tanggal 20 — bisa menandakan baris disisipkan '
+     'atau dokumen disusun ulang. Beberapa transaksi di tanggal yang sama tidak dihitung '
+     'sebagai pelanggaran urutan.'),
 
     ('Running Balance Tidak Konsisten', 'Tinggi', 'PDF mentah',
      'Saldo berjalan antar baris di PDF tidak menyambung.',
@@ -659,6 +678,9 @@ CATATAN_INDIKATOR = [
     'dengan hati-hati.',
     'Pemeriksaan berbasis PDF mentah dijalankan per berkas. Pada upload beberapa PDF, '
     'nama berkas dicantumkan di kolom halaman supaya temuan bisa dilacak.',
+    'Pemeriksaan "Urutan Tanggal Tidak Wajar" dan "Selisih dengan Ringkasan PDF" hanya '
+    'berjalan bila extractor bank tersebut mempertahankan urutan cetak dan membaca angka '
+    'ringkasan PDF. Saat ini keduanya tersedia untuk BCA dan Mandiri Kopra.',
 ]
 
 

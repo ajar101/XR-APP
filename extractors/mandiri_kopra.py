@@ -245,8 +245,9 @@ class MandiriKopraExtractor(BaseExtractor):
 
                 # Baris dimiliki oleh blok ringkasan terakhir sebelum halaman
                 # ini — bukan ditebak dari bulannya.
-                for r in self._page_rows(page):
+                for urut, r in enumerate(self._page_rows(page)):
                     r['page'] = page.page_number
+                    r['urut'] = urut          # posisi baris di halaman
                     r['period_idx'] = len(periods) - 1
                     r['date'] = date(r['year'], r['month'], r['day'])
                     rows.append(r)
@@ -281,7 +282,11 @@ class MandiriKopraExtractor(BaseExtractor):
             # Blok berbeda dengan isi identik: laporan yang lebih baru menang.
             else:
                 seen[k] = r
-        return sorted(seen.values(), key=lambda r: (r['date'], r['page']))
+        # Urut MENGIKUTI CETAKAN (blok laporan, halaman, posisi baris), bukan
+        # per tanggal. Mengurutkan ulang per tanggal akan menyembunyikan
+        # anomali urutan tanggal — justru salah satu hal yang diperiksa.
+        return sorted(seen.values(),
+                      key=lambda r: (r['period_idx'], r['page'], r['urut']))
 
     def _overlap_warning(self) -> str | None:
         """Rentang periode yang saling tumpang tindih = transaksi ganda."""
@@ -439,6 +444,17 @@ class MandiriKopraExtractor(BaseExtractor):
 
         result['_nama_pemilik'] = doc['meta']['nama_pemilik']
         result['_no_rekening'] = doc['meta']['no_rekening']
+
+        # Laporkan hasil checksum dalam bentuk umum supaya engine bisa
+        # menampilkannya sebagai indikator tanpa tahu format Kopra.
+        lap = self.validate()
+        result['_checksum'] = [
+            {'label': per['label'], 'bulan': per['bulan'],
+             'expected': {k: per['expected'].get(k) for k in
+                          ('n_debit', 'n_credit', 'total_debit', 'total_credit', 'closing')},
+             'actual': per['actual']}
+            for per in lap['periods']
+        ]
         return result
 
     def extract_transaksi(self) -> dict:
