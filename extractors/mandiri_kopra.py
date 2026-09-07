@@ -1,15 +1,27 @@
 """
-mandiri.py — Extractor khusus rekening koran Bank Mandiri (Kopra).
+mandiri_kopra.py — Extractor rekening koran Bank Mandiri format "Kopra by Mandiri".
 
-Mengimplementasikan BaseExtractor dengan logika parsing format PDF Mandiri Kopra:
-  - Rekening Giro Mandiri (Kopra by Mandiri)
-  - Support multi-bulan dalam satu PDF
-  - Deteksi nama pengirim/penerima dari berbagai format transaksi Mandiri
-    (MCM InhouseTrf, BNINIDJA, BRINIDJA, CENAIDJA, MVCBMRI, dll.)
+Pendekatan parsing:
+  1. Posisi kolom dideteksi DINAMIS dari baris header tiap halaman
+     (Remark / Reference No. / Debit / Credit / Balance). Posisi Y header
+     berbeda-beda antar halaman (ada blok ringkasan di halaman pertama dan
+     di setiap awal periode), jadi tidak bisa diasumsikan tetap.
+  2. Tiga kolom angka (Debit/Credit/Balance) rata-kanan, sehingga yang dipakai
+     sebagai patokan adalah x1 — bukan x0. Angka yang makin panjang menggeser
+     x0 ke kiri, dan itulah penyebab saldo >= 1 miliar dulu terbaca 0.
+  3. Satu transaksi bisa memakan beberapa baris teks. Tanggal dicetak di
+     tengah blok, jadi batas antar-transaksi diambil di titik tengah antar
+     anchor tanggal.
+  4. Nama pengirim/penerima diekstrak lewat pipeline berurutan per pola,
+     dari yang paling spesifik ke paling umum.
+
+Extractor ini hanya menghasilkan data mentah sesuai kontrak BaseExtractor —
+tidak tahu apa pun soal Excel/styling.
 """
 
 import re
 import calendar
+from datetime import date, timedelta
 import pdfplumber
 import pandas as pd
 
@@ -17,16 +29,27 @@ from extractors.base import BaseExtractor
 
 BULAN_ORDER = [
     'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
-    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
 ]
 
-BULAN_MAP = {
-    'Jan': 'Januari', 'Feb': 'Februari', 'Mar': 'Maret',
-    'Apr': 'April',   'May': 'Mei',      'Mei': 'Mei',
-    'Jun': 'Juni',    'Jul': 'Juli',     'Aug': 'Agustus',
-    'Agu': 'Agustus', 'Sep': 'September','Oct': 'Oktober',
-    'Okt': 'Oktober', 'Nov': 'November', 'Dec': 'Desember',
-    'Des': 'Desember'
+# Singkatan bulan Inggris (dipakai PDF Kopra) -> nomor bulan
+BULAN_EN = {
+    'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
+    'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12,
+}
+
+# Nominal Kopra selalu berformat 1.234.567,89 gaya Inggris: "1,234,567.89"
+AMOUNT_RE = re.compile(r'^-?[\d,]+\.\d{2}$')
+
+# Posisi kolom hasil pengukuran PDF referensi (halaman A4 lebar 595pt).
+# Hanya dipakai sebagai cadangan kalau baris header tidak ditemukan.
+FALLBACK_COLS = {
+    'remark_x0': 120.0,
+    'ref_x0': 240.0,
+    'ref_x1': 294.0,
+    'debit_x1': 382.0,
+    'credit_x1': 472.0,
+    'balance_x1': 564.0,
 }
 
 
@@ -34,468 +57,744 @@ class MandiriKopraExtractor(BaseExtractor):
 
     def __init__(self, pdf_path: str):
         super().__init__(pdf_path)
-        # Regex for amount line (3 amounts: debit credit balance)
-        self.AMOUNT_LINE_RE = re.compile(
-            r'^-?\s*([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})$'
-        )
+        # Peringatan yang terkumpul selama parsing (dibaca app.py / pemanggil).
+        self.warnings: list[str] = []
+        self._cache = None
 
     def get_file_prefix(self) -> str:
         return 'MANDIRI'
 
-    def extract_no_rekening(self) -> str:
+    # ------------------------------------------------------------------ #
+    #  DETEKSI KOLOM DINAMIS                                             #
+    # ------------------------------------------------------------------ #
+
+    def _find_columns(self, page, words: list) -> dict | None:
         """
-        Ekstrak nomor rekening dari header Mandiri.
-        Format: baris 'Account No. Account Name Alias'
-                diikuti baris '0310077891078 LOGISTIK BANGUN BORN ...'
+        Cari baris header tabel di halaman ini dan turunkan geometri kolom.
+
+        Mengembalikan None kalau halaman tidak punya tabel transaksi
+        (mis. halaman lampiran). Kolom kiri-rata memakai x0, kolom angka
+        yang rata-kanan memakai x1.
         """
-        with pdfplumber.open(self.pdf_path) as pdf:
-            for page in pdf.pages[:5]:
-                text = page.extract_text() or ''
-                lines = text.split('\n')
-                for i, line in enumerate(lines):
-                    if re.search(r'Account\s+No\.', line, re.IGNORECASE):
-                        # Baris berikutnya berisi nomor rekening
-                        if i + 1 < len(lines):
-                            next_line = lines[i + 1].strip()
-                            m = re.match(r'^(\d{10,16})', next_line)
-                            if m:
-                                return m.group(1)
-                        # Atau langsung di baris yang sama
-                        m = re.search(r'Account\s+No\.?\s*[:\-]\s*([\d]+)', line, re.IGNORECASE)
-                        if m:
-                            return m.group(1).strip()
-        return 'unknown'
+        anchor = None
+        for w in words:
+            if w['text'] == 'Remark' and 110 < w['x0'] < 130:
+                anchor = w
+                break
+        if anchor is None:
+            return None
+
+        # Kata lain pada baris header yang sama (toleransi 2pt).
+        same_row = [w for w in words if abs(w['top'] - anchor['top']) < 2]
+        pos = {w['text']: w for w in same_row}
+
+        def x0_of(name, key):
+            return pos[name]['x0'] if name in pos else FALLBACK_COLS[key]
+
+        def x1_of(name, key):
+            return pos[name]['x1'] if name in pos else FALLBACK_COLS[key]
+
+        missing = [n for n in ('Reference', 'Debit', 'Credit', 'Balance') if n not in pos]
+        if missing:
+            self.warnings.append(
+                f"Halaman {page.page_number}: kolom header {', '.join(missing)} "
+                f"tidak ditemukan, memakai posisi cadangan."
+            )
+
+        cols = {
+            'header_y':   anchor['top'],
+            'remark_x0':  anchor['x0'],
+            'ref_x0':     x0_of('Reference', 'ref_x0'),
+            'ref_x1':     x1_of('No.', 'ref_x1') if 'No.' in pos else FALLBACK_COLS['ref_x1'],
+            'debit_x1':   x1_of('Debit', 'debit_x1'),
+            'credit_x1':  x1_of('Credit', 'credit_x1'),
+            'balance_x1': x1_of('Balance', 'balance_x1'),
+        }
+        # Ambang antar-kolom angka = titik tengah antar tepi kanan header.
+        cols['debit_max']  = (cols['debit_x1'] + cols['credit_x1']) / 2
+        cols['credit_max'] = (cols['credit_x1'] + cols['balance_x1']) / 2
+        # Batas kiri wilayah angka: sedikit di kanan kolom Reference No.
+        cols['amount_min_x1'] = cols['ref_x1'] + 6
+        return cols
 
     # ------------------------------------------------------------------ #
-    #  SALDO HARIAN                                                        #
+    #  PENGELOMPOKAN BARIS                                               #
     # ------------------------------------------------------------------ #
 
-    def extract_saldo(self) -> dict:
-        saldo_per_bulan   = {}   # bulan_id -> {tanggal(int): saldo_akhir}
-        opening_per_bulan = {}   # bulan_id -> int opening balance
-        meta_tahun        = {}   # bulan_id -> tahun str
-
-        current_bulan = None
-        current_tahun = None
-        current_date  = None     # int hari
-
-        # Regex tanggal transaksi: harus diikuti koma (bukan baris periode)
-        DATE_LINE_RE = re.compile(
-            r'^(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Mei|Jun|Jul|Aug|Agu|Sep|Oct|Okt|Nov|Dec|Des)\s+(\d{4}),',
-            re.IGNORECASE
-        )
-        BALANCE_RE = re.compile(r'([\d,]+\.\d{2})\s*$')
-
-        SKIP_KEYWORDS = [
-            'OPENING BALANCE', 'CLOSING BALANCE', 'BEGINNING BALANCE',
-            'POSTING DATE', 'REFERENCE', 'REMARK',
-            'NO. OF DEBIT', 'NO. OF CREDIT',
-            'TOTAL AMOUNT DEBIT', 'TOTAL AMOUNT CREDIT',
-            'TOTAL DEBIT', 'TOTAL CREDIT',
-            'SALDO AWAL', 'SALDO AKHIR',
-            'PAGE', 'HALAMAN', 'PERIOD', 'ACCOUNT',
-            'ACCOUNT STATEMENT', 'CREATED',
-            'CURRENCY', 'BRANCH',
-        ]
-
-        with pdfplumber.open(self.pdf_path) as pdf:
-            for page in pdf.pages:
-                text = page.extract_text()
-                if not text:
-                    continue
-
-                lines = text.split('\n')
-
-                # --- Deteksi periode ---
-                for line in lines:
-                    result = self._extract_periode_mandiri(line)
-                    if result:
-                        bulan_id, tahun = result
-                        if bulan_id not in saldo_per_bulan:
-                            saldo_per_bulan[bulan_id] = {}
-                            meta_tahun[bulan_id]       = tahun
-                        current_bulan = bulan_id
-                        current_tahun = tahun
-                        break
-
-                if not current_bulan:
-                    continue
-
-                # --- Deteksi opening balance (hanya sekali per bulan) ---
-                if current_bulan not in opening_per_bulan:
-                    ob = self._extract_opening_balance(text)
-                    if ob is not None:
-                        opening_per_bulan[current_bulan] = ob
-
-                # --- Scan baris transaksi ---
-                for line in lines:
-                    line_upper = line.upper()
-
-                    # Skip baris header/summary
-                    if any(kw in line_upper for kw in SKIP_KEYWORDS):
-                        continue
-
-                    # Cek apakah baris ini diawali tanggal baru
-                    dm = DATE_LINE_RE.match(line)
-                    if dm:
-                        bulan_raw   = dm.group(2).capitalize()
-                        bulan_check = BULAN_MAP.get(bulan_raw, bulan_raw)
-                        if bulan_check == current_bulan:
-                            current_date = int(dm.group(1))
-
-                    # Ambil balance dari baris ini
-                    bm = BALANCE_RE.search(line)
-                    if bm and current_date is not None:
-                        saldo_val = self._parse_mandiri_amount(bm.group(1))
-                        if saldo_val is not None:
-                            saldo_per_bulan[current_bulan][current_date] = saldo_val
-
-        # --- Build result dengan carry-forward ---
-        result = {}
-        for bulan_id, saldo_dict in saldo_per_bulan.items():
-            if not saldo_dict:
-                continue
-
-            tahun     = meta_tahun.get(bulan_id, '2025')
-            bulan_num = BULAN_ORDER.index(bulan_id) + 1 if bulan_id in BULAN_ORDER else 1
-            total_hari = calendar.monthrange(int(tahun), bulan_num)[1]
-
-            ob         = opening_per_bulan.get(bulan_id)
-            prev_saldo = ob
-
-            complete_saldo = {}
-            for day in range(1, total_hari + 1):
-                if day in saldo_dict:
-                    complete_saldo[day] = saldo_dict[day]
-                    prev_saldo = saldo_dict[day]
-                elif prev_saldo is not None:
-                    complete_saldo[day] = prev_saldo
-
-            data_rows = [
-                {'Bulan': bulan_id, 'Tanggal': day, 'Saldo Akhir Harian': saldo}
-                for day, saldo in complete_saldo.items()
-            ]
-
-            if data_rows:
-                result[bulan_id] = {
-                    'df': pd.DataFrame(data_rows),
-                    'tahun': tahun
-                }
-
-        # Metadata
-        result['_no_rekening'] = self.extract_no_rekening()
-        result['_nama_pemilik'] = self._extract_nama_pemilik()
-        for bulan_id, ob in opening_per_bulan.items():
-            result[f'_saldo_awal_{bulan_id}'] = ob
-
-        return result
-
-    # ------------------------------------------------------------------ #
-    #  DETAIL TRANSAKSI                                                    #
-    # ------------------------------------------------------------------ #
-
-    # ------------------------------------------------------------------ #
-    #  CORE COORDINATE-BASED PARSING                                     #
-    # ------------------------------------------------------------------ #
-
-    def _get_coordinated_rows(self, page) -> list:
+    def _page_rows(self, page) -> list:
         """
-        Groups words on a page into logical transaction rows using Date Anchors.
-        Returns a list of dicts: {date, remark, debit, credit, balance, y_top}
+        Kembalikan transaksi mentah pada satu halaman.
+
+        Bidang tabel dimulai DI BAWAH baris header, sehingga baris periode
+        ("01 Jun 2025 - 30 Jun 2025 IDR ...") di blok ringkasan tidak ikut
+        terbaca sebagai transaksi hantu tanggal 1.
         """
         words = page.extract_words()
         if not words:
             return []
 
-        # 1. Identify "Date Anchors"
-        months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Mei', 'Jun', 'Jul', 'Aug', 'Agu', 'Sep', 'Oct', 'Okt', 'Nov', 'Dec', 'Des']
-        anchors = []
-        for i, w in enumerate(words):
-            if w['x0'] < 60 and re.match(r'^\d{1,2}$', w['text']):
-                if i + 2 < len(words):
-                    next1 = words[i+1]['text'].capitalize()[:3]
-                    next2 = words[i+2]['text']
-                    if any(m.startswith(next1) for m in months) and re.match(r'^\d{4},?$', next2):
-                        anchors.append({
-                            'y': w['top'],
-                            'day': int(w['text']),
-                            'full_date': f"{w['text']} {words[i+1]['text']} {words[i+2]['text']}"
-                        })
-
-        if not anchors:
+        cols = self._find_columns(page, words)
+        if cols is None:
             return []
 
-        # 2. Extract Row Clusters
-        rows = []
-        # Find page footer bound
-        footer_y = 760
+        # Batas bawah: di atas footer halaman.
+        footer_y = float(page.height)
         for w in words:
-            if 'koprabymandiri.com' in w['text'] or 'Page' == w['text']:
-                if w['top'] > 600: footer_y = min(footer_y, w['top'])
+            if 'koprabymandiri.com' in w['text'] or w['text'] == 'Page':
+                if w['top'] > cols['header_y']:
+                    footer_y = min(footer_y, w['top'])
 
-        for i, anchor in enumerate(anchors):
-            y_start = anchor['y'] - 3
-            y_end = anchors[i+1]['y'] - 3 if i+1 < len(anchors) else footer_y
+        body = [w for w in words
+                if cols['header_y'] + 5 < w['top'] < footer_y]
+        if not body:
+            return []
 
-            cluster = [w for w in words if y_start <= w['top'] < y_end]
-            
-            # Refined Boundaries for Kopra:
-            # Date/Ref ends ~150
-            # Remark ends ~415
-            # Amounts start ~415
-            remark_words = sorted([w for w in cluster if 150 <= w['x0'] < 418], key=lambda x: (x['top'], x['x0']))
-            amt_words = sorted([w for w in cluster if w['x0'] >= 418], key=lambda x: (x['top'], x['x0']))
-            
-            remark_text = " ".join([w['text'] for w in remark_words])
-            # Remove technical artifacts that often leak into the remark column
-            remark_text = re.sub(r'\b0\.00\b', '', remark_text)
-            remark_text = re.sub(r' +', ' ', remark_text).strip()
-            
-            # Parse Amounts (Debit:420+, Credit:460+, Balance:505+)
-            debit = 0
-            credit = 0
-            balance = 0
-            for aw in amt_words:
-                val = self._parse_mandiri_amount(aw['text']) or 0
-                if 418 <= aw['x0'] < 458:
-                    debit = val
-                elif 458 <= aw['x0'] < 503:
-                    credit = val
-                elif aw['x0'] >= 503:
-                    balance = val
+        ordered = sorted(body, key=lambda w: (round(w['top'], 1), w['x0']))
 
-            rows.append({
-                'day': anchor['day'],
-                'date_raw': anchor['full_date'],
-                'remark_raw': remark_text,
-                'debit': debit,
-                'credit': credit,
-                'balance': balance
+        # Anchor tanggal: "DD Mon YYYY," di kolom Posting Date.
+        anchors = []
+        for i, w in enumerate(ordered):
+            if w['x0'] >= cols['remark_x0'] - 20 or not re.match(r'^\d{1,2}$', w['text']):
+                continue
+            if i + 2 >= len(ordered):
+                continue
+            mon, yr = ordered[i + 1], ordered[i + 2]
+            if mon['text'][:3] not in BULAN_EN:
+                continue
+            if not re.match(r'^\d{4},$', yr['text']):
+                continue
+            anchors.append({
+                'y': w['top'],
+                'day': int(w['text']),
+                'month': BULAN_EN[mon['text'][:3]],
+                'year': int(yr['text'][:4]),
             })
 
+        rows = []
+        for i, a in enumerate(anchors):
+            # Batas klaster = titik tengah antar anchor, karena tanggal
+            # dicetak di tengah blok remark yang bisa beberapa baris.
+            y0 = cols['header_y'] + 5 if i == 0 else (anchors[i - 1]['y'] + a['y']) / 2
+            y1 = (a['y'] + anchors[i + 1]['y']) / 2 if i + 1 < len(anchors) else footer_y
+            cluster = [w for w in body if y0 <= w['top'] < y1]
+
+            remark_w, ref_w = [], []
+            debit = credit = balance = None
+
+            for w in sorted(cluster, key=lambda x: (round(x['top'], 1), x['x0'])):
+                # Angka dikenali lewat pola DAN posisi — nomor referensi Kopra
+                # panjang tapi tidak pernah berdesimal, sedangkan remark
+                # sesekali memuat token berformat angka.
+                if AMOUNT_RE.match(w['text']) and w['x1'] > cols['amount_min_x1']:
+                    val = self._parse_amount(w['text'])
+                    if val is None:
+                        continue
+                    if w['x1'] <= cols['debit_max']:
+                        debit = val if debit is None else debit
+                    elif w['x1'] <= cols['credit_max']:
+                        credit = val if credit is None else credit
+                    else:
+                        balance = val if balance is None else balance
+                elif w['x0'] >= cols['ref_x0'] - 5:
+                    ref_w.append(w)
+                elif w['x0'] >= cols['remark_x0'] - 5:
+                    remark_w.append(w)
+
+            rows.append({
+                'day': a['day'],
+                'month': a['month'],
+                'year': a['year'],
+                'remark': ' '.join(w['text'] for w in remark_w).strip(),
+                'reference': ' '.join(w['text'] for w in ref_w).strip(),
+                'debit': debit or 0,
+                'credit': credit or 0,
+                'balance': balance,
+            })
         return rows
 
-    def extract_no_rekening(self) -> str:
-        """Ekstrak nomor rekening dari header."""
-        with pdfplumber.open(self.pdf_path) as pdf:
-            for page in pdf.pages[:1]:
-                text = page.extract_text() or ''
-                # Pattern: "Account No. Account Name Alias" followed by digits
-                m = re.search(r'No\.\s+(?:Account\s+Name\s+)?(\d{10,16})', text, re.IGNORECASE)
-                if m:
-                    return m.group(1).strip()
-                # Try specific coordinate/word search
-                words = page.extract_words()
-                for i, w in enumerate(words):
-                    if 'Account' == w['text'] and i+2 < len(words) and 'No.' == words[i+1]['text']:
-                        # The account number is usually some words ahead
-                        for j in range(i+2, min(i+10, len(words))):
-                            if re.match(r'^\d{10,16}$', words[j]['text']):
-                                return words[j]['text']
-        return 'unknown'
+    # ------------------------------------------------------------------ #
+    #  PEMBACAAN SELURUH DOKUMEN                                         #
+    # ------------------------------------------------------------------ #
 
-    def extract_saldo(self) -> dict:
-        result_map = {} # bulan_id -> {day: balance}
-        meta = {} 
+    def _parse_document(self) -> dict:
+        """
+        Baca PDF sekali, kembalikan periode + transaksi + ringkasan resmi.
+
+        Hasilnya di-cache supaya extract_saldo() dan extract_transaksi()
+        tidak membuka PDF dua kali.
+        """
+        if self._cache is not None:
+            return self._cache
+
+        periods = []   # {'month','year','opening','closing','n_debit',...}
+        rows = []
 
         with pdfplumber.open(self.pdf_path) as pdf:
             for page in pdf.pages:
                 text = page.extract_text() or ''
-                period_match = self._extract_periode_mandiri(text)
-                if period_match:
-                    bulan_id, tahun = period_match
-                    if bulan_id not in result_map:
-                        result_map[bulan_id] = {}
-                        meta[bulan_id] = {'tahun': tahun, 'opening': self._extract_opening_balance(text)}
-                
-                current_bulan = list(result_map.keys())[-1] if result_map else None
-                if not current_bulan: continue
 
-                rows = self._get_coordinated_rows(page)
-                for r in rows:
-                    # Update daily balance
-                    result_map[current_bulan][r['day']] = r['balance']
+                # Blok ringkasan menandai awal satu periode laporan. Satu PDF
+                # bisa memuat beberapa laporan yang digabung, dan rentangnya
+                # bisa saling tumpang tindih.
+                if 'Account Statement Summary' in text:
+                    per = self._parse_period(text)
+                    if per:
+                        per.update(self._parse_summary(text))
+                        per['page'] = page.page_number
+                        periods.append(per)
 
-        final_result = {}
-        for bulan_id, days_dict in result_map.items():
-            if not days_dict: continue
-            tahun = meta[bulan_id]['tahun']
-            bulan_num = BULAN_ORDER.index(bulan_id) + 1 if bulan_id in BULAN_ORDER else 1
-            total_hari = calendar.monthrange(int(tahun), bulan_num)[1]
-            
-            ob = meta[bulan_id]['opening']
-            prev = ob
-            data = []
-            for day in range(1, total_hari + 1):
-                if day in days_dict:
-                    prev = days_dict[day]
-                data.append({'Bulan': bulan_id, 'Tanggal': day, 'Saldo Akhir Harian': prev})
-            
-            final_result[bulan_id] = {'df': pd.DataFrame(data), 'tahun': tahun}
-        
-        final_result['_no_rekening'] = self.extract_no_rekening()
-        final_result['_nama_pemilik'] = self._extract_nama_pemilik()
-        return final_result
+                # Baris dimiliki oleh blok ringkasan terakhir sebelum halaman
+                # ini — bukan ditebak dari bulannya.
+                for urut, r in enumerate(self._page_rows(page)):
+                    r['page'] = page.page_number
+                    r['urut'] = urut          # posisi baris di halaman
+                    r['period_idx'] = len(periods) - 1
+                    r['date'] = date(r['year'], r['month'], r['day'])
+                    rows.append(r)
 
-    def extract_transaksi(self) -> dict:
-        transaksi_per_bulan = {}
-        
-        with pdfplumber.open(self.pdf_path) as pdf:
-            for page in pdf.pages:
-                text = page.extract_text() or ''
-                period_match = self._extract_periode_mandiri(text)
-                if period_match:
-                    bulan_id, _ = period_match
-                    if bulan_id not in transaksi_per_bulan:
-                        transaksi_per_bulan[bulan_id] = []
-                
-                current_bulan = list(transaksi_per_bulan.keys())[-1] if transaksi_per_bulan else None
-                if not current_bulan: continue
+            meta = self._parse_identity(pdf)
 
-                rows = self._get_coordinated_rows(page)
-                for r in rows:
-                    jenis = 'Debit' if r['debit'] > 0 else 'Kredit'
-                    nominal = r['debit'] if r['debit'] > 0 else r['credit']
-                    if nominal == 0: continue # Skip if no mutation
-                    
-                    desc = re.sub(r'\s+', ' ', r['remark_raw']).strip()
-                    nama = self._extract_nama_mandiri(desc, jenis, nominal)
+        self._cache = {'periods': periods, 'rows': rows, 'meta': meta}
+        return self._cache
 
-                    transaksi_per_bulan[current_bulan].append({
-                        'Bulan': current_bulan,
-                        'Tanggal': r['day'],
-                        'Jenis Mutasi': jenis,
-                        'Mutasi': nominal,
-                        'Nama Pengirim/Penerima': nama,
-                        'Keterangan Transaksi': desc
-                    })
+    def _merged_rows(self) -> list:
+        """
+        Baris gabungan untuk pelaporan, tanpa duplikat antar blok laporan.
 
-        result = {}
-        for bulan, items in transaksi_per_bulan.items():
-            if items:
-                result[bulan] = pd.DataFrame(items)
-        return result
+        PDF gabungan sering memuat dua laporan yang rentangnya beririsan,
+        sehingga transaksi di bagian yang beririsan tercetak dua kali. Baris
+        dianggap sama kalau tanggal, nominal, dan saldo berjalannya sama.
+        Remark sengaja TIDAK ikut jadi kunci: transaksi yang sama bisa
+        tercetak dengan pembungkusan baris berbeda di dua laporan. Saldo
+        berjalan berubah di setiap transaksi, jadi kunci ini praktis tidak
+        mungkin bentrok. Duplikat DALAM satu blok tidak pernah dibuang.
+        """
+        doc = self._parse_document()
+        seen = {}
+        for r in doc['rows']:
+            k = (r['date'], r['debit'], r['credit'], r['balance'])
+            prev = seen.get(k)
+            if prev is None or prev['period_idx'] == r['period_idx']:
+                # Blok yang sama: simpan keduanya lewat kunci berbeda.
+                if prev is not None:
+                    k = k + (r['page'], len(seen))
+                seen[k] = r
+            # Blok berbeda dengan isi identik: laporan yang lebih baru menang.
+            else:
+                seen[k] = r
+        # Urut MENGIKUTI CETAKAN (blok laporan, halaman, posisi baris), bukan
+        # per tanggal. Mengurutkan ulang per tanggal akan menyembunyikan
+        # anomali urutan tanggal — justru salah satu hal yang diperiksa.
+        return sorted(seen.values(),
+                      key=lambda r: (r['period_idx'], r['page'], r['urut']))
 
-    # ------------------------------------------------------------------ #
-    #  HELPER INTERNAL                                                     #
-    # ------------------------------------------------------------------ #
-
-    def _parse_mandiri_amount(self, s: str) -> int | None:
-        if not s or s == '-': return 0
-        clean = s.replace(',', '').strip()
-        try:
-            return int(float(clean))
-        except:
-            return 0
-
-    def _extract_periode_mandiri(self, text: str) -> tuple | None:
-        m = re.search(
-            r'Period\s*:\s*(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s*[-–]\s*(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})',
-            text, re.IGNORECASE
-        )
-        if not m:
-            # Try without "Period :"
-            m = re.search(r'(\d{1,2})\s+([A-Z][a-z]{2})\s+(\d{4})\s*-\s*(\d{1,2})\s+([A-Z][a-z]{2})\s+(\d{4})', text)
-        
-        if m:
-            bulan_raw = m.group(2).capitalize()
-            tahun     = m.group(3)
-            bulan_id  = BULAN_MAP.get(bulan_raw, bulan_raw)
-            return bulan_id, tahun
+    def _overlap_warning(self) -> str | None:
+        """Rentang periode yang saling tumpang tindih = transaksi ganda."""
+        doc = self._parse_document()
+        pers = [p for p in doc['periods'] if p.get('start') and p.get('end')]
+        for i in range(len(pers)):
+            for j in range(i + 1, len(pers)):
+                a, b = pers[i], pers[j]
+                if a['start'] <= b['end'] and b['start'] <= a['end']:
+                    dup = len(doc['rows']) - len(self._merged_rows())
+                    return (
+                        f"Periode {a['start']}..{a['end']} dan "
+                        f"{b['start']}..{b['end']} saling tumpang tindih; "
+                        f"{dup} transaksi ganda digabung menjadi satu."
+                    )
         return None
 
-    def _extract_opening_balance(self, text: str) -> int:
-        # Looking for "Opening Balance" followed by a number
-        m = re.search(r'Opening\s+Balance\s+([\d,]+\.\d{2})', text, re.IGNORECASE)
-        if m:
-            return self._parse_mandiri_amount(m.group(1))
-        
-        # Try finding in lines
+    def _parse_period(self, text: str) -> dict | None:
+        """
+        Ambil rentang periode laporan.
+
+        Satu blok ringkasan bisa menjangkau beberapa bulan sekaligus
+        ("01 Nov 2025 - 23 Feb 2026"), jadi yang disimpan rentang tanggalnya
+        — bukan hanya bulan awal.
+        """
+        m = re.search(
+            r'(\d{1,2})\s+([A-Z][a-z]{2})\s+(\d{4})\s*-\s*(\d{1,2})\s+([A-Z][a-z]{2})\s+(\d{4})',
+            text,
+        )
+        if not m or m.group(2) not in BULAN_EN or m.group(5) not in BULAN_EN:
+            return None
+        return {
+            'start': date(int(m.group(3)), BULAN_EN[m.group(2)], int(m.group(1))),
+            'end':   date(int(m.group(6)), BULAN_EN[m.group(5)], int(m.group(4))),
+        }
+
+    def _parse_summary(self, text: str) -> dict:
+        """
+        Ambil angka resmi dari blok ringkasan.
+
+        Label dan angkanya ada di baris berbeda:
+            Opening Balance No. of Debit Total Amount Debited
+            547,883,734.03 46 671,667,312.75
+        """
+        out = {'opening': None, 'closing': None, 'n_debit': None,
+               'n_credit': None, 'total_debit': None, 'total_credit': None}
         lines = text.split('\n')
         for i, line in enumerate(lines):
-            if 'Opening Balance' in line:
-                if i+1 < len(lines):
-                    m = re.match(r'^([\d,]+\.\d{2})', lines[i+1].strip())
-                    if m: return self._parse_mandiri_amount(m.group(1))
-        return 0
-
-    def _extract_nama_pemilik(self) -> str:
-        with pdfplumber.open(self.pdf_path) as pdf:
-            for page in pdf.pages[:2]:
-                text = page.extract_text() or ''
-                m = re.search(r'Account\s+Name\s*(.+)', text, re.IGNORECASE)
-                if m:
-                    # Clean up
-                    name = m.group(1).split('Alias')[0].strip()
-                    return name
-        return '-'
-
-    def _extract_nama_mandiri(self, keterangan: str, jenis_mutasi: str, nominal: int) -> str:
-        """Extract neat nama pengirim/penerima."""
-        # Convert to uppercase for matching
-        full_text = keterangan.upper()
-        
-        # 1. Biaya Bank (High Priority)
-        if nominal == 2500 and jenis_mutasi == 'Debit':
-            return 'Biaya Pelayanan' if 'FEE' in full_text else 'Biaya Transfer'
-        
-        # Specific Biaya/Admin keywords
-        if any(kw in full_text for kw in ['ADM', 'FEE', 'RTGS', 'BUNGA', 'PAJAK', 'CHRG', 'MATERAI']):
-             if 'BUNGA' in full_text: return 'Bunga'
-             if 'PAJAK' in full_text: return 'Pajak'
-             if 'MATERAI' in full_text: return 'Biaya Materai'
-             return 'Biaya Admin'
-
-        # 2. MCM Inhouse Transfer
-        if 'INHOUSETRF' in full_text:
-            # Pattern: "KE [NAME] - ..." or "DARI [NAME] ..."
-            m = re.search(r'(?:KE|DARI)\s+([A-Z\s\.]+?)(?:\s+TRANSFER|\s+DEPOSIT|\s+\d{2}:|\s+FEE|\-|$)', full_text)
-            if m:
-                nama = m.group(1).strip()
-                # Clean nested keywords
-                nama = re.sub(r'\b(TRANSFER|MCM|INHOUSETRF)\b', '', nama).strip()
-                return " ".join(nama.split()[:4])
-
-        # 3. Inter-bank Transfer with Codes (CENAIDJA, BNINIDJA, etc.)
-        # Pattern: "CENAIDJA/NAME" or "BMRIIDJA/NAME"
-        bank_match = re.search(r'[A-Z]{8}/([A-Z\s\.]+?)(?:\d{5,}|$)', full_text)
-        if bank_match:
-            nama = bank_match.group(1).strip()
-            # Stop if reached a technical ID (digits)
-            nama = re.split(r'\d+', nama)[0].strip()
-            return " ".join(nama.split()[:4])
-
-        # 4. MCM Transfer / Payroll
-        m = re.search(r'MCM\s+(?:TRANSFER|PAYROLL|PAYMENT)\s+(?:KE|DARI)\s+([A-Z\s\.]+)', full_text)
-        if m:
-            nama = m.group(1).strip()
-            return " ".join(nama.split()[:4])
-
-        # 5. DARI/KE Generic Pattern (Common in Mandiri)
-        m = re.search(r'(?:DARI|KE)\s+([A-Z]{3,}(?:\s+[A-Z]{3,})+)', full_text)
-        if m:
-            nama = m.group(1).strip()
-            # Filter technical junk
-            if not any(kw in nama for kw in ['TRANSFER', 'BRANCH', 'IDR', 'BANK', 'KOPRA']):
-                return " ".join(nama.split()[:4])
-
-        # 6. Fallback clean name (multiple uppercase words)
-        # Look for sequences of long uppercase words
-        # e.g., "PT RIDHO SRIBUMI"
-        candidates = re.findall(r'\b([A-Z]{3,}(?:\s+[A-Z\.\s]{3,})+)\b', full_text)
-        for cand in candidates:
-            cand_clean = cand.strip()
-            # Ignore technical segments
-            if any(kw in cand_clean for kw in ['MCM', 'TRF', 'BRANCH', 'IDR', 'BANK', 'KOPRA', 'FEE', 'AUTO', 'COLL']):
+            if i + 1 >= len(lines):
                 continue
-            if len(cand_clean.split()) >= 2:
-                return " ".join(cand_clean.split()[:4])
+            nxt = lines[i + 1].strip()
+            if 'Opening Balance' in line and 'No. of Debit' in line:
+                m = re.match(r'^([\d,]+\.\d{2})\s+(\d+)\s+([\d,]+\.\d{2})', nxt)
+                if m:
+                    out['opening'] = self._parse_amount(m.group(1))
+                    out['n_debit'] = int(m.group(2))
+                    out['total_debit'] = self._parse_amount(m.group(3))
+            elif 'Closing Balance' in line and 'No. of Credit' in line:
+                m = re.match(r'^([\d,]+\.\d{2})\s+(\d+)\s+([\d,]+\.\d{2})', nxt)
+                if m:
+                    out['closing'] = self._parse_amount(m.group(1))
+                    out['n_credit'] = int(m.group(2))
+                    out['total_credit'] = self._parse_amount(m.group(3))
+        return out
 
-        # 7. Last Resort: Owner Name for internal moves
-        if any(kw in full_text for kw in ['PINDAH BUKU', 'OVERBOOKING', 'ISI ATM']):
-            owner = self._extract_nama_pemilik()
-            if owner and owner != '-': return " ".join(owner.split()[:4])
+    def _parse_identity(self, pdf) -> dict:
+        """
+        Ambil nomor rekening & nama pemilik.
 
-        return '-'
+        Nilainya ada di baris SETELAH header "Account No. Account Name Alias":
+            1200010763543 UMRINDO MANDIRI SEJA UMRINDO MANDIRI SEJA
+        Nama dan alias sering identik, jadi bagian yang berulang dibuang.
+        """
+        out = {'no_rekening': 'unknown', 'nama_pemilik': '-'}
+        for page in pdf.pages[:3]:
+            lines = (page.extract_text() or '').split('\n')
+            for i, line in enumerate(lines):
+                if 'Account No.' not in line or i + 1 >= len(lines):
+                    continue
+                m = re.match(r'^(\d{10,16})\s+(.+)$', lines[i + 1].strip())
+                if not m:
+                    continue
+                out['no_rekening'] = m.group(1)
+                rest = ' '.join(m.group(2).split())
+                # Buang alias yang mengulang nama (persis setengah + setengah).
+                words = rest.split()
+                half = len(words) // 2
+                if half and words[:half] == words[half:]:
+                    rest = ' '.join(words[:half])
+                out['nama_pemilik'] = rest.strip() or '-'
+                return out
+        return out
 
+    # ------------------------------------------------------------------ #
+    #  KONTRAK BaseExtractor                                             #
+    # ------------------------------------------------------------------ #
 
+    def extract_no_rekening(self) -> str:
+        return self._parse_document()['meta']['no_rekening']
+
+    def extract_saldo(self) -> dict:
+        doc = self._parse_document()
+        rows = self._merged_rows()
+
+        # Saldo akhir per hari; laporan yang lebih baru menang di hari yang sama.
+        per_day = {}
+        for r in rows:
+            if r['balance'] is not None:
+                per_day[r['date']] = r['balance']
+
+        # Saldo awal berlaku pada hari pertama periodenya.
+        opening_on = {}
+        for p in doc['periods']:
+            if p.get('start') and p.get('opening') is not None:
+                opening_on.setdefault(p['start'], p['opening'])
+
+        # Hari yang benar-benar dicakup laporan (gabungan semua periode).
+        covered = set()
+        for p in doc['periods']:
+            if not (p.get('start') and p.get('end')):
+                continue
+            d = p['start']
+            while d <= p['end']:
+                covered.add(d)
+                d += timedelta(days=1)
+        if not covered:
+            return {'_nama_pemilik': doc['meta']['nama_pemilik'],
+                    '_no_rekening': doc['meta']['no_rekening']}
+
+        buckets = {}
+        awal_bulan = {}     # (tahun, bulan) -> saldo awal bulan itu
+        prev = None
+        for d in sorted(covered):
+            if d in opening_on and prev is None:
+                prev = opening_on[d]
+            # Saldo awal sebuah bulan = saldo sebelum transaksi hari pertama:
+            # dari Opening Balance kalau periode mulai di sini, selain itu
+            # saldo akhir hari terakhir bulan sebelumnya.
+            if (d.year, d.month) not in awal_bulan:
+                awal_bulan[(d.year, d.month)] = opening_on.get(d, prev)
+            if d in per_day:
+                prev = per_day[d]
+            buckets.setdefault((d.year, d.month), []).append(
+                {'Bulan': BULAN_ORDER[d.month - 1], 'Tanggal': d.day,
+                 'Saldo Akhir Harian': prev}
+            )
+
+        result = {}
+        for (year, month), data in buckets.items():
+            bulan_id = BULAN_ORDER[month - 1]
+            result[bulan_id] = {'df': pd.DataFrame(data), 'tahun': str(year)}
+            saldo_awal = awal_bulan.get((year, month))
+            if saldo_awal is not None:
+                result[f'_saldo_awal_{bulan_id}'] = saldo_awal
+
+        result['_nama_pemilik'] = doc['meta']['nama_pemilik']
+        result['_no_rekening'] = doc['meta']['no_rekening']
+
+        # Laporkan hasil checksum dalam bentuk umum supaya engine bisa
+        # menampilkannya sebagai indikator tanpa tahu format Kopra.
+        lap = self.validate()
+        result['_checksum'] = [
+            {'label': per['label'], 'bulan': per['bulan'],
+             'expected': {k: per['expected'].get(k) for k in
+                          ('n_debit', 'n_credit', 'total_debit', 'total_credit', 'closing')},
+             'actual': per['actual']}
+            for per in lap['periods']
+        ]
+        return result
+
+    def extract_transaksi(self) -> dict:
+        buckets = {}
+
+        for r in self._merged_rows():
+            if r['debit'] == 0 and r['credit'] == 0:
+                continue
+            bulan_id = BULAN_ORDER[r['month'] - 1]
+            jenis = 'Debit' if r['debit'] > 0 else 'Kredit'
+            nominal = r['debit'] if r['debit'] > 0 else r['credit']
+
+            keterangan = ' '.join(r['remark'].split())
+            buckets.setdefault(bulan_id, []).append({
+                'Bulan': bulan_id,
+                'Tanggal': r['day'],
+                'Jenis Mutasi': jenis,
+                'Mutasi': nominal,
+                'Nama Pengirim/Penerima': self._extract_nama(keterangan),
+                'Keterangan Transaksi': keterangan,
+            })
+
+        return {b: pd.DataFrame(v) for b, v in buckets.items() if v}
+
+    # ------------------------------------------------------------------ #
+    #  VALIDASI OTOMATIS (CHECKSUM)                                      #
+    # ------------------------------------------------------------------ #
+
+    def validate(self) -> dict:
+        """
+        Cocokkan hasil parsing dengan angka resmi yang tercetak di tiap blok
+        ringkasan PDF: No. of Debit/Credit, Total Amount Debited/Credited,
+        Opening Balance, dan Closing Balance.
+
+        Pencocokan dilakukan PER BLOK LAPORAN (bukan per bulan), karena satu
+        blok bisa menjangkau beberapa bulan sekaligus dan satu PDF bisa memuat
+        beberapa laporan yang digabung.
+
+        Mengembalikan {'ok': bool, 'periods': [...], 'warnings': [...]}.
+        """
+        doc = self._parse_document()
+        report = {'ok': True, 'periods': [], 'warnings': list(self.warnings)}
+
+        if not doc['periods']:
+            report['ok'] = False
+            report['warnings'].append(
+                'Tidak ada blok ringkasan periode yang terbaca — '
+                'PDF kemungkinan bukan format Kopra by Mandiri.'
+            )
+            return report
+
+        if not doc['rows']:
+            report['ok'] = False
+            report['warnings'].append(
+                'Blok ringkasan terbaca tetapi tidak ada baris transaksi yang terdeteksi.'
+            )
+
+        report['duplikat_digabung'] = len(doc['rows']) - len(self._merged_rows())
+        overlap = self._overlap_warning()
+        if overlap:
+            report['warnings'].append(overlap)
+
+        for idx, per in enumerate(doc['periods']):
+            rows = [r for r in doc['rows'] if r['period_idx'] == idx]
+            got = {
+                'n_debit': sum(1 for r in rows if r['debit'] > 0),
+                'n_credit': sum(1 for r in rows if r['credit'] > 0),
+                'total_debit': sum(r['debit'] for r in rows),
+                'total_credit': sum(r['credit'] for r in rows),
+            }
+            last = [r['balance'] for r in rows if r['balance'] is not None]
+            got['closing'] = last[-1] if last else None
+
+            label = (f"{per['start']}..{per['end']}"
+                     if per.get('start') else f"blok {idx + 1}")
+
+            checks = {}
+            for key, expected in (
+                ('n_debit', per['n_debit']),
+                ('n_credit', per['n_credit']),
+                ('total_debit', per['total_debit']),
+                ('total_credit', per['total_credit']),
+                ('closing', per['closing']),
+            ):
+                actual = got[key]
+                if expected is None:
+                    checks[key] = None          # angka resmi tidak terbaca
+                    continue
+                ok = (actual is not None
+                      and abs(round(actual, 2) - round(expected, 2)) < 0.005)
+                checks[key] = ok
+                if not ok:
+                    report['ok'] = False
+                    report['warnings'].append(
+                        f"Periode {label}: {key} hasil parsing {actual} "
+                        f"!= angka resmi {expected}"
+                    )
+
+            if per['opening'] is None:
+                report['warnings'].append(
+                    f"Periode {label}: Opening Balance tidak terbaca dari PDF."
+                )
+            else:
+                # Rantai saldo berjalan: saldo tiap baris harus sama dengan
+                # saldo sebelumnya + kredit - debit. Ini pemeriksaan bebas
+                # yang menangkap baris terlewat atau nominal salah kolom,
+                # dan hanya berlaku DI DALAM satu blok — antar blok bisa ada
+                # celah tanggal yang sah.
+                prev = per['opening']
+                putus = 0
+                for r in rows:
+                    if r['balance'] is None:
+                        continue
+                    if abs(prev + r['credit'] - r['debit'] - r['balance']) > 0.005:
+                        putus += 1
+                    prev = r['balance']
+                checks['rantai_saldo'] = (putus == 0)
+                if putus:
+                    report['ok'] = False
+                    report['warnings'].append(
+                        f"Periode {label}: rantai saldo berjalan putus di "
+                        f"{putus} baris — ada transaksi terlewat atau salah baca."
+                    )
+
+            report['periods'].append({
+                'label': label,
+                'bulan': BULAN_ORDER[per['start'].month - 1] if per.get('start') else '-',
+                'tahun': per['start'].year if per.get('start') else '-',
+                'expected': per,
+                'actual': got,
+                'checks': checks,
+            })
+
+        return report
+
+    # ------------------------------------------------------------------ #
+    #  HELPER                                                            #
+    # ------------------------------------------------------------------ #
+
+    def _parse_amount(self, s: str):
+        s = (s or '').strip()
+        if not s or s == '-':
+            return None
+        try:
+            return float(s.replace(',', ''))
+        except ValueError:
+            return None
+
+    # -- Ekstraksi nama ------------------------------------------------- #
+
+    # Kode cabang/channel yang menempel di ekor remark dan bukan bagian nama.
+    _TAIL_CODE_RE = re.compile(r'(?:\s+\d{4,})+\s*$')
+    # Penanda batas akhir nama. "Transfer Fee"/"Clearing Fee" adalah label
+    # biaya yang MENYERTAI transfer, bukan penanda transaksi biaya.
+    _NAME_STOP_RE = re.compile(
+        r'\s+(?:Transfer\s+(?:Fee|ATM)|Clearing\s+Fee|Deposit|Sweep)\b|\s+\d{5,}',
+        re.IGNORECASE,
+    )
+    # Nomor rekening yang mengawali remark: "8205290229 - JUMA BERLIAN EXIM"
+    _LEAD_ACCT_RE = re.compile(r'^\d{6,}\s*-\s*')
+    # Kode cabang yang menempel tanpa spasi di ekor nama: "...EXIM PT12124"
+    _GLUED_CODE_RE = re.compile(r'(?<=[A-Za-z])\d{5,6}$')
+    # Ekor kode bank tujuan: "... - CENAIDJA12124"
+    _TAIL_BANK_RE = re.compile(r'\s*-\s*[A-Z]{4}IDJ[A-Z0-9]\d*\s*$')
+
+    def _clean_nama(self, s: str) -> str:
+        s = ' '.join((s or '').split())
+        s = self._LEAD_ACCT_RE.sub('', s)
+        s = self._TAIL_BANK_RE.sub('', s)
+        s = self._TAIL_CODE_RE.sub('', s)
+        s = self._GLUED_CODE_RE.sub('', s)
+        s = s.strip(' .,-/')
+        return ' '.join(s.split())
+
+    def _cut_at_stop(self, s: str) -> str:
+        m = self._NAME_STOP_RE.search(s)
+        return s[:m.start()] if m else s
+
+    def _strip_berita(self, tail: str, prefix: str) -> str:
+        """
+        Buang berita transaksi yang menempel setelah nama.
+
+        Kopra mencetak berita dua kali: versi terpotong ~20 karakter sebagai
+        baris di ATAS tanggal, lalu versi penuh langsung setelah nama. Versi
+        terpotong itu dipakai sebagai penanda di mana nama berakhir.
+        """
+        prefix = ' '.join((prefix or '').split())
+        if len(prefix) < 12:
+            return tail
+        probe = prefix[:20].strip()
+        idx = tail.find(probe)
+        # idx > 0: berita ketemu SETELAH nama (idx == 0 berarti tak ada nama).
+        return tail[:idx] if idx > 0 else tail
+
+    def _cut_at_lowercase(self, s: str) -> str:
+        """
+        Potong di kata pertama yang bukan bagian nama.
+
+        Nama lawan transaksi di rekening koran Kopra selalu dicetak huruf
+        besar, sedangkan berita transaksi bercampur huruf kecil
+        ("BSMDIDJA/YAYASAN HUMALAH BAIT AL HIKMAH Zakat Maal dan Infaq")
+        atau diawali penomoran ("CENAIDJA/M. HARIS 1. Ritase LPG Brgkt").
+        """
+        out = []
+        for tok in s.split():
+            if re.search(r'[a-z]', tok) or re.match(r'^\d+\.?$', tok):
+                break
+            out.append(tok)
+        return ' '.join(out) if out else s
+
+    def _extract_nama(self, keterangan: str) -> str:
+        """
+        Pipeline berurutan: pola paling spesifik lebih dulu.
+
+        Pengecekan biaya/admin sengaja ditempatkan PALING AKHIR — kalau
+        ditaruh di awal, kata "Transfer Fee" yang menyertai hampir semua
+        transfer InhouseTrf akan menelan nama aslinya.
+        """
+        if not keterangan:
+            return '-'
+        text = ' '.join(keterangan.split())
+
+        # 1. MCM InhouseTrf KE/DARI <NAMA>  (pola terbesar, ~40% data)
+        m = re.search(r'InhouseTrf\s+(?:KE|DARI)\s+(.+)', text, re.IGNORECASE)
+        if m:
+            tail = self._cut_at_stop(m.group(1))
+            tail = self._strip_berita(tail, text[:m.start()])
+            nama = self._clean_nama(self._cut_at_lowercase(tail))
+            if nama:
+                return nama
+
+        # 2. Transfer antar bank: <KODEBANK>IDJ?/<NAMA>  (~15%).
+        #    Kode bank umumnya berakhiran 'A' (CENAIDJA) tapi ada juga yang
+        #    berakhiran angka (BUSTIDJ1, DANAIDJ1), jadi jangan dipatok 'IDJA'.
+        m = re.search(r'[A-Z]{4}IDJ[A-Z0-9]/(.+)', text)
+        if m:
+            tail = re.split(r'\s*\d{5,}', m.group(1))[0]
+            nama = self._clean_nama(self._cut_at_lowercase(tail))
+            if nama:
+                return nama
+
+        # 3. Transfer masuk/keluar antar bank: "<NAMA> - <kode> Trf Inw CN <BANK>"
+        m = re.search(r'^(.*?)\s+-\s+\d{2,3}\s+Trf\s+(?:Inw|Outw)\b', text, re.IGNORECASE)
+        if m:
+            head = m.group(1)
+            # Berita/kode invoice kadang mengawali; buang token berkode di depan.
+            toks = head.split()
+            while toks and (re.search(r'[/\\]', toks[0]) or re.search(r'\d', toks[0])):
+                toks.pop(0)
+            nama = self._clean_nama(self._cut_at_lowercase(' '.join(toks)))
+            if nama:
+                return nama
+
+        # 4. Transfer ATM: "DARI/KE <NAMA> Transfer ATM <kode terminal>"
+        m = re.match(r'^(?:DARI|KE)\s+(.+?)\s+Transfer\s+ATM\b', text, re.IGNORECASE)
+        if m:
+            nama = self._clean_nama(m.group(1))
+            if nama:
+                return nama
+
+        # 5. Kliring keluar: MCM Outw CN <NAMA> ... Clearing Fee
+        m = re.search(r'Outw\s+(?:CN|DN)\s+(.+)', text, re.IGNORECASE)
+        if m:
+            nama = self._clean_nama(self._cut_at_stop(m.group(1)))
+            if nama:
+                return nama
+
+        # Nomor referensi transaksi sebelumnya kadang tersisa sebagai pecahan
+        # pendek di awal remark (mis. "02 Clearing Fee ..."), karena Kopra
+        # mencetak ekor nomor referensi di kolom Remark. Untuk pencocokan
+        # kategori, pecahan itu diabaikan — teks aslinya tidak diubah.
+        text = re.sub(r'^(?:\d{1,4}\s+)+', '', text) or text
+        upper = text.upper()
+
+        # Transaksi kartu debit / ATM / EDC:
+        #   "<terminal> /<urut>/<TIPE>- <merchant> <no kartu> <lokasi><cabang>"
+        # Nama merchant atau lokasi ATM ada SETELAH nomor kartu 16 digit.
+        m = re.search(r'/(VAP|ATM|JPN|LNK|ATB|CB)-\s*(.+)', text)
+        if m:
+            tail = m.group(2)
+            parts = re.split(r'\b\d{16}\b', tail)
+            cand = parts[-1] if len(parts) > 1 else tail
+            cand = re.sub(r'ID\d{4,6}\s*$', '', cand.strip())
+            # Nama merchant sering bercampur huruf besar-kecil, jadi di sini
+            # TIDAK dipotong di huruf kecil seperti pada nama perorangan.
+            cand = self._clean_nama(cand)
+            if re.search(r'[A-Za-z]{2,}', cand):
+                return cand
+            return {
+                'VAP': 'Pembayaran EDC/Merchant',
+                'ATM': 'Transaksi ATM',
+            }.get(m.group(1), 'Transaksi Kartu Debit')
+
+        # Baris biaya SKN/RTGS: hanya nomor referensi + kode cabang, tanpa nama
+        # ("20260301BMRIIDJA010O9 933021416 99102").
+        # Satu token berita dari baris sebelumnya kadang ikut di depan
+        # ("Angsuran99102 20260310BMRIIDJA010O9 935480393 99102").
+        if re.match(r'^(?:\S+\s+)?\d{6,}[A-Z]{4}IDJ[A-Z0-9]\w*(?:\s+\d+)*\s*$', text.strip()):
+            return 'Biaya Transfer Antar Bank'
+
+        # 6. Pembayaran tagihan (UBP). Remark UBP hanya berisi kode biller,
+        #    tidak memuat nama — jadi dipakai label kategori.
+        if re.match(r'^UBP\d', text.strip(), re.IGNORECASE):
+            return 'Pembayaran Tagihan (UBP)'
+
+        # 7. Kategori tetap.
+        if re.match(r'^DARI\s+\d+\s+KE\s+\d+', text.strip(), re.IGNORECASE):
+            return 'Pindah Buku / Sweep'
+        if 'MONTHLY CARD CHARGE' in upper:
+            return 'Biaya Kartu Bulanan'
+        # Tarik/Setor tunai mencantumkan nama pemegang rekening setelah labelnya
+        # ("PEMBAYARAN TPP Tarik Tunai JUMA BERLIAN EXIM 12124"). Nama itu yang
+        # dipakai; label hanya jadi cadangan kalau tidak ada nama menyusul.
+        # ".*" di depan memaksa kecocokan TERAKHIR — remark kadang mengulang
+        # labelnya ("TARIK TUNAI Tarik Tunai <NAMA> 12124").
+        m = re.match(r'.*\b(?:Tarik|Setor)\s+Tunai\s+(.+)', text, re.IGNORECASE)
+        if m:
+            nama = self._clean_nama(self._cut_at_stop(m.group(1)))
+            if nama:
+                return nama
+        if 'TARIK TUNAI' in upper or 'PENARIKAN TUNAI' in upper:
+            return 'Tarik Tunai'
+        if 'SETOR TUNAI' in upper or 'SETORAN TUNAI' in upper:
+            return 'Setor Tunai'
+        if re.match(r'^CLEARING\s+FEE\b', text.strip(), re.IGNORECASE):
+            return 'Biaya Kliring'
+
+        # 8. Biaya/bunga/pajak — PALING AKHIR, dan hanya kalau remark memang
+        #    berdiri sendiri sebagai transaksi biaya (bukan sekadar memuat
+        #    kata "Fee" sebagai pelengkap transfer).
+        if re.match(r'^BUNGA\b', upper):
+            return 'Bunga'
+        if re.match(r'^PAJAK\b', upper):
+            return 'Pajak'
+        if re.match(r'^(?:BIAYA\s+ADM|ADM)\b', upper):
+            return 'Biaya Administrasi'
+        if re.match(r'^BIAYA\s+MATERAI\b', upper) or re.match(r'^MATERAI\b', upper):
+            return 'Biaya Materai'
+
+        # 9. Fallback: remark yang sudah dibersihkan, apa adanya.
+        #    Bukan "-" (buang informasi) dan bukan "Biaya Admin" (salah label).
+        fallback = self._clean_nama(text)
+        return fallback if fallback else '-'

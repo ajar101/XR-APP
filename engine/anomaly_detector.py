@@ -85,6 +85,8 @@ def detect_anomalies(pdf_path, saldo_per_bulan: dict,
     findings += _check_structuring(transaksi_per_bulan)
     findings += _check_rasio_pajak_bunga(transaksi_per_bulan)
     findings += _check_jadwal_biaya_adm(transaksi_per_bulan, saldo_per_bulan)
+    findings += _check_checksum_extractor(saldo_per_bulan)
+    findings += _check_urutan_tanggal(transaksi_per_bulan)
 
     pdf_paths = [pdf_path] if isinstance(pdf_path, str) else list(pdf_path)
     beri_label_file = len(pdf_paths) > 1
@@ -181,13 +183,18 @@ def _check_duplikasi(transaksi_per_bulan):
             continue
         grouped = df[dup_mask].groupby(subset).size().reset_index(name='jumlah')
         for _, row in grouped.iterrows():
-            tingkat = 'Tinggi' if row['jumlah'] > 3 else 'Sedang'
+            # Jumlah pengulangan TIDAK menaikkan tingkat indikasi. Transaksi
+            # rutin memang wajar berulang identik di hari yang sama (setoran
+            # per shift, pembayaran per unit, penarikan bertahap), jadi
+            # menganggap >3 pengulangan sebagai indikasi tinggi menghasilkan
+            # false positive pada rekening operasional yang sibuk.
             out.append({
                 'kategori': 'Duplikasi Transaksi',
-                'tingkat': tingkat,
+                'tingkat': 'Sedang',
                 'bulan': bulan, 'tanggal': int(row['Tanggal']), 'halaman': '-',
                 'deskripsi': f"Transaksi identik berulang {row['jumlah']}x pada tanggal {row['Tanggal']}",
-                'detail': f"{row['Jenis Mutasi']} Rp{row['Mutasi']:,} — \"{row['Keterangan Transaksi']}\"",
+                'detail': f"{row['Jenis Mutasi']} Rp{row['Mutasi']:,} — \"{row['Keterangan Transaksi']}\" "
+                          f"— cek apakah ini transaksi rutin yang wajar berulang",
                 'nilai_rp': int(row['Mutasi']) * int(row['jumlah']),
             })
     return out
@@ -223,7 +230,9 @@ def _check_gap_transaksi(transaksi_per_bulan, min_streak=5, min_total_txn=30):
                         'deskripsi': f'Tidak ada transaksi selama {len(streak)} hari berturut-turut',
                         'detail': (
                             f'Rekening aktif ({len(df)} transaksi di bulan {bulan}) tapi kosong '
-                            f'tanggal {streak[0]} s.d. {streak[-1]}'
+                            f'tanggal {streak[0]} s.d. {streak[-1]}. Gap belum tentu janggal — '
+                            f'libur panjang, rekening musiman, atau pola bisnis tertentu bisa '
+                            f'menjelaskannya. Bandingkan dengan pola bulan lain sebelum menyimpulkan.'
                         ),
                         'nilai_rp': None,
                     })
@@ -737,18 +746,39 @@ def _check_mutasi_hilang(raw, transaksi_per_bulan):
         if p['mutasi_cr_match'] and p['periode']:
             bulan = p['periode'].split(' ')[0]
             declared.setdefault(bulan, {})['cr_n'] = int(p['mutasi_cr_match'].group(2))
+            declared[bulan]['cr_rp'] = float(p['mutasi_cr_match'].group(1).replace(',', ''))
         if p['mutasi_db_match'] and p['periode']:
             bulan = p['periode'].split(' ')[0]
             declared.setdefault(bulan, {})['db_n'] = int(p['mutasi_db_match'].group(2))
+            declared[bulan]['db_rp'] = float(p['mutasi_db_match'].group(1).replace(',', ''))
 
     for bulan, d in declared.items():
         df = transaksi_per_bulan.get(bulan)
         n_kredit = int((df['Jenis Mutasi'] == 'Kredit').sum()) if df is not None else 0
         n_debit = int((df['Jenis Mutasi'] == 'Debit').sum()) if df is not None else 0
+        rp_kredit = float(df[df['Jenis Mutasi'] == 'Kredit']['Mutasi'].sum()) if df is not None else 0.0
+        rp_debit = float(df[df['Jenis Mutasi'] == 'Debit']['Mutasi'].sum()) if df is not None else 0.0
+
+        # Selain jumlah transaksi, TOTAL NOMINAL-nya juga dicocokkan. Baris
+        # yang hilang bisa saja terkompensasi jumlahnya oleh baris ganda,
+        # sehingga hanya selisih nominal yang menangkapnya.
+        for label, kunci_rp, aktual_rp in (('Kredit', 'cr_rp', rp_kredit),
+                                           ('Debit', 'db_rp', rp_debit)):
+            if kunci_rp in d and abs(d[kunci_rp] - aktual_rp) > TOLERANSI_SALDO:
+                out.append({
+                    'kategori': 'Selisih dengan Ringkasan PDF',
+                    'tingkat': 'Tinggi',
+                    'bulan': bulan, 'tanggal': '-', 'halaman': '-',
+                    'deskripsi': f'Total nominal {label} hasil ekstraksi tidak sama dengan '
+                                 f'ringkasan yang tercetak di PDF pada bulan {bulan}',
+                    'detail': f"PDF mencantumkan Rp{d[kunci_rp]:,.2f}, hasil ekstraksi "
+                              f"Rp{aktual_rp:,.2f} (selisih Rp{d[kunci_rp] - aktual_rp:,.2f})",
+                    'nilai_rp': abs(int(d[kunci_rp] - aktual_rp)),
+                })
 
         if 'cr_n' in d and d['cr_n'] != n_kredit:
             out.append({
-                'kategori': 'Mutasi Hilang / Gap Tidak Wajar',
+                'kategori': 'Selisih dengan Ringkasan PDF',
                 'tingkat': 'Tinggi',
                 'bulan': bulan, 'tanggal': '-', 'halaman': '-',
                 'deskripsi': f'Jumlah transaksi Kredit hasil ekstraksi tidak sama dengan klaim PDF di bulan {bulan}',
@@ -757,13 +787,105 @@ def _check_mutasi_hilang(raw, transaksi_per_bulan):
             })
         if 'db_n' in d and d['db_n'] != n_debit:
             out.append({
-                'kategori': 'Mutasi Hilang / Gap Tidak Wajar',
+                'kategori': 'Selisih dengan Ringkasan PDF',
                 'tingkat': 'Tinggi',
                 'bulan': bulan, 'tanggal': '-', 'halaman': '-',
                 'deskripsi': f'Jumlah transaksi Debit hasil ekstraksi tidak sama dengan klaim PDF di bulan {bulan}',
                 'detail': f"PDF mengklaim {d['db_n']} transaksi Debit, hasil ekstraksi {n_debit}",
                 'nilai_rp': None,
             })
+    return out
+
+
+# ============================================================
+# CHECK — Selisih dengan ringkasan resmi yang dilaporkan extractor
+# ============================================================
+
+def _check_checksum_extractor(saldo_per_bulan):
+    """
+    Cocokkan hasil ekstraksi dengan angka ringkasan resmi di PDF, memakai
+    laporan yang disediakan extractor lewat metadata '_checksum'.
+
+    Tetap bank-agnostik: engine hanya membaca struktur umum
+    {label, expected, actual}; extractor yang tahu di mana ringkasan itu
+    tercetak dan bagaimana membacanya. Extractor yang tidak menyediakannya
+    cukup dilewati.
+    """
+    out = []
+    laporan = saldo_per_bulan.get('_checksum') or []
+    NAMA = {
+        'n_debit': 'jumlah transaksi Debit',
+        'n_credit': 'jumlah transaksi Kredit',
+        'total_debit': 'total nominal Debit',
+        'total_credit': 'total nominal Kredit',
+        'closing': 'saldo akhir',
+    }
+    for per in laporan:
+        label = per.get('label', '-')
+        exp, act = per.get('expected') or {}, per.get('actual') or {}
+        for kunci, nama in NAMA.items():
+            e, a = exp.get(kunci), act.get(kunci)
+            if e is None or a is None:
+                continue
+            if abs(float(e) - float(a)) < 0.005:
+                continue
+            selisih = float(e) - float(a)
+            angka = kunci.startswith('n_')
+            out.append({
+                'kategori': 'Selisih dengan Ringkasan PDF',
+                'tingkat': 'Tinggi',
+                'bulan': per.get('bulan', '-'), 'tanggal': '-', 'halaman': label,
+                'deskripsi': f'{nama.capitalize()} hasil ekstraksi tidak sama dengan '
+                             f'ringkasan resmi yang tercetak di PDF',
+                'detail': (f'Ringkasan PDF: {int(e)}, hasil ekstraksi: {int(a)}'
+                           if angka else
+                           f'Ringkasan PDF: Rp{e:,.2f}, hasil ekstraksi: Rp{a:,.2f} '
+                           f'(selisih Rp{selisih:,.2f})'),
+                'nilai_rp': None if angka else abs(int(selisih)),
+            })
+    return out
+
+
+# ============================================================
+# CHECK — Urutan tanggal transaksi tidak wajar
+# ============================================================
+
+def _check_urutan_tanggal(transaksi_per_bulan):
+    """
+    Deteksi transaksi yang tanggalnya mundur dari baris sebelumnya.
+
+    Rekening koran dicetak kronologis, jadi urutan seperti 01, 02, 03, 01,
+    04 — atau transaksi tanggal 15 muncul setelah tanggal 20 — menandakan
+    baris disisipkan atau dokumen disusun ulang.
+
+    Pemeriksaan ini bergantung pada urutan baris hasil ekstraksi yang
+    MENGIKUTI urutan cetak di PDF. Extractor yang mengurutkan ulang
+    hasilnya akan membuat pemeriksaan ini tidak pernah menemukan apa pun.
+    """
+    out = []
+    for bulan, df in transaksi_per_bulan.items():
+        if df is None or df.empty or len(df) < 3:
+            continue
+        tanggal = [int(t) for t in df['Tanggal'].tolist()]
+        maks = tanggal[0]
+        for i in range(1, len(tanggal)):
+            t = tanggal[i]
+            if t < maks:
+                out.append({
+                    'kategori': 'Urutan Tanggal Tidak Wajar',
+                    'tingkat': 'Tinggi',
+                    'bulan': bulan, 'tanggal': t, 'halaman': '-',
+                    'deskripsi': f'Transaksi tanggal {t} tercetak setelah transaksi tanggal {maks}',
+                    'detail': (
+                        f'Baris ke-{i + 1} di bulan {bulan} mundur {maks - t} hari dari '
+                        f'tanggal tertinggi sebelumnya. Rekening koran biasanya kronologis, '
+                        f'jadi urutan mundur bisa menandakan baris disisipkan — '
+                        f'periksa halaman sumbernya.'
+                    ),
+                    'nilai_rp': None,
+                })
+            else:
+                maks = t
     return out
 
 

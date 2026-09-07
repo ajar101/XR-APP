@@ -1,4 +1,14 @@
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Output parser
+Parsed_*.xlsx
+~$*.xlsx
+
+# Folder runtime aplikasi
 uploads/
 exports/

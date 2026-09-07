@@ -18,6 +18,8 @@ Sheet yang dihasilkan:
   8. Summary (+ HHI Score)
 """
 
+import re
+
 import pandas as pd
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
@@ -30,6 +32,10 @@ from engine.categorizer import (
     KATEGORI_KREDIT_KEYWORDS,
 )
 from engine.anomaly_detector import detect_anomalies
+
+# Batas jumlah bulan yang dirender per sheet. Disamakan dengan batas
+# penggabungan multi-PDF supaya 6 bulan hasil merge benar-benar tampil.
+from engine.multi_pdf_merger import MAX_BULAN as MAX_BULAN_TAMPIL
 
 BULAN_ORDER = [
     'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
@@ -109,20 +115,35 @@ def create_excel(saldo_per_bulan: dict, transaksi_per_bulan: dict,
     """
     wb = Workbook()
 
+    # Urut kronologis: tahun dulu, baru bulan. Tanpa tahun, laporan yang
+    # melintasi pergantian tahun jadi kacau — Nov/Des 2025 akan terurut
+    # SETELAH Jan/Feb 2026 dan ikut terbuang saat dipotong batas tampil.
+    def _urutan(b):
+        info = saldo_per_bulan.get(b) or {}
+        try:
+            tahun = int(info.get('tahun', 0))
+        except (TypeError, ValueError):
+            tahun = 0
+        return (tahun, BULAN_ORDER.index(b) if b in BULAN_ORDER else 99)
+
     bulan_list = sorted(
         [b for b in saldo_per_bulan if not b.startswith('_')],
-        key=lambda b: BULAN_ORDER.index(b) if b in BULAN_ORDER else 99
-    )
+        key=_urutan,
+    )[:MAX_BULAN_TAMPIL]
 
     _build_sheet1_saldo(wb, saldo_per_bulan, bulan_list)
     _build_sheet2_transaksi(wb, transaksi_per_bulan, bulan_list)
     _build_sheet3_rekap_kredit(wb, transaksi_per_bulan, bulan_list)
     _build_sheet4_rekap_debit(wb, transaksi_per_bulan, bulan_list)
+    _build_sheet_summary_rekap_kredit(wb, transaksi_per_bulan, bulan_list)
+    _build_sheet_summary_rekap_debit(wb, transaksi_per_bulan, bulan_list)
     _build_sheet5_cashflow(wb, saldo_per_bulan, transaksi_per_bulan, bulan_list)
     _build_sheet6_kategori_debit(wb, transaksi_per_bulan, bulan_list, saldo_per_bulan)
     _build_sheet7_kategori_kredit(wb, transaksi_per_bulan, bulan_list, saldo_per_bulan)
-    _build_sheet8_summary(wb, saldo_per_bulan, transaksi_per_bulan, bulan_list, bank_name)
+    _build_sheet_daftar_indikator(wb)
     _build_sheet9_indikasi(wb, saldo_per_bulan, transaksi_per_bulan, pdf_path)
+    # Summary sengaja dibuat paling akhir supaya jadi sheet terakhir di file.
+    _build_sheet8_summary(wb, saldo_per_bulan, transaksi_per_bulan, bulan_list, bank_name)
 
     wb.save(output_path)
 
@@ -136,12 +157,12 @@ def _build_sheet1_saldo(wb, saldo_per_bulan, bulan_list):
     ws.title = 'Saldo Harian'
     ws.sheet_view.showGridLines = False
 
-    col_offset = {0: 0, 1: 5, 2: 10}
+    LEBAR_BLOK = 5   # 3 kolom data + 2 kolom jeda
 
-    for idx, bulan in enumerate(bulan_list[:3]):
+    for idx, bulan in enumerate(bulan_list):
         info   = saldo_per_bulan[bulan]
         df     = info['df']
-        offset = col_offset[idx]
+        offset = idx * LEBAR_BLOK
 
         for h_idx, header in enumerate(['Bulan', 'Tanggal', 'Saldo Akhir Harian']):
             c = ws.cell(row=1, column=offset + h_idx + 1, value=header)
@@ -186,16 +207,16 @@ def _build_sheet2_transaksi(wb, transaksi_per_bulan, bulan_list):
     ws = wb.create_sheet(title='Detail Transaksi')
     ws.sheet_view.showGridLines = False
 
-    col_offset = {0: 0, 1: 8, 2: 16}
+    LEBAR_BLOK = 8   # 6 kolom data + 2 kolom jeda
     headers    = ['Bulan', 'Tanggal', 'Jenis Mutasi', 'Mutasi',
                   'Nama Pengirim/Penerima', 'Keterangan Transaksi']
 
-    for idx, bulan in enumerate(bulan_list[:3]):
+    for idx, bulan in enumerate(bulan_list):
         if bulan not in transaksi_per_bulan:
             continue
 
         df     = transaksi_per_bulan[bulan]
-        offset = col_offset[idx]
+        offset = idx * LEBAR_BLOK
 
         for h_idx, header in enumerate(headers):
             c = ws.cell(row=1, column=offset + h_idx + 1, value=header)
@@ -243,10 +264,9 @@ def _build_rekap_sheet(ws, transaksi_per_bulan, bulan_list,
                        jenis_filter, label_total, show_concentration=False):
     ws.sheet_view.showGridLines = False
 
-    bulan_ada = sorted(
-        [b for b in bulan_list if b in transaksi_per_bulan],
-        key=lambda b: BULAN_ORDER.index(b) if b in BULAN_ORDER else 99
-    )
+    # bulan_list sudah urut kronologis (tahun lalu bulan); cukup disaring,
+    # jangan diurutkan ulang tanpa tahun — itu merusak urutan lintas-tahun.
+    bulan_ada = [b for b in bulan_list if b in transaksi_per_bulan]
 
     frames = [transaksi_per_bulan[b][transaksi_per_bulan[b]['Jenis Mutasi'] == jenis_filter].copy()
               for b in bulan_ada]
@@ -264,9 +284,10 @@ def _build_rekap_sheet(ws, transaksi_per_bulan, bulan_list,
     pivot_nom['Total'] = pivot_nom.sum(axis=1)
     pivot_qty['Total'] = pivot_qty.sum(axis=1)
 
-    total_nom = {b: int(df_all[df_all['Bulan'] == b]['Mutasi'].sum()) for b in bulan_ada}
+    total_nom = {b: round(float(df_all[df_all['Bulan'] == b]['Mutasi'].sum()), 2)
+                 for b in bulan_ada}
     total_qty = {b: int(df_all[df_all['Bulan'] == b]['Mutasi'].count()) for b in bulan_ada}
-    total_nom['Total'] = int(df_all['Mutasi'].sum())
+    total_nom['Total'] = round(float(df_all['Mutasi'].sum()), 2)
     total_qty['Total'] = int(df_all['Mutasi'].count())
 
     pivot_nom = pivot_nom.sort_values('Total', ascending=False)
@@ -410,6 +431,306 @@ def _build_rekap_sheet(ws, transaksi_per_bulan, bulan_list,
         ws.column_dimensions[get_column_letter(kolom_kum)].width = 15
 
 
+# ============================================================
+# SHEET SUMMARY REKAP — versi ringkas dari Rekap Kredit/Debit
+# ============================================================
+
+# Label tunggal untuk semua transaksi yang namanya tidak bisa dirapikan.
+LABEL_LAINNYA = 'Transaksi Lainnya / Tanpa Keterangan'
+
+# Nama-nama yang memang label kategori, bukan hasil ekstraksi yang gagal.
+# Ini tetap berdiri sendiri — meleburnya justru membuang informasi.
+LABEL_KATEGORI = {
+    'Pembayaran Tagihan (UBP)', 'Biaya Transfer Antar Bank', 'Biaya Kliring',
+    'Biaya Administrasi', 'Biaya Kartu Bulanan', 'Biaya Materai',
+    'Bunga', 'Pajak', 'Tarik Tunai', 'Setor Tunai',
+    'Pindah Buku / Sweep', 'Transaksi ATM', 'Pembayaran EDC/Merchant',
+    'Transaksi Kartu Debit',
+}
+
+
+def _nama_tidak_rapi(nama: str) -> bool:
+    """
+    Apakah nama ini gagal diekstrak jadi identitas yang bisa dibaca?
+
+    Satu-satunya tempat aturan ini didefinisikan, supaya bisa diperketat
+    seiring parser membaik — dan supaya ukuran keranjang "lainnya" bisa
+    dipantau, bukan jadi tempat menyembunyikan kegagalan ekstraksi.
+
+    Yang dianggap tidak rapi: masih memuat kode ber-slash, deretan angka
+    panjang, terlalu panjang untuk sebuah nama, atau nyaris tanpa huruf.
+    """
+    n = (nama or '').strip()
+    if not n or n in LABEL_KATEGORI:
+        return False
+    if '/' in n or '\\' in n:
+        return True
+    if len(n) > 40:
+        return True
+    if re.search(r'\d{5,}', n):
+        return True
+    if len(re.findall(r'[A-Za-z]', n)) < 3:
+        return True
+    return False
+
+
+def _build_summary_rekap_sheet(ws, transaksi_per_bulan, bulan_list,
+                               jenis_filter, label_total):
+    """
+    Rekap ringkas: hanya nominal (tanpa kolom qty), dan seluruh transaksi
+    yang namanya tidak bisa dirapikan digabung ke satu baris.
+
+    Totalnya wajib sama persis dengan sheet Rekap yang penuh — penggabungan
+    baris tidak boleh mengubah satu rupiah pun.
+    """
+    ws.sheet_view.showGridLines = False
+
+    bulan_ada = [b for b in bulan_list if b in transaksi_per_bulan]
+    frames = [transaksi_per_bulan[b][transaksi_per_bulan[b]['Jenis Mutasi'] == jenis_filter].copy()
+              for b in bulan_ada]
+    if not frames:
+        return
+
+    df_all = pd.concat(frames, ignore_index=True)
+    df_all['_nama'] = df_all['Nama Pengirim/Penerima'].apply(
+        lambda n: LABEL_LAINNYA if _nama_tidak_rapi(n) else n
+    )
+
+    pivot = df_all.groupby(['_nama', 'Bulan'])['Mutasi'].sum().unstack(fill_value=0)
+    pivot = pivot.reindex(columns=bulan_ada, fill_value=0)
+    pivot['Total'] = pivot.sum(axis=1)
+
+    total_per_bulan = {b: round(float(df_all[df_all['Bulan'] == b]['Mutasi'].sum()), 2)
+                       for b in bulan_ada}
+    grand_total = round(float(df_all['Mutasi'].sum()), 2)
+
+    # Urut nominal terbesar, tapi baris gabungan selalu di paling bawah —
+    # ia bukan lawan transaksi, jadi tidak layak bersaing di peringkat atas.
+    pivot = pivot.sort_values('Total', ascending=False)
+    if LABEL_LAINNYA in pivot.index:
+        pivot = pd.concat([pivot.drop(index=LABEL_LAINNYA), pivot.loc[[LABEL_LAINNYA]]])
+
+    # ---- Header ----
+    style_header(ws.cell(row=1, column=1, value='Nama Pengirim/Penerima'))
+    ws.row_dimensions[1].height = 24
+    for i, b in enumerate(bulan_ada):
+        style_header(ws.cell(row=1, column=2 + i, value=b), bg_color='2E75B6')
+    kolom_total = 2 + len(bulan_ada)
+    style_header(ws.cell(row=1, column=kolom_total, value=label_total), bg_color='2E75B6')
+
+    # ---- Baris data ----
+    nilai = pivot.replace(0, None)
+    for row_idx, nama in enumerate(pivot.index):
+        r  = row_idx + 2
+        is_lain = (nama == LABEL_LAINNYA)
+        bg = 'FFF2CC' if is_lain else ('F2F7FF' if row_idx % 2 == 0 else 'FFFFFF')
+
+        style_data(ws.cell(row=r, column=1, value=nama),
+                   align='left', bold=is_lain, bg_color=bg)
+        for i, b in enumerate(bulan_ada):
+            c = ws.cell(row=r, column=2 + i, value=nilai.loc[nama, b])
+            c.number_format = '#,##0'
+            style_data(c, align='right', bg_color=bg)
+        c = ws.cell(row=r, column=kolom_total, value=nilai.loc[nama, 'Total'])
+        c.number_format = '#,##0'
+        style_data(c, align='right', bold=True, bg_color='EBF3FB' if not is_lain else bg)
+
+    # ---- Baris total ----
+    total_row = len(pivot) + 2
+    style_total_row(ws.cell(row=total_row, column=1, value=label_total), align='left')
+    for i, b in enumerate(bulan_ada):
+        c = ws.cell(row=total_row, column=2 + i, value=total_per_bulan[b])
+        c.number_format = '#,##0'
+        style_total_row(c, align='right')
+    c = ws.cell(row=total_row, column=kolom_total, value=grand_total)
+    c.number_format = '#,##0'
+    style_total_row(c, align='right')
+
+    ws.column_dimensions['A'].width = 40
+    for i in range(len(bulan_ada) + 1):
+        ws.column_dimensions[get_column_letter(2 + i)].width = 20
+
+
+def _build_sheet_summary_rekap_kredit(wb, transaksi_per_bulan, bulan_list):
+    ws = wb.create_sheet(title='Summary Rekap Kredit')
+    _build_summary_rekap_sheet(ws, transaksi_per_bulan, bulan_list,
+                               'Kredit', 'Total Mutasi Kredit')
+
+
+def _build_sheet_summary_rekap_debit(wb, transaksi_per_bulan, bulan_list):
+    ws = wb.create_sheet(title='Summary Rekap Debit')
+    _build_summary_rekap_sheet(ws, transaksi_per_bulan, bulan_list,
+                               'Debit', 'Total Mutasi Debit')
+
+
+# ============================================================
+# SHEET DAFTAR INDIKATOR — penjelasan pemeriksaan kejanggalan
+# ============================================================
+
+# Deskripsi tiap pemeriksaan di engine/anomaly_detector.py, supaya tim tahu
+# apa saja yang diperiksa dan bagaimana cara mendeteksinya — bukan cuma
+# melihat hasil temuannya. Urutannya mengikuti urutan pemanggilan di
+# detect_anomalies(). Kolom "Sumber" membedakan pemeriksaan atas data hasil
+# ekstraksi dari pemeriksaan yang membaca ulang PDF mentah.
+DAFTAR_INDIKATOR = [
+    ('Saldo Tidak Balance', 'Tinggi', 'Data ekstraksi',
+     'Saldo awal + total kredit − total debit tidak sama dengan saldo akhir bulan.',
+     'Dihitung per bulan dan dibandingkan dengan saldo akhir harian terakhir, '
+     'dengan toleransi pembulatan Rp100.'),
+
+    ('Duplikasi Transaksi', 'Sedang', 'Data ekstraksi',
+     'Beberapa baris transaksi identik dalam satu bulan.',
+     'Dikelompokkan atas tanggal, jenis mutasi, nominal, dan keterangan yang sama persis. '
+     'Jumlah pengulangan TIDAK menaikkan tingkat indikasi — transaksi rutin memang wajar '
+     'berulang identik (setoran per shift, pembayaran per unit), jadi temuan ini selalu '
+     'perlu dicek konteksnya, bukan langsung dianggap janggal.'),
+
+    ('Mutasi Hilang / Gap Tidak Wajar', 'Sedang', 'Data ekstraksi',
+     'Ada rentang hari tanpa transaksi sama sekali.',
+     'Minimal 5 hari beruntun kosong pada bulan yang punya ≥30 transaksi. Gap belum tentu '
+     'janggal: libur panjang, rekening musiman, atau pola bisnis tertentu bisa '
+     'menjelaskannya — bandingkan dengan pola bulan lain sebelum menyimpulkan.'),
+
+    ('Setoran Tunai di Hari Libur', 'Tinggi', 'Data ekstraksi',
+     'Setoran tunai bertanggal Minggu atau libur nasional.',
+     'Baris yang keterangannya memuat "SETORAN TUNAI" dicek terhadap hari Minggu '
+     'dan daftar libur nasional tanggal tetap.'),
+
+    ('Transaksi RTGS di Hari Libur', 'Tinggi', 'Data ekstraksi',
+     'Transaksi RTGS bertanggal Minggu atau libur nasional.',
+     'Indikasinya lebih kuat dari setoran tunai: sistem BI-RTGS tidak beroperasi di '
+     'luar hari kerja bank, sedangkan setoran tunai lewat CDM bisa 24/7. '
+     'Hanya baris yang keterangannya eksplisit memuat "RTGS".'),
+
+    ('Nominal Bulat Berulang', 'Rendah', 'Data ekstraksi',
+     'Banyak transaksi bernilai sangat bulat.',
+     'Minimal 5 transaksi ≥Rp50 juta yang merupakan kelipatan Rp10 juta dalam satu bulan.'),
+
+    ('Indikasi Structuring', 'Sedang', 'Data ekstraksi',
+     'Transaksi tunai yang nilainya mendekati batas pelaporan.',
+     'Transaksi berketerangan "TUNAI" bernilai Rp400 juta sampai di bawah Rp500 juta, '
+     'dikelompokkan per tanggal.'),
+
+    ('Rasio Pajak Bunga Tidak Wajar', 'Rendah / Sedang', 'Data ekstraksi',
+     'Pajak bunga tidak sebanding dengan bunga yang diterima.',
+     'PPh Final atas bunga tabungan/giro umumnya 20%, jadi rasio Pajak Bunga terhadap '
+     'Bunga seharusnya mendekati 0,20. Hanya baris berketerangan persis "BUNGA" / '
+     '"PAJAK BUNGA" yang dihitung.'),
+
+    ('Jadwal Biaya Admin Tidak Wajar', 'Sedang', 'Data ekstraksi',
+     'KHUSUS BCA — tanggal pendebetan biaya administrasi tidak sesuai jadwal.',
+     'Saat ini hanya jadwal BCA yang datanya tersedia, jadi pemeriksaan ini hanya '
+     'berlaku untuk rekening BCA dan tidak dijalankan sebagai aturan umum. Jadwal bank '
+     'lain akan ditambahkan setelah datanya dipastikan; sampai itu terjadi, ketiadaan '
+     'temuan di bank lain BUKAN berarti jadwalnya sudah benar.'),
+
+    ('Selisih dengan Ringkasan PDF', 'Tinggi', 'Data ekstraksi + PDF mentah',
+     'Jumlah transaksi atau total nominal hasil ekstraksi tidak sama dengan angka '
+     'ringkasan yang tercetak di PDF itu sendiri.',
+     'Dicocokkan terhadap angka resmi di footer/blok ringkasan bila PDF mencantumkannya: '
+     'jumlah transaksi debit & kredit, total nominal debit & kredit, dan saldo akhir. '
+     'Jumlah dan nominal dicek terpisah — baris yang hilang bisa terkompensasi jumlahnya '
+     'oleh baris ganda, sehingga hanya selisih nominal yang menangkapnya. '
+     'PDF yang tidak mencantumkan ringkasan tidak bisa diperiksa dengan cara ini.'),
+
+    ('Urutan Tanggal Tidak Wajar', 'Tinggi', 'Data ekstraksi',
+     'Tanggal transaksi mundur dari baris sebelumnya.',
+     'Rekening koran dicetak kronologis, jadi urutan seperti 01, 02, 03, 01, 04 — atau '
+     'transaksi tanggal 15 muncul setelah tanggal 20 — bisa menandakan baris disisipkan '
+     'atau dokumen disusun ulang. Beberapa transaksi di tanggal yang sama tidak dihitung '
+     'sebagai pelanggaran urutan.'),
+
+    ('Running Balance Tidak Konsisten', 'Tinggi', 'PDF mentah',
+     'Saldo berjalan antar baris di PDF tidak menyambung.',
+     'Saldo tiap baris dihitung ulang dari baris sebelumnya (+kredit −debit) langsung '
+     'dari teks PDF, dengan toleransi Rp5. Saldo di-reset tiap ganti periode.'),
+
+    ('Halaman/Periode Tidak Berurutan', 'Sedang / Tinggi', 'PDF mentah',
+     'Nomor halaman meloncat atau periode tidak berurutan.',
+     'Nomor halaman dalam satu periode harus naik satu per satu.'),
+
+    ('Template Halaman Berbeda', 'Sedang', 'PDF mentah',
+     'Halaman berisi transaksi tapi header kolom standar tidak ditemukan.',
+     'Bisa berarti halaman disisipkan dari sumber lain atau layout diubah.'),
+
+    ('Format Nominal Tidak Konsisten', 'Sedang', 'PDF mentah',
+     'Ada baris memakai format angka yang berbeda dari sisa dokumen.',
+     'Mendeteksi campuran format ribuan/desimal gaya Eropa di antara baris '
+     'berformat standar — pola yang lazim muncul pada dokumen yang diedit.'),
+
+    ('Metadata PDF', 'Rendah / Sedang', 'PDF mentah',
+     'Informasi pembuat, aplikasi, dan waktu pembuatan/modifikasi berkas.',
+     'Selalu ditampilkan apa adanya untuk direview manual. Ditandai mencurigakan bila '
+     'aplikasi pembuatnya bukan sistem perbankan, atau waktu modifikasi berbeda dari '
+     'waktu pembuatan.'),
+]
+
+CATATAN_INDIKATOR = [
+    'Sistem hanya menyatakan INDIKASI yang perlu diperiksa manusia — bukan kesimpulan '
+    'bahwa dokumen dipalsukan. Satu temuan tidak berarti dokumen bermasalah, dan tidak '
+    'adanya temuan tidak menjamin dokumen asli.',
+    'Daftar libur nasional yang dipakai baru mencakup 4 tanggal tetap '
+    '(1 Januari, 1 Mei, 17 Agustus, 25 Desember) ditambah hari Minggu. Libur yang '
+    'mengikuti kalender lunar/hijriah dan cuti bersama BELUM tercakup, sehingga '
+    'transaksi di hari-hari itu tidak akan tertandai.',
+    'Pemeriksaan "Jadwal Biaya Admin Tidak Wajar" mengikuti pola penjadwalan BCA. '
+    'Untuk bank lain pemeriksaan ini bisa tidak relevan — perlakukan temuannya '
+    'dengan hati-hati.',
+    'Pemeriksaan berbasis PDF mentah dijalankan per berkas. Pada upload beberapa PDF, '
+    'nama berkas dicantumkan di kolom halaman supaya temuan bisa dilacak.',
+    'Pemeriksaan "Urutan Tanggal Tidak Wajar" dan "Selisih dengan Ringkasan PDF" hanya '
+    'berjalan bila extractor bank tersebut mempertahankan urutan cetak dan membaca angka '
+    'ringkasan PDF. Saat ini keduanya tersedia untuk BCA dan Mandiri Kopra.',
+]
+
+
+def _build_sheet_daftar_indikator(wb):
+    """Daftar seluruh indikator kejanggalan beserta cara deteksinya."""
+    ws = wb.create_sheet(title='Daftar Indikator')
+    ws.sheet_view.showGridLines = False
+
+    judul = ('DAFTAR INDIKATOR KEJANGGALAN — apa saja yang diperiksa sistem '
+             'dan bagaimana cara mendeteksinya')
+    c = ws.cell(row=1, column=1, value=judul)
+    style_header(c)
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=5)
+    ws.row_dimensions[1].height = 26
+
+    headers = ['No', 'Indikator', 'Tingkat', 'Sumber', 'Yang Diperiksa & Cara Deteksi']
+    for i, h in enumerate(headers):
+        style_header(ws.cell(row=2, column=1 + i, value=h), bg_color='2E75B6')
+    ws.row_dimensions[2].height = 20
+
+    r = 3
+    for idx, (nama, tingkat, sumber, apa, cara) in enumerate(DAFTAR_INDIKATOR, start=1):
+        bg = 'F2F7FF' if idx % 2 else 'FFFFFF'
+        style_data(ws.cell(row=r, column=1, value=idx), align='center', bg_color=bg)
+        style_data(ws.cell(row=r, column=2, value=nama), align='left', bold=True, bg_color=bg)
+        style_data(ws.cell(row=r, column=3, value=tingkat), align='center', bg_color=bg)
+        style_data(ws.cell(row=r, column=4, value=sumber), align='center', bg_color=bg)
+        c = ws.cell(row=r, column=5, value=f'{apa} {cara}')
+        style_data(c, align='left', bg_color=bg)
+        c.alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
+        ws.row_dimensions[r].height = 46
+        r += 1
+
+    r += 1
+    c = ws.cell(row=r, column=1, value='CATATAN PENTING')
+    style_header(c, bg_color='C00000')
+    ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=5)
+    r += 1
+    for catatan in CATATAN_INDIKATOR:
+        c = ws.cell(row=r, column=1, value=catatan)
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=5)
+        style_data(c, align='left', bg_color='FFF2CC')
+        c.alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
+        ws.row_dimensions[r].height = 32
+        r += 1
+
+    for col, width in zip('ABCDE', (5, 34, 16, 22, 95)):
+        ws.column_dimensions[col].width = width
+
+
 def _build_sheet3_rekap_kredit(wb, transaksi_per_bulan, bulan_list):
     ws = wb.create_sheet(title='Rekap Kredit')
     _build_rekap_sheet(ws, transaksi_per_bulan, bulan_list,
@@ -430,16 +751,16 @@ def _build_sheet5_cashflow(wb, saldo_per_bulan, transaksi_per_bulan, bulan_list)
     ws = wb.create_sheet(title='Cashflow Harian')
     ws.sheet_view.showGridLines = False
 
-    col_offset = {0: 0, 1: 7, 2: 14}
+    LEBAR_BLOK = 7   # 6 kolom data + 1 kolom jeda
     headers    = ['Bulan', 'Tanggal', 'Total Kredit', 'Total Debit', 'Net Cashflow', 'Saldo Akhir']
 
-    for idx, bulan in enumerate(bulan_list[:3]):
+    for idx, bulan in enumerate(bulan_list):
         if bulan not in transaksi_per_bulan:
             continue
 
         df       = transaksi_per_bulan[bulan]
         saldo_df = saldo_per_bulan[bulan]['df']
-        offset   = col_offset[idx]
+        offset   = idx * LEBAR_BLOK
 
         for h_idx, header in enumerate(headers):
             c = ws.cell(row=1, column=offset + h_idx + 1, value=header)
@@ -575,7 +896,7 @@ def _build_kategori_sheet(ws, df_all, kategori_keys, label_total,
         for bulan in bulan_ada:
             subset = df_all[(df_all['Kategori'] == kategori) & (df_all['Bulan'] == bulan)]
             qty = len(subset)
-            nom = int(subset['Mutasi'].sum()) if qty > 0 else 0
+            nom = round(float(subset['Mutasi'].sum()), 2) if qty > 0 else 0
             pivot_data[kategori][bulan] = {'qty': qty, 'nom': nom}
         pivot_data[kategori]['Total'] = {
             'qty': sum(v['qty'] for v in pivot_data[kategori].values()),
@@ -686,10 +1007,9 @@ def _build_sheet6_kategori_debit(wb, transaksi_per_bulan, bulan_list, saldo_per_
     ws = wb.create_sheet(title='Kategori Debit')
 
     nama_perusahaan = saldo_per_bulan.get('_nama_pemilik', '')
-    bulan_ada = sorted(
-        [b for b in bulan_list if b in transaksi_per_bulan],
-        key=lambda b: BULAN_ORDER.index(b) if b in BULAN_ORDER else 99
-    )
+    # bulan_list sudah urut kronologis (tahun lalu bulan); cukup disaring,
+    # jangan diurutkan ulang tanpa tahun — itu merusak urutan lintas-tahun.
+    bulan_ada = [b for b in bulan_list if b in transaksi_per_bulan]
 
     frames = []
     for bulan in bulan_ada:
@@ -721,10 +1041,9 @@ def _build_sheet7_kategori_kredit(wb, transaksi_per_bulan, bulan_list, saldo_per
     ws = wb.create_sheet(title='Kategori Kredit')
 
     nama_perusahaan = saldo_per_bulan.get('_nama_pemilik', '')
-    bulan_ada = sorted(
-        [b for b in bulan_list if b in transaksi_per_bulan],
-        key=lambda b: BULAN_ORDER.index(b) if b in BULAN_ORDER else 99
-    )
+    # bulan_list sudah urut kronologis (tahun lalu bulan); cukup disaring,
+    # jangan diurutkan ulang tanpa tahun — itu merusak urutan lintas-tahun.
+    bulan_ada = [b for b in bulan_list if b in transaksi_per_bulan]
 
     frames = []
     for bulan in bulan_ada:
@@ -766,10 +1085,7 @@ def _build_sheet8_summary(wb, saldo_per_bulan, transaksi_per_bulan,
     nama_pemilik = saldo_per_bulan.get('_nama_pemilik', '-')
     no_rekening  = saldo_per_bulan.get('_no_rekening', '-')
 
-    bulan_summary = sorted(
-        [b for b in bulan_list if b in transaksi_per_bulan],
-        key=lambda b: BULAN_ORDER.index(b) if b in BULAN_ORDER else 99
-    )
+    bulan_summary = [b for b in bulan_list if b in transaksi_per_bulan]
     n_bulan = len(bulan_summary)
 
     for i in range(n_bulan + 2):
@@ -824,8 +1140,10 @@ def _build_sheet8_summary(wb, saldo_per_bulan, transaksi_per_bulan,
     for bulan in bulan_summary:
         df_t   = transaksi_per_bulan[bulan]
         df_s   = saldo_per_bulan[bulan]['df']
-        kredit = int(df_t[df_t['Jenis Mutasi'] == 'Kredit']['Mutasi'].sum())
-        debit  = int(df_t[df_t['Jenis Mutasi'] == 'Debit']['Mutasi'].sum())
+        # round(), bukan int(): nominal Mandiri berdesimal, dan memotong sen
+        # per bulan membuat kolom Total meleset dari angka resmi di PDF.
+        kredit = round(float(df_t[df_t['Jenis Mutasi'] == 'Kredit']['Mutasi'].sum()), 2)
+        debit  = round(float(df_t[df_t['Jenis Mutasi'] == 'Debit']['Mutasi'].sum()), 2)
         rata   = hitung_rata_rata_pengendapan(df_s)
         if not df_s.empty:
             saldo_akhir = int(df_s['Saldo Akhir Harian'].iloc[-1])
