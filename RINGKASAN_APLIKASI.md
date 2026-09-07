@@ -2,7 +2,7 @@
 
 Ringkasan arsitektur, fitur, input/output, dan rencana pengembangan aplikasi ekstraktor rekening koran.
 
-> Dibuat: 2 September 2026 · Status: fokus stabilisasi BCA (BNI & Mandiri dinonaktifkan sementara)
+> Dibuat: 2 September 2026 · Diperbarui: 7 September 2026 · Status: BCA & Mandiri (Kopra + e-Statement) aktif; BNI dinonaktifkan sementara
 
 ---
 
@@ -24,10 +24,11 @@ XR-APP/
 ├── extractors/                  # Lapisan parsing PDF (spesifik per bank)
 │   ├── base.py                  #   Kontrak abstrak BaseExtractor
 │   ├── registry.py              #   Daftar bank & status aktif/nonaktif
-│   ├── bca.py                   #   Extractor BCA (satu-satunya yang aktif)
+│   ├── bca.py                   #   Extractor BCA (Giro & Tahapan)
 │   ├── bni.py                   #   Extractor BNI (nonaktif sementara)
-│   ├── mandiri.py               #   Dispatcher format Mandiri (nonaktif sementara)
-│   ├── mandiri_kopra.py         #   Sub-extractor Mandiri Kopra (nonaktif sementara)
+│   ├── mandiri.py               #   Dispatcher format Mandiri (auto-detect)
+│   ├── mandiri_kopra.py         #   Sub-extractor Mandiri Kopra
+│   ├── mandiri_statement.py     #   Sub-extractor Mandiri e-Statement (Livin'/Mandiri Online)
 │   └── pdf_utils.py             #   Deteksi PDF hasil scan/foto (bank-agnostic)
 ├── engine/                      # Lapisan pemrosesan (bank-agnostic)
 │   ├── excel_builder.py         #   Generator Excel 9-sheet
@@ -78,7 +79,9 @@ app.py /upload
 | Analisis konsentrasi nasabah (HHI Score) | ✅ Aktif |
 | Sheet "Indikasi Kejanggalan" (13 indikator deteksi anomali) | ✅ Aktif (lihat §4) |
 | Bank BNI | ⏸ Nonaktif sementara (kode masih ada, tinggal `enabled: True` di registry) |
-| Bank Mandiri (Kopra/E-Banking/Statement) | ⏸ Nonaktif sementara — hanya format Kopra yang sempat diimplementasikan |
+| Bank Mandiri — format **Kopra by Mandiri** | ✅ Aktif — divalidasi checksum terhadap ringkasan resmi PDF |
+| Bank Mandiri — format **e-Statement** (Livin'/Mandiri Online) | ✅ Aktif — Tabungan, Tabungan Bisnis, Tabungan NOW & Giro; divalidasi 100% terhadap 14 periode dari 5 PDF riil |
+| Bank Mandiri — format **E-Banking** | ❌ Belum ada extractor (ditolak dengan pesan jelas oleh dispatcher) |
 | Bank BRI | 🔜 "Coming soon" di UI, belum ada extractor |
 | OCR / ekstraksi PDF hasil scan | ❌ Belum diimplementasikan (lihat §6) |
 
@@ -154,7 +157,8 @@ Disusun sebagai dashboard ringkas (skor risiko + ringkasan per kategori) diikuti
 Disusun berdasarkan diskusi sepanjang pengembangan, urut prioritas realistis (bukan urut "keren"):
 
 ### 6.1 Jangka pendek — masih di arsitektur Flask saat ini
-- **Reaktivasi BNI & Mandiri** setelah proses stabilisasi pola BCA (regex, deteksi nama, dsb.) dianggap cukup matang untuk dijadikan acuan pola bank lain.
+- **Reaktivasi BNI** setelah proses stabilisasi pola BCA (regex, deteksi nama, dsb.) dianggap cukup matang untuk dijadikan acuan pola bank lain. *(Mandiri sudah aktif: format Kopra dan e-Statement.)*
+- **Pemeriksaan Sheet 9 yang masih spesifik pola teks BCA** — beberapa indikator (running balance dari PDF mentah, nomor halaman, template halaman, format nominal, rasio pajak/bunga, jadwal biaya admin) mencocokkan kata kunci & tata letak khas BCA, sehingga tidak menyala untuk PDF Mandiri. Bukan salah baca, tapi cakupan pemeriksaannya memang lebih sempit untuk Mandiri — kedua extractor Mandiri menutupnya lewat checksum internal (`validate()` → metadata `_checksum`).
 - **Perluas daftar hari libur nasional** (termasuk libur lunar/hijriah) — perlu referensi kalender resmi per tahun.
 - **OCR / Claude Vision untuk PDF hasil scan** — saat ini hanya terdeteksi & ditolak. Rekomendasi: langsung ke pendekatan vision model (Claude API) ketimbang OCR tradisional + regex, karena data finansial butuh akurasi tinggi dan OCR rentan salah baca digit pada tabel rapat. *(Belum digarap — dinilai jarang terjadi untuk saat ini.)*
 
