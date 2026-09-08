@@ -218,6 +218,19 @@ def extract_nama(keterangan: str) -> str:
     if re.match(r'^PRMA\s+(?:CR|DB)\s+Transf\b', text, re.IGNORECASE):
         return 'Transfer via Jaringan PRIMA'
 
+    # Autodebet angsuran ("Auto Coll: 9432301167. Ang Ke 22 23463301 2299102"):
+    # yang tercetak nomor pinjaman + angsuran ke berapa, bukan nama pihak.
+    # Nomornya berubah tiap angsuran, jadi kalau dipakai sebagai nama, satu
+    # pinjaman muncul sebagai belasan "pihak" berbeda.
+    if re.match(r'^AUTO\s+COLL\b', upper):
+        return 'Autodebet Angsuran'
+
+    # Pembayaran pajak/penerimaan negara lewat SPAN ("SPAN 2500813020007970
+    # 00001 00001 MCM InhouseTrf an Pembayaran Pendapatan PPN Dalam Neger").
+    # Lawan transaksinya kas negara; yang tercetak nomor billing.
+    if re.match(r'^SPAN\s+\d', text, re.IGNORECASE):
+        return 'Pembayaran Pajak (SPAN)'
+
     # 7. Kategori tetap.
     if re.match(r'^DARI\s+\d+\s+KE\s+\d+', text.strip(), re.IGNORECASE):
         return 'Pindah Buku / Sweep'
@@ -271,7 +284,29 @@ def extract_nama(keterangan: str) -> str:
     if re.match(r'^BIAYA\s+MATERAI\b', upper) or re.match(r'^MATERAI\b', upper):
         return 'Biaya Materai'
 
-    # 9. Fallback: remark yang sudah dibersihkan, apa adanya.
-    #    Bukan "-" (buang informasi) dan bukan "Biaya Admin" (salah label).
+    # 9. Nama di EKOR remark, menempel kode cabang tanpa spasi
+    #    ("BP000964 Final Payment PB000653 P B P000964 EMP ENERGI GANDEWA12218").
+    #    Pola ini dipakai transaksi bernilai besar (RTGS/kliring korporasi)
+    #    yang beritanya panjang: nomor invoice memenuhi remark, dan nama
+    #    lawan transaksi baru muncul di ujung. Tanpa aturan ini justru
+    #    transaksi TERBESAR yang namanya tidak terbaca.
+    #
+    #    Dua syarat menjaga aturan ini tidak salah tangkap:
+    #      - harus diakhiri kode cabang 5-6 digit yang MENEMPEL. Remark yang
+    #        berakhir dengan nama tanpa kode itu justru menyebut pemilik
+    #        rekening sendiri (mis. "... Inw RTGS Cr ... 00OPTIMA PETRO
+    #        ENERGI"), bukan lawan transaksi — dan sengaja tidak diambil.
+    #      - nama harus minimal dua kata KAPITAL PENUH. Nama lawan transaksi
+    #        dicetak kapital penuh oleh sistem, sedangkan berita yang
+    #        mendahuluinya berkapitalisasi biasa ("...Inv.0004 Inv EMP
+    #        ENERGI RIAU12218"), jadi syarat ini yang memisahkan keduanya.
+    m = re.search(r"(?:^|[^A-Za-z])([A-Z][A-Z&.'-]*(?:\s+[A-Z][A-Z&.'-]*)+)\d{5,6}$", text)
+    if m:
+        nama = clean_nama(m.group(1))
+        if nama:
+            return nama
+
+    # 10. Fallback: remark yang sudah dibersihkan, apa adanya.
+    #     Bukan "-" (buang informasi) dan bukan "Biaya Admin" (salah label).
     fallback = clean_nama(text)
     return fallback if fallback else '-'
