@@ -373,6 +373,16 @@
   ["Oktober", 30, 33065822.92],
   ["Oktober", 31, 23928030.17]
  ],
+ "temuan": [
+  ["Duplikasi Transaksi", "Sedang", "Oktober", "13", "-", "Transaksi identik berulang 2x pada tanggal 13", "Debit Rp500,000.0 — \"Transfer BI Fast Ke BRI APRIZAL AGUSTINO KRI 24301133034500\" — cek apakah ini transaksi rutin yang wajar berulang", 1000000],
+  ["Duplikasi Transaksi", "Sedang", "Oktober", "17", "-", "Transaksi identik berulang 4x pada tanggal 17", "Kredit Rp25,000,000.0 — \"Transfer BI Fast Dari BPD KALTENG DODI KUSMADI 1170202002193\" — cek apakah ini transaksi rutin yang wajar berulang", 100000000],
+  ["Duplikasi Transaksi", "Sedang", "Oktober", "22", "-", "Transaksi identik berulang 2x pada tanggal 22", "Debit Rp1,000.0 — \"Biaya pembayaran GoPay Customer 081250734444\" — cek apakah ini transaksi rutin yang wajar berulang", 2000],
+  ["Duplikasi Transaksi", "Sedang", "Oktober", "25", "-", "Transaksi identik berulang 2x pada tanggal 25", "Kredit Rp100,000,000.0 — \"Transfer BI Fast Dari BRI OSA SUTRA SITOHANG 016301003500566\" — cek apakah ini transaksi rutin yang wajar berulang", 200000000],
+  ["Duplikasi Transaksi", "Sedang", "Oktober", "7", "-", "Transaksi identik berulang 2x pada tanggal 7", "Debit Rp10,000,000.0 — \"Transfer BI Fast Ke BPD KALTENG DODI KUSMADI 1170202002193\" — cek apakah ini transaksi rutin yang wajar berulang", 20000000],
+  ["Metadata PDF Mencurigakan", "Sedang", "-", "-", "-", "PDF tercatat dibuat/diedit dengan software \"Ilovepdf\", bukan software cetak rekening umum", "Producer: iLovePDF | Creator: - — perlu verifikasi keaslian dokumen", null],
+  ["Nominal Bulat Berulang", "Rendah", "Oktober", "-", "-", "19 transaksi bernilai sangat bulat (kelipatan Rp10 juta, ≥Rp50,000,000)", "5.9% dari total 320 transaksi bulan Oktober — pola umum di transaksi rekayasa", 2000000000],
+  ["Metadata PDF", "Rendah", "-", "-", "-", "Info metadata PDF (untuk review manual)", "Producer: iLovePDF | Creator: - | Created: - | Modified: D:20251113091257Z", null]
+ ],
  "metadata": {
   "biaya_admin": {
    "label_nama": "Biaya Administrasi",

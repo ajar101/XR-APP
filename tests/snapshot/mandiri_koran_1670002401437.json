@@ -611,6 +611,11 @@
   ["Maret", 30, 210502875.23],
   ["Maret", 31, 210535509.49]
  ],
+ "temuan": [
+  ["Duplikasi Transaksi", "Sedang", "Maret", "17", "-", "Transaksi identik berulang 2x pada tanggal 17", "Debit Rp630,179.0 — \"UBP60218813702FFFFFF8813 7001050137 99102\" — cek apakah ini transaksi rutin yang wajar berulang", 1260358],
+  ["Metadata PDF Mencurigakan", "Sedang", "-", "-", "-", "Tanggal modifikasi PDF berbeda dari tanggal pembuatan", "Created: D:20250414141646+07'00' | Modified: D:20250414141757+07'00' — indikasi file pernah diedit setelah dibuat", null],
+  ["Metadata PDF", "Rendah", "-", "-", "-", "Info metadata PDF (untuk review manual)", "Producer: iText 2.1.7 by 1T3XT | Creator: JasperReports Library version 5.6.0 | Created: D:20250414141646+07'00' | Modified: D:20250414141757+07'00'", null]
+ ],
  "metadata": {
   "biaya_admin": {
    "label_nama": "Biaya Administrasi",

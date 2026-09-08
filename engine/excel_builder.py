@@ -141,7 +141,7 @@ def create_excel(saldo_per_bulan: dict, transaksi_per_bulan: dict,
     _build_sheet6_kategori_debit(wb, transaksi_per_bulan, bulan_list, saldo_per_bulan)
     _build_sheet7_kategori_kredit(wb, transaksi_per_bulan, bulan_list, saldo_per_bulan)
     _build_sheet_daftar_indikator(wb)
-    _build_sheet9_indikasi(wb, saldo_per_bulan, transaksi_per_bulan, pdf_path)
+    _build_sheet9_indikasi(wb, saldo_per_bulan, transaksi_per_bulan, pdf_path, bank_name)
     # Summary sengaja dibuat paling akhir supaya jadi sheet terakhir di file.
     _build_sheet8_summary(wb, saldo_per_bulan, transaksi_per_bulan, bulan_list, bank_name)
 
@@ -652,23 +652,32 @@ DAFTAR_INDIKATOR = [
      'atau dokumen disusun ulang. Beberapa transaksi di tanggal yang sama tidak dihitung '
      'sebagai pelanggaran urutan.'),
 
-    ('Running Balance Tidak Konsisten', 'Tinggi', 'PDF mentah',
+    ('Running Balance Tidak Konsisten', 'Tinggi', 'PDF mentah (khusus BCA)',
      'Saldo berjalan antar baris di PDF tidak menyambung.',
      'Saldo tiap baris dihitung ulang dari baris sebelumnya (+kredit −debit) langsung '
-     'dari teks PDF, dengan toleransi Rp5. Saldo di-reset tiap ganti periode.'),
+     'dari teks PDF, dengan toleransi Rp5. Saldo di-reset tiap ganti periode. '
+     'Pemindainya mencocokkan tata letak khas BCA, jadi hanya dijalankan untuk '
+     'rekening BCA — untuk bank lain, rantai saldo diperiksa extractor-nya sendiri '
+     'lewat checksum internal.'),
 
-    ('Halaman/Periode Tidak Berurutan', 'Sedang / Tinggi', 'PDF mentah',
+    ('Halaman/Periode Tidak Berurutan', 'Sedang / Tinggi', 'PDF mentah (khusus BCA)',
      'Nomor halaman meloncat atau periode tidak berurutan.',
-     'Nomor halaman dalam satu periode harus naik satu per satu.'),
+     'Nomor halaman dalam satu periode harus naik satu per satu. '
+     'Hanya dijalankan untuk rekening BCA — pemindai teks mentahnya '
+     'mencocokkan tata letak khas BCA.'),
 
-    ('Template Halaman Berbeda', 'Sedang', 'PDF mentah',
+    ('Template Halaman Berbeda', 'Sedang', 'PDF mentah (khusus BCA)',
      'Halaman berisi transaksi tapi header kolom standar tidak ditemukan.',
-     'Bisa berarti halaman disisipkan dari sumber lain atau layout diubah.'),
+     'Bisa berarti halaman disisipkan dari sumber lain atau layout diubah. '
+     'Hanya dijalankan untuk rekening BCA — pemindai teks mentahnya '
+     'mencocokkan tata letak khas BCA.'),
 
-    ('Format Nominal Tidak Konsisten', 'Sedang', 'PDF mentah',
+    ('Format Nominal Tidak Konsisten', 'Sedang', 'PDF mentah (khusus BCA)',
      'Ada baris memakai format angka yang berbeda dari sisa dokumen.',
      'Mendeteksi campuran format ribuan/desimal gaya Eropa di antara baris '
-     'berformat standar — pola yang lazim muncul pada dokumen yang diedit.'),
+     'berformat standar — pola yang lazim muncul pada dokumen yang diedit. '
+     'Hanya dijalankan untuk rekening BCA — pemindai teks mentahnya '
+     'mencocokkan tata letak khas BCA.'),
 
     ('Metadata PDF', 'Rendah / Sedang', 'PDF mentah',
      'Informasi pembuat, aplikasi, dan waktu pembuatan/modifikasi berkas.',
@@ -690,6 +699,13 @@ CATATAN_INDIKATOR = [
     'dengan hati-hati.',
     'Pemeriksaan berbasis PDF mentah dijalankan per berkas. Pada upload beberapa PDF, '
     'nama berkas dicantumkan di kolom halaman supaya temuan bisa dilacak.',
+    'Empat pemeriksaan berbasis pola teks mentah (Running Balance, Halaman/Periode, '
+    'Template Halaman, Format Nominal) HANYA berjalan untuk rekening BCA, karena '
+    'pemindainya mencocokkan tata letak khas BCA. Dijalankan pada bank lain ia bisa '
+    'salah menemukan — mis. pada PDF gabungan yang ikut memuat halaman bank lain, '
+    'ringkasan milik bank lain itu akan dibandingkan dengan data rekening yang '
+    'diperiksa. Untuk bank selain BCA, pemeriksaan setara dilakukan extractor-nya '
+    'sendiri lewat checksum internal terhadap ringkasan resmi PDF.',
     'Pemeriksaan "Urutan Tanggal Tidak Wajar" dan "Selisih dengan Ringkasan PDF" hanya '
     'berjalan bila extractor bank tersebut mempertahankan urutan cetak dan membaca angka '
     'ringkasan PDF. Saat ini keduanya tersedia untuk BCA dan seluruh format Mandiri '
@@ -1395,7 +1411,8 @@ TINGKAT_STYLE = {
 }
 
 
-def _build_sheet9_indikasi(wb, saldo_per_bulan, transaksi_per_bulan, pdf_path):
+def _build_sheet9_indikasi(wb, saldo_per_bulan, transaksi_per_bulan, pdf_path,
+                           bank_name='BANK'):
     ws = wb.create_sheet(title='Indikasi Kejanggalan')
     ws.sheet_view.showGridLines = False
 
@@ -1404,7 +1421,9 @@ def _build_sheet9_indikasi(wb, saldo_per_bulan, transaksi_per_bulan, pdf_path):
     for col, w in widths.items():
         ws.column_dimensions[col].width = w
 
-    findings = detect_anomalies(pdf_path, saldo_per_bulan, transaksi_per_bulan) if pdf_path else []
+    findings = (detect_anomalies(pdf_path, saldo_per_bulan, transaksi_per_bulan,
+                                 bank_name=bank_name)
+                if pdf_path else [])
 
     # ---- Disclaimer ----
     disclaimer = (

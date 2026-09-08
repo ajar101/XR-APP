@@ -261,6 +261,10 @@
   ["Mei", 29, 2453135.4],
   ["Mei", 30, 2453135.4]
  ],
+ "temuan": [
+  ["Metadata PDF Mencurigakan", "Sedang", "-", "-", "-", "PDF tercatat dibuat/diedit dengan software \"Ilovepdf\", bukan software cetak rekening umum", "Producer: iLovePDF | Creator: - — perlu verifikasi keaslian dokumen", null],
+  ["Metadata PDF", "Rendah", "-", "-", "-", "Info metadata PDF (untuk review manual)", "Producer: iLovePDF | Creator: - | Created: - | Modified: D:20250805023506Z", null]
+ ],
  "metadata": {
   "biaya_admin": {
    "label_nama": "Biaya Administrasi",

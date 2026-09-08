@@ -36,6 +36,7 @@ SESAT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, SESAT)
 
 from extractors.registry import BANK_REGISTRY   # noqa: E402
+from engine.anomaly_detector import detect_anomalies   # noqa: E402
 
 REFERENSI = os.path.join(SESAT, 'references')
 SNAPSHOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'snapshot')
@@ -81,6 +82,7 @@ def rekam_satu(path: str, bank: str) -> dict:
         'bulan': [],
         'transaksi': [],
         'saldo_harian': [],
+        'temuan': [],
     }
 
     for b in bulan_urut:
@@ -120,6 +122,17 @@ def rekam_satu(path: str, bank: str) -> dict:
         'peringatan': saldo.get('_peringatan') or [],
     }
 
+    # Temuan Sheet "Indikasi Kejanggalan". Ikut direkam karena inilah yang
+    # dibaca pemeriksa, dan sebagian pemeriksaannya TIDAK tersentuh data
+    # ekstraksi di atas — ia membaca ulang PDF mentah. Tanpa direkam,
+    # perubahan pada pemeriksaan itu (mis. temuan palsu yang hilang, atau
+    # temuan asli yang ikut hilang) tidak akan tertangkap tes ini.
+    for f in detect_anomalies(path, saldo, transaksi, bank_name=prefix(ex)):
+        hasil['temuan'].append([
+            f['kategori'], f['tingkat'], str(f['bulan']), str(f['tanggal']),
+            str(f['halaman']), f['deskripsi'], f['detail'], f['nilai_rp'],
+        ])
+
     if hasattr(ex, 'validate'):
         lap = ex.validate()
         hasil['checksum'] = {
@@ -133,6 +146,11 @@ def rekam_satu(path: str, bank: str) -> dict:
             'peringatan': list(lap.get('warnings', [])),
         }
     return hasil
+
+
+def prefix(ex) -> str:
+    """Nama bank yang dipakai engine (sama dengan yang dikirim app.py)."""
+    return ex.get_file_prefix() if hasattr(ex, 'get_file_prefix') else 'BANK'
 
 
 def _jumlah(df, jenis: str):
@@ -151,7 +169,7 @@ def _angka(v):
 # Daftar yang tiap barisnya ditulis SATU BARIS penuh, bukan dipecah per
 # elemen seperti bawaan json.dump(indent=...). Dengan begitu satu transaksi
 # yang berubah muncul sebagai satu baris diff — bukan delapan.
-DAFTAR_SEBARIS = ('transaksi', 'saldo_harian')
+DAFTAR_SEBARIS = ('transaksi', 'saldo_harian', 'temuan')
 
 
 def tulis(hasil: dict, path: str) -> None:
@@ -201,6 +219,7 @@ def beda(lama: dict, baru: dict) -> list:
                           'saldo_harian')
     pesan += _beda_daftar(lama.get('transaksi', []), baru.get('transaksi', []),
                           'transaksi')
+    pesan += _beda_daftar(lama.get('temuan', []), baru.get('temuan', []), 'temuan')
     return pesan
 
 

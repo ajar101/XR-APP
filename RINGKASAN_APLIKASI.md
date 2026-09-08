@@ -39,8 +39,8 @@ XR-APP/
 │   ├── anomaly_detector.py      #   17 pemeriksaan indikasi kejanggalan
 │   └── multi_pdf_merger.py      #   Gabungkan hasil ekstraksi dari beberapa PDF
 ├── tests/                       # Tes regresi ekstraksi
-│   ├── regresi.py               #   Bandingkan hasil ekstraksi seluruh PDF referensi dengan snapshot
-│   └── snapshot/                #   Hasil yang direkam, satu JSON per PDF (1 transaksi = 1 baris)
+│   ├── regresi.py               #   Bandingkan hasil ekstraksi + temuan Sheet 9 dengan snapshot
+│   └── snapshot/                #   Hasil yang direkam, satu JSON per PDF (1 transaksi/temuan = 1 baris)
 ├── references/                  # PDF contoh + hasil Excel untuk validasi manual
 └── parse_rekening.py            # Skrip CLI lama, tidak terhubung ke app.py (peninggalan awal)
 ```
@@ -171,7 +171,11 @@ Disusun berdasarkan diskusi sepanjang pengembangan, urut prioritas realistis (bu
 ### 6.1 Jangka pendek — masih di arsitektur Flask saat ini
 - **Reaktivasi BNI** setelah proses stabilisasi pola BCA (regex, deteksi nama, dsb.) dianggap cukup matang untuk dijadikan acuan pola bank lain. *(Mandiri sudah aktif: format Kopra dan e-Statement.)*
 - **Rapikan sisa nama lawan transaksi pada PDF Kopra** — setelah perbaikan pipeline nama (yang datanya berasal dari PDF Rekening Koran), tersisa ±127 baris dari 4.682 (2,7%) yang namanya masih berupa nomor referensi, mayoritas di PDF Kopra dengan berita transaksi panjang. Perlu satu putaran khusus dengan PDF Kopra sebagai sampel.
-- **Pemeriksaan Sheet 9 yang masih spesifik pola teks BCA** — empat indikator yang membaca ulang PDF mentah (running balance, nomor halaman, template halaman, format nominal) masih mencocokkan tata letak khas BCA (`HALAMAN :`, baris `dd/mm`), sehingga tidak menyala untuk PDF Mandiri. Bukan salah baca, tapi cakupannya lebih sempit — kedua extractor Mandiri menutupnya lewat checksum internal (`validate()` → metadata `_checksum`) plus pemeriksaan nomor urut transaksi. **Rencana:** generalisasikan dengan cara yang sama seperti `_biaya_admin` — extractor menyerahkan *provenance* per baris (halaman, posisi, saldo tercetak) sebagai bagian kontrak. Sebaiknya dirancang **setelah BNI aktif**, supaya kontraknya diuji dengan tiga bank, bukan satu.
+- **Pemeriksaan Sheet 9 yang masih spesifik pola teks BCA** — empat indikator yang membaca ulang PDF mentah (running balance, nomor halaman, template halaman, format nominal) plus pencocokan "mutasi hilang" mencocokkan tata letak khas BCA (`HALAMAN :`, baris `dd/mm`, `MUTASI CR :`). Sejak dipasang gerbang `BANK_POLA_MENTAH`, kelimanya **hanya dijalankan untuk rekening BCA**.
+
+  Gerbang itu dipasang setelah terbukti bukan sekadar "cakupan lebih sempit": pada PDF Mandiri yang ikut memuat halaman rekening BCA milik rekening lain, pemindai membaca ringkasan BCA itu lalu membandingkannya dengan data Mandiri, dan menghasilkan **empat temuan "RISIKO TINGGI" yang seluruhnya keliru**. Untuk bank selain BCA, pemeriksaan setara sudah dilakukan extractor-nya sendiri lewat checksum internal (`validate()` → metadata `_checksum`) plus nomor urut transaksi dan rantai saldo.
+
+  **Rencana (belum dikerjakan):** hapus parser kedua itu sepenuhnya. Extractor sudah tahu setiap fakta yang dibutuhkan saat parsing (baris ini di halaman berapa, saldo tercetak di sebelahnya, nomor halaman, ada tidaknya header kolom) lalu membuangnya; serahkan sebagai metadata `_provenance` — bentuknya *fakta*, bukan *pola regex per bank*, karena mengirim pola berarti melembagakan parser kedua yang justru jadi sumber temuan palsu tadi. Setelah itu keempat pemeriksaan bisa bank-agnostik, dan `_check_mutasi_hilang` bisa dihapus karena pekerjaannya sudah dilakukan `_checksum` dengan benar. Kuncinya **bank + format** (Kopra/Rekening Koran/e-Statement/BCA), bukan bank + jenis rekening — jenis rekening baru relevan untuk aturan berjadwal seperti `_biaya_admin`.
 - **Perluas daftar hari libur nasional** (termasuk libur lunar/hijriah) — perlu referensi kalender resmi per tahun.
 - **OCR / Claude Vision untuk PDF hasil scan** — saat ini hanya terdeteksi & ditolak. Rekomendasi: langsung ke pendekatan vision model (Claude API) ketimbang OCR tradisional + regex, karena data finansial butuh akurasi tinggi dan OCR rentan salah baca digit pada tabel rapat. *(Belum digarap — dinilai jarang terjadi untuk saat ini.)*
 

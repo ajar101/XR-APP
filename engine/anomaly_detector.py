@@ -60,11 +60,32 @@ TOLERANSI_RUNNING_BALANCE = 5  # toleransi pembulatan running balance (Rp)
 RASIO_PAJAK_BUNGA_MIN = 0.195
 RASIO_PAJAK_BUNGA_MAX = 0.205
 
+# Bank yang tata letak teks mentahnya dikenali _scan_pdf_raw(). Pemindai itu
+# mencocokkan pola khas BCA ("HALAMAN : 1 / 60", baris transaksi "dd/mm",
+# "MUTASI CR :"), jadi hasilnya hanya bermakna untuk dokumen BCA.
+#
+# Dijalankan pada bank lain, ia bukan sekadar tidak menemukan apa-apa — ia
+# bisa SALAH menemukan. Pada satu PDF Mandiri yang ikut memuat halaman
+# rekening BCA milik rekening lain, pemindai ini membaca ringkasan BCA itu
+# lalu membandingkannya dengan data Mandiri, dan menghasilkan empat temuan
+# "RISIKO TINGGI" yang seluruhnya keliru. Karena itu pemeriksaan berbasis
+# pola ini digerbangi nama bank, bukan dibiarkan jalan atas dokumen apa pun.
+#
+# Ini gerbang sementara. Rencana sebenarnya: extractor menyerahkan fakta
+# per baris/halaman (halaman, urutan, saldo tercetak, ada tidaknya header
+# kolom) sebagai bagian kontrak, sehingga keempat pemeriksaan itu bisa
+# bank-agnostik dan tidak perlu parser kedua sama sekali.
+BANK_POLA_MENTAH = frozenset({'BCA'})
+
 
 def detect_anomalies(pdf_path, saldo_per_bulan: dict,
-                      transaksi_per_bulan: dict) -> list:
+                      transaksi_per_bulan: dict, bank_name: str = None) -> list:
     """
     Jalankan semua pemeriksaan dan kembalikan list finding (belum diurutkan).
+
+    `bank_name` menentukan apakah pemeriksaan berbasis POLA TEKS MENTAH ikut
+    dijalankan (lihat BANK_POLA_MENTAH). Pemeriksaan metadata PDF tidak
+    tergantung tata letak, jadi selalu jalan untuk bank apa pun.
 
     `pdf_path` boleh satu path (str) atau list path — dipakai saat user
     upload beberapa PDF sekaligus (lihat engine/multi_pdf_merger.py).
@@ -92,6 +113,7 @@ def detect_anomalies(pdf_path, saldo_per_bulan: dict,
 
     pdf_paths = [pdf_path] if isinstance(pdf_path, str) else list(pdf_path)
     beri_label_file = len(pdf_paths) > 1
+    pola_dikenali = (bank_name or '').upper() in BANK_POLA_MENTAH
 
     # Pemeriksaan yang butuh baca ulang PDF mentah (running balance, nomor
     # halaman, template, format angka, metadata) — per file. Kalau satu file
@@ -100,13 +122,18 @@ def detect_anomalies(pdf_path, saldo_per_bulan: dict,
     for path in pdf_paths:
         label = os.path.basename(path)
         try:
-            raw = _scan_pdf_raw(path)
             file_findings = []
-            file_findings += _check_running_balance(raw)
-            file_findings += _check_halaman_sequence(raw)
-            file_findings += _check_template_halaman(raw)
-            file_findings += _check_format_nominal(raw)
-            file_findings += _check_mutasi_hilang(raw, transaksi_per_bulan)
+            # Pemeriksaan berbasis pola tata letak — hanya untuk bank yang
+            # tata letaknya memang dikenali pemindai.
+            if pola_dikenali:
+                raw = _scan_pdf_raw(path)
+                file_findings += _check_running_balance(raw)
+                file_findings += _check_halaman_sequence(raw)
+                file_findings += _check_template_halaman(raw)
+                file_findings += _check_format_nominal(raw)
+                file_findings += _check_mutasi_hilang(raw, transaksi_per_bulan)
+            # Metadata PDF tidak ada hubungannya dengan tata letak, jadi
+            # berlaku untuk bank apa pun.
             file_findings += _check_metadata_pdf(path)
             if beri_label_file:
                 for f in file_findings:

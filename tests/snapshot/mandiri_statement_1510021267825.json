@@ -508,6 +508,15 @@
   ["Januari", 22, 154320722.58],
   ["Januari", 23, 95618222.58]
  ],
+ "temuan": [
+  ["Duplikasi Transaksi", "Sedang", "Oktober", "25", "-", "Transaksi identik berulang 4x pada tanggal 25", "Debit Rp2,500,000.0 — \"Penarikan tunai di ATM Merah Putih T0901602\" — cek apakah ini transaksi rutin yang wajar berulang", 10000000],
+  ["Duplikasi Transaksi", "Sedang", "November", "1", "-", "Transaksi identik berulang 2x pada tanggal 1", "Kredit Rp100,000,000.0 — \"Transfer BI Fast Dari BRI MERRY CRISTIANI 095301040024530\" — cek apakah ini transaksi rutin yang wajar berulang", 200000000],
+  ["Metadata PDF Mencurigakan", "Sedang", "-", "-", "-", "PDF tercatat dibuat/diedit dengan software \"Ilovepdf\", bukan software cetak rekening umum", "Producer: iLovePDF | Creator: - — perlu verifikasi keaslian dokumen", null],
+  ["Nominal Bulat Berulang", "Rendah", "Oktober", "-", "-", "8 transaksi bernilai sangat bulat (kelipatan Rp10 juta, ≥Rp50,000,000)", "9.9% dari total 81 transaksi bulan Oktober — pola umum di transaksi rekayasa", 930000000],
+  ["Nominal Bulat Berulang", "Rendah", "November", "-", "-", "17 transaksi bernilai sangat bulat (kelipatan Rp10 juta, ≥Rp50,000,000)", "13.3% dari total 128 transaksi bulan November — pola umum di transaksi rekayasa", 1900000000],
+  ["Nominal Bulat Berulang", "Rendah", "Desember", "-", "-", "15 transaksi bernilai sangat bulat (kelipatan Rp10 juta, ≥Rp50,000,000)", "15.3% dari total 98 transaksi bulan Desember — pola umum di transaksi rekayasa", 1340000000],
+  ["Metadata PDF", "Rendah", "-", "-", "-", "Info metadata PDF (untuk review manual)", "Producer: iLovePDF | Creator: - | Created: - | Modified: D:20260201055345Z", null]
+ ],
  "metadata": {
   "biaya_admin": {
    "label_nama": "Biaya Administrasi",

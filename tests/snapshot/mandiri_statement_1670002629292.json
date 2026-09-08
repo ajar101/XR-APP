@@ -606,6 +606,23 @@
   ["Januari", 30, 57821505.9],
   ["Januari", 31, 22599085.11]
  ],
+ "temuan": [
+  ["Duplikasi Transaksi", "Sedang", "Januari", "11", "-", "Transaksi identik berulang 2x pada tanggal 11", "Debit Rp500,000.0 — \"Top-up e-money 6032982121787079\" — cek apakah ini transaksi rutin yang wajar berulang", 1000000],
+  ["Duplikasi Transaksi", "Sedang", "Januari", "22", "-", "Transaksi identik berulang 2x pada tanggal 22", "Debit Rp50,000,000.0 — \"Transfer BI Fast Ke BANK BNI ANI ROHIMAH 1336583426\" — cek apakah ini transaksi rutin yang wajar berulang", 100000000],
+  ["Duplikasi Transaksi", "Sedang", "Januari", "23", "-", "Transaksi identik berulang 2x pada tanggal 23", "Kredit Rp4,000,000.0 — \"Transfer dari BANK MANDIRI ANDRI YUWONO 1150004492577\" — cek apakah ini transaksi rutin yang wajar berulang", 8000000],
+  ["Duplikasi Transaksi", "Sedang", "Januari", "24", "-", "Transaksi identik berulang 2x pada tanggal 24", "Debit Rp1,250,000.0 — \"Penarikan tunai di ATM BANK MANDIRI T0805956\" — cek apakah ini transaksi rutin yang wajar berulang", 2500000],
+  ["Duplikasi Transaksi", "Sedang", "Januari", "24", "-", "Transaksi identik berulang 2x pada tanggal 24", "Debit Rp1,250,000.0 — \"Penarikan tunai di ATM BANK MANDIRI T0806279\" — cek apakah ini transaksi rutin yang wajar berulang", 2500000],
+  ["Duplikasi Transaksi", "Sedang", "November", "16", "-", "Transaksi identik berulang 2x pada tanggal 16", "Debit Rp2,500,000.0 — \"Penarikan tunai di ATM BANK MANDIRI CLG PB CIKUASA 01\" — cek apakah ini transaksi rutin yang wajar berulang", 5000000],
+  ["Duplikasi Transaksi", "Sedang", "Desember", "12", "-", "Transaksi identik berulang 2x pada tanggal 12", "Debit Rp10,000,000.0 — \"Transfer BI Fast Ke BCA ELWANDI 6871263067\" — cek apakah ini transaksi rutin yang wajar berulang", 20000000],
+  ["Duplikasi Transaksi", "Sedang", "Desember", "19", "-", "Transaksi identik berulang 3x pada tanggal 19", "Debit Rp1,000,000.0 — \"Penarikan tunai di ATM BANK MANDIRI T0805956\" — cek apakah ini transaksi rutin yang wajar berulang", 3000000],
+  ["Duplikasi Transaksi", "Sedang", "Desember", "25", "-", "Transaksi identik berulang 4x pada tanggal 25", "Debit Rp1,250,000.0 — \"Penarikan tunai di ATM BANK MANDIRI T0805956\" — cek apakah ini transaksi rutin yang wajar berulang", 5000000],
+  ["Duplikasi Transaksi", "Sedang", "Desember", "25", "-", "Transaksi identik berulang 4x pada tanggal 25", "Debit Rp1,250,000.0 — \"Penarikan tunai di ATM BANK MANDIRI T0806279\" — cek apakah ini transaksi rutin yang wajar berulang", 5000000],
+  ["Duplikasi Transaksi", "Sedang", "Desember", "9", "-", "Transaksi identik berulang 2x pada tanggal 9", "Debit Rp500,000.0 — \"Top-up e-money 6032982121787079\" — cek apakah ini transaksi rutin yang wajar berulang", 1000000],
+  ["Metadata PDF Mencurigakan", "Sedang", "-", "-", "-", "PDF tercatat dibuat/diedit dengan software \"Ilovepdf\", bukan software cetak rekening umum", "Producer: iLovePDF | Creator: - — perlu verifikasi keaslian dokumen", null],
+  ["Nominal Bulat Berulang", "Rendah", "Januari", "-", "-", "5 transaksi bernilai sangat bulat (kelipatan Rp10 juta, ≥Rp50,000,000)", "3.3% dari total 150 transaksi bulan Januari — pola umum di transaksi rekayasa", 380000000],
+  ["Rasio Pajak Bunga Tidak Wajar", "Rendah", "Januari", "31", "-", "Bunga tercatat tanpa pasangan Pajak Bunga (atau sebaliknya)", "Bunga: Rp79 | Pajak Bunga: Rp0 — cek apakah salah satunya hilang saat ekstraksi", null],
+  ["Metadata PDF", "Rendah", "-", "-", "-", "Info metadata PDF (untuk review manual)", "Producer: iLovePDF | Creator: - | Created: - | Modified: D:20260207013904Z", null]
+ ],
  "metadata": {
   "biaya_admin": {
    "label_nama": "Biaya Administrasi",

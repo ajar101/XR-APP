@@ -59,6 +59,9 @@
   ["Juni", 29, 175903711.35],
   ["Juni", 30, 175983802.18]
  ],
+ "temuan": [
+  ["Metadata PDF", "Rendah", "-", "-", "-", "Info metadata PDF (untuk review manual)", "Producer: iText 2.1.7 by 1T3XT | Creator: JasperReports Library version 5.6.0 | Created: D:20250723091742+07'00' | Modified: D:20250723091742+07'00'", null]
+ ],
  "metadata": {
   "biaya_admin": {
    "label_nama": "Biaya Administrasi",

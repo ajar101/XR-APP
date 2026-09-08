@@ -313,6 +313,13 @@
   ["Maret", 30, 2757785767.68],
   ["Maret", 31, 2762708723.54]
  ],
+ "temuan": [
+  ["Mutasi Hilang / Gap Tidak Wajar", "Sedang", "Februari", "12-16", "-", "Tidak ada transaksi selama 5 hari berturut-turut", "Rekening aktif (41 transaksi di bulan Februari) tapi kosong tanggal 12 s.d. 16. Gap belum tentu janggal — libur panjang, rekening musiman, atau pola bisnis tertentu bisa menjelaskannya. Bandingkan dengan pola bulan lain sebelum menyimpulkan.", null],
+  ["Metadata PDF Mencurigakan", "Sedang", "-", "-", "-", "PDF tercatat dibuat/diedit dengan software \"Ilovepdf\", bukan software cetak rekening umum", "Producer: iLovePDF | Creator: - — perlu verifikasi keaslian dokumen", null],
+  ["Nominal Bulat Berulang", "Rendah", "Maret", "-", "-", "7 transaksi bernilai sangat bulat (kelipatan Rp10 juta, ≥Rp50,000,000)", "8.1% dari total 86 transaksi bulan Maret — pola umum di transaksi rekayasa", 8110000000],
+  ["Nominal Bulat Berulang", "Rendah", "April", "-", "-", "10 transaksi bernilai sangat bulat (kelipatan Rp10 juta, ≥Rp50,000,000)", "17.5% dari total 57 transaksi bulan April — pola umum di transaksi rekayasa", 14630000000],
+  ["Metadata PDF", "Rendah", "-", "-", "-", "Info metadata PDF (untuk review manual)", "Producer: iLovePDF | Creator: - | Created: - | Modified: D:20250517015736Z", null]
+ ],
  "metadata": {
   "biaya_admin": {
    "label_nama": "Biaya Administrasi",
