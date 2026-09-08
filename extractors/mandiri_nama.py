@@ -91,7 +91,11 @@ def extract_nama(keterangan: str) -> str:
     text = ' '.join(keterangan.split())
 
     # 1. MCM InhouseTrf KE/DARI <NAMA>  (pola terbesar, ~40% data)
-    m = re.search(r'InhouseTrf\s+(?:KE|DARI)\s+(.+)', text, re.IGNORECASE)
+    #    Transfer yang dikirim lewat layanan Cash-to-Cash menyelipkan kode
+    #    kanal di antara label dan arahnya: "MCM InhouseTrf CS-CS KE <NAMA>".
+    #    Tanpa mengizinkan kode itu, seluruh transaksi CS-CS jatuh ke fallback
+    #    dan namanya jadi remark utuh (nomor referensi + berita + nama).
+    m = re.search(r'InhouseTrf\s+(?:CS-CS\s+)?(?:KE|DARI)\s+(.+)', text, re.IGNORECASE)
     if m:
         tail = cut_at_stop(m.group(1))
         tail = strip_berita(tail, text[:m.start()])
@@ -126,6 +130,15 @@ def extract_nama(keterangan: str) -> str:
     if m:
         nama = clean_nama(m.group(1))
         if nama:
+            return nama
+
+    # 4b. Pemindahbukuan berlabel: "Transfer - <NAMA><kode cabang>". Tanpa ini
+    #     nama yang sama terpecah dua di rekap — sekali dengan awalan
+    #     "Transfer - ", sekali tanpa.
+    m = re.match(r'^Transfer\s+-\s+(.+)', text, re.IGNORECASE)
+    if m:
+        nama = clean_nama(cut_at_stop(m.group(1)))
+        if nama and not re.fullmatch(r'[\d\s]+', nama):
             return nama
 
     # 5. Kliring keluar: MCM Outw CN <NAMA> ... Clearing Fee
@@ -173,16 +186,50 @@ def extract_nama(keterangan: str) -> str:
     if re.match(r'^(?:\S+\s+)?\d{6,}[A-Z]{4}IDJ[A-Z0-9]\w*(?:\s+\d+)*\s*$', text.strip()):
         return 'Biaya Transfer Antar Bank'
 
+    # Baris biaya RTGS: berlabel di depan, lalu nomor referensi + kode cabang
+    # yang menempel nama REKENING SENDIRI ("RTGS Fee 202502271548956721
+    # 99102OPTIMA PETRO ENERGI"). Nama di ekor itu pemilik rekening, bukan
+    # lawan transaksi, jadi yang dipakai label biayanya — disamakan dengan
+    # baris biaya SKN/RTGS di atas supaya seluruh biaya transfer antar bank
+    # berkumpul jadi satu di rekap.
+    if re.match(r'^RTGS\s+Fee\b', text, re.IGNORECASE):
+        return 'Biaya Transfer Antar Bank'
+
     # 6. Pembayaran tagihan (UBP). Remark UBP hanya berisi kode biller,
     #    tidak memuat nama — jadi dipakai label kategori.
     if re.match(r'^UBP\d', text.strip(), re.IGNORECASE):
         return 'Pembayaran Tagihan (UBP)'
+
+    # Instruksi bayar lewat kanal host-to-host: remark HANYA berisi nomor
+    # referensi berawalan H, nomor pelanggan, dan kode cabang
+    # ("H000072459640331528602 2562569 99102 99102") — sumbernya memang tidak
+    # memuat nama lawan transaksi sama sekali. Tanpa label ini setiap baris
+    # jadi "penerima" yang berbeda: satu rekening referensi menghasilkan 102
+    # penerima palsu dan rekap debit-nya tidak bisa dibaca. Nomor
+    # referensinya tetap utuh di kolom Keterangan Transaksi.
+    if re.match(r'^H\d{15,}(?:\s+\d+)*\s*$', text.strip()):
+        return 'Transaksi Host-to-Host (H2H)'
+
+    # Transfer masuk lewat jaringan PRIMA: remark hanya memuat nomor rekening
+    # tujuan + kode terminal, tanpa nama pengirim
+    # ("PRMA CR Transf 1480099034756 0232058355580055 S1ACIB9505/297987
+    # /PRM-KBB99105"). Sama seperti H2H: dikelompokkan, bukan dipecah per
+    # nomor terminal.
+    if re.match(r'^PRMA\s+(?:CR|DB)\s+Transf\b', text, re.IGNORECASE):
+        return 'Transfer via Jaringan PRIMA'
 
     # 7. Kategori tetap.
     if re.match(r'^DARI\s+\d+\s+KE\s+\d+', text.strip(), re.IGNORECASE):
         return 'Pindah Buku / Sweep'
     if 'MONTHLY CARD CHARGE' in upper:
         return 'Biaya Kartu Bulanan'
+    # Deposito: lawan transaksinya rekening deposito milik sendiri, bukan
+    # pihak lain. Dicek SEBELUM aturan warkat di bawah karena penempatannya
+    # sering lewat warkat cek ("CK 512721-PENEMPATAN DEPOSITO Buka Deposito").
+    if re.search(r'\bBUKA\s+DEPOSITO\b', upper):
+        return 'Penempatan Deposito'
+    if re.search(r'\bCAIR\s+DEPOSITO\b', upper):
+        return 'Pencairan Deposito'
     # Tarik/Setor tunai mencantumkan nama pemegang rekening setelah labelnya
     # ("PEMBAYARAN TPP Tarik Tunai JUMA BERLIAN EXIM 12124"). Nama itu yang
     # dipakai; label hanya jadi cadangan kalau tidak ada nama menyusul.
@@ -204,6 +251,13 @@ def extract_nama(keterangan: str) -> str:
         return 'Setor Tunai'
     if re.match(r'^CLEARING\s+FEE\b', text.strip(), re.IGNORECASE):
         return 'Biaya Kliring'
+    # Warkat cek / bilyet giro yang bukan tarik tunai maupun deposito: remark
+    # hanya memuat nomor warkat + berita bebas ("CK 459657-operasional
+    # 00459657 12926", "BG 000594-LPG Setor Kliring 10000594 14807), tanpa
+    # nama pihak lawan. Nomor warkatnya unik per transaksi, jadi kalau
+    # dipakai sebagai nama, tiap warkat jadi satu "pihak" tersendiri.
+    if re.match(r'^(?:CK|BG)\s*\d{4,}\s*-', text.strip(), re.IGNORECASE):
+        return 'Warkat Cek/Bilyet Giro'
 
     # 8. Biaya/bunga/pajak — PALING AKHIR, dan hanya kalau remark memang
     #    berdiri sendiri sebagai transaksi biaya (bukan sekadar memuat
