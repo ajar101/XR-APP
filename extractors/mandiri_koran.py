@@ -39,6 +39,7 @@ import pdfplumber
 import pandas as pd
 
 from extractors.base import BaseExtractor
+from extractors.peringatan import PencatatPeringatan, pencatat_laporan
 from extractors.mandiri_nama import extract_nama
 from extractors.mandiri_kopra import (
     BUNGA_PAJAK_MANDIRI,
@@ -71,12 +72,15 @@ KOLOM = ('tanggal', 'remark', 'reference', 'debit', 'credit', 'balance')
 PENANDA_KORAN = 'Laporan Rekening Koran'
 
 
-class MandiriKoranExtractor(BaseExtractor):
+class MandiriKoranExtractor(PencatatPeringatan, BaseExtractor):
 
     def __init__(self, pdf_path: str):
         super().__init__(pdf_path)
         # Peringatan yang terkumpul selama parsing (dibaca app.py / pemanggil).
         self.warnings: list[str] = []
+        # Bentuk terstruktur dari peringatan yang sama, untuk metadata
+        # '_peringatan' yang dirender engine di Sheet Indikasi Kejanggalan.
+        self.peringatan: list[dict] = []
         self._cache = None
 
     def get_file_prefix(self) -> str:
@@ -338,11 +342,18 @@ class MandiriKoranExtractor(BaseExtractor):
             rows.append(r)
 
         if halaman_asing:
-            self.warnings.append(
-                f"{len(halaman_asing)} halaman tidak dikenali sebagai Laporan "
-                f"Rekening Koran Mandiri dan tidak ikut diekstrak "
-                f"(halaman {self._ringkas_halaman(halaman_asing)}). Pastikan "
-                f"PDF yang diunggah hanya berisi rekening yang diperiksa."
+            # Tingkat Tinggi: halaman yang bukan bagian laporan ini biasanya
+            # berarti PDF rekening LAIN ikut tergabung dalam satu berkas.
+            # Isinya tidak ikut terekstrak, jadi angka laporan tetap benar —
+            # tapi pemeriksa wajib tahu berkasnya memuat dokumen lain.
+            self._catat(
+                'Tinggi',
+                f"{len(halaman_asing)} halaman dalam PDF tidak dikenali sebagai "
+                f"Laporan Rekening Koran Mandiri dan tidak ikut diekstrak",
+                f"Halaman {self._ringkas_halaman(halaman_asing)}. Pastikan PDF "
+                f"yang diunggah hanya berisi rekening yang diperiksa — halaman "
+                f"itu bisa jadi milik rekening atau bank lain.",
+                halaman=self._ringkas_halaman(halaman_asing),
             )
 
         self._cache = {'periods': periods, 'rows': rows, 'meta': meta}
@@ -553,6 +564,12 @@ class MandiriKoranExtractor(BaseExtractor):
         # Laporkan hasil checksum dalam bentuk umum supaya engine bisa
         # menampilkannya sebagai indikator tanpa tahu format Rekening Koran.
         lap = self.validate()
+        # Peringatan pembacaan dokumen diteruskan ke engine supaya muncul di
+        # Sheet Indikasi Kejanggalan. Tanpa ini, temuan seperti "60 halaman
+        # bukan bagian rekening ini" berhenti di extractor dan laporannya
+        # terlihat bersih padahal dokumen sumbernya bermasalah.
+        if lap.get('peringatan'):
+            result['_peringatan'] = lap['peringatan']
         result['_checksum'] = [
             {'label': per['label'], 'bulan': per['bulan'],
              'expected': {k: per['expected'].get(k) for k in
@@ -600,27 +617,32 @@ class MandiriKoranExtractor(BaseExtractor):
         Mengembalikan {'ok': bool, 'periods': [...], 'warnings': [...]}.
         """
         doc = self._parse_document()
-        report = {'ok': True, 'periods': [], 'warnings': list(self.warnings)}
+        report = {'ok': True, 'periods': [], 'warnings': list(self.warnings),
+                  'peringatan': list(self.peringatan)}
+        catat = pencatat_laporan(report)
 
         if not doc['periods']:
             report['ok'] = False
-            report['warnings'].append(
-                'Tidak ada kepala laporan (Account No / Period) yang terbaca — '
-                'PDF kemungkinan bukan format Laporan Rekening Koran Mandiri.'
-            )
+            catat('Tinggi',
+                  'Tidak ada kepala laporan (Account No / Period) yang terbaca',
+                  'PDF kemungkinan bukan format Laporan Rekening Koran Mandiri.')
             return report
 
         if not doc['rows']:
             report['ok'] = False
-            report['warnings'].append(
-                'Kepala laporan terbaca tetapi tidak ada baris transaksi yang '
-                'terdeteksi.'
-            )
+            catat('Tinggi',
+                  'Kepala laporan terbaca tetapi tidak ada baris transaksi yang '
+                  'terdeteksi',
+                  'Tata letak tabelnya kemungkinan berbeda dari yang dikenali '
+                  'extractor.')
 
         report['duplikat_digabung'] = len(doc['rows']) - len(self._merged_rows())
         overlap = self._overlap_warning()
         if overlap:
-            report['warnings'].append(overlap)
+            catat('Sedang',
+                  'Ada periode laporan yang saling tumpang tindih dalam satu PDF; '
+                  'transaksi gandanya digabung menjadi satu',
+                  overlap)
 
         for idx, per in enumerate(doc['periods']):
             rows = [r for r in doc['rows'] if r['period_idx'] == idx]
@@ -652,10 +674,14 @@ class MandiriKoranExtractor(BaseExtractor):
                         f"!= angka resmi {expected}"
                     )
 
+            bulan_per = (BULAN_ORDER[per['start'].month - 1]
+                         if per.get('start') else '-')
+
             if per['opening'] is None:
-                report['warnings'].append(
-                    f"Periode {label}: Opening Balance tidak terbaca dari PDF."
-                )
+                catat('Rendah',
+                      'Opening Balance satu laporan tidak terbaca, rantai saldo '
+                      'laporan itu tidak bisa diperiksa',
+                      f'Periode {label}.', bulan=bulan_per)
             else:
                 # Rantai saldo berjalan: saldo tiap baris harus sama dengan
                 # saldo sebelumnya + kredit - debit. Ini pemeriksaan bebas
@@ -672,11 +698,16 @@ class MandiriKoranExtractor(BaseExtractor):
                     prev = r['balance']
                 checks['rantai_saldo'] = (putus == 0)
                 if putus:
+                    # Tidak tercakup metadata '_checksum' (yang hanya membawa
+                    # lima angka ringkasan), jadi tanpa dicatat di sini temuan
+                    # ini tidak akan pernah sampai ke pemeriksa.
                     report['ok'] = False
-                    report['warnings'].append(
-                        f"Periode {label}: rantai saldo berjalan putus di "
-                        f"{putus} baris — ada transaksi terlewat atau salah baca."
-                    )
+                    catat('Tinggi',
+                          f'Rantai saldo berjalan putus di {putus} baris — ada '
+                          f'transaksi terlewat atau salah baca',
+                          f'Periode {label}. Saldo tiap baris seharusnya sama '
+                          f'dengan saldo baris sebelumnya + kredit − debit.',
+                          bulan=bulan_per)
 
             report['periods'].append({
                 'label': label,
@@ -687,10 +718,10 @@ class MandiriKoranExtractor(BaseExtractor):
                 'checks': checks,
             })
 
-        report['warnings'].extend(self._peringatan_sambungan(doc['periods'], report))
+        self._peringatan_sambungan(doc['periods'], report, catat)
         return report
 
-    def _peringatan_sambungan(self, periods: list, report: dict) -> list:
+    def _peringatan_sambungan(self, periods: list, report: dict, catat) -> None:
         """
         Periksa sambungan antar laporan yang berurutan dalam satu PDF.
 
@@ -704,33 +735,35 @@ class MandiriKoranExtractor(BaseExtractor):
             berikutnya → kedua dokumen saling bertentangan. Itu kejanggalan
             data, jadi menggagalkan checksum.
         """
-        pesan = []
         urut = sorted([p for p in periods if p.get('start') and p.get('end')],
                       key=lambda p: p['start'])
         for a, b in zip(urut, urut[1:]):
             if b['start'] <= a['end']:
                 continue                     # tumpang tindih, sudah dilaporkan
             if b['start'] > a['end'] + timedelta(days=1):
-                pesan.append(
-                    f"Rentang {a['end'] + timedelta(days=1)}.."
-                    f"{b['start'] - timedelta(days=1)} tidak tercakup laporan "
-                    f"mana pun — mutasi pada rentang itu tidak ikut terhitung."
-                )
+                awal = a['end'] + timedelta(days=1)
+                akhir = b['start'] - timedelta(days=1)
+                catat('Sedang',
+                      f'Rentang {awal}..{akhir} tidak tercakup laporan mana pun',
+                      f'Mutasi pada rentang itu tidak ikut terhitung di laporan '
+                      f'ini. Laporan sebelumnya berakhir {a["end"]}, laporan '
+                      f'berikutnya baru mulai {b["start"]}.',
+                      bulan=BULAN_ORDER[awal.month - 1])
                 continue
             if a['closing'] is None or b['opening'] is None:
                 continue
             if abs(a['closing'] - b['opening']) > 0.005:
                 report['ok'] = False
-                pesan.append(
-                    f"Closing Balance periode {a['start']}..{a['end']} "
-                    f"({a['closing']:,.2f}) tidak sama dengan Opening Balance "
-                    f"periode {b['start']}..{b['end']} ({b['opening']:,.2f}) "
-                    f"padahal keduanya bersambung."
-                )
+                catat('Tinggi',
+                      'Saldo akhir satu laporan tidak sama dengan saldo awal '
+                      'laporan berikutnya padahal keduanya bersambung',
+                      f"Closing Balance {a['start']}..{a['end']} "
+                      f"({a['closing']:,.2f}) vs Opening Balance "
+                      f"{b['start']}..{b['end']} ({b['opening']:,.2f}).",
+                      bulan=BULAN_ORDER[b['start'].month - 1])
                 for per in report['periods']:
                     if per['label'] == f"{b['start']}..{b['end']}":
                         per['checks']['sambungan_saldo'] = False
-        return pesan
 
     # ------------------------------------------------------------------ #
     #  HELPER                                                            #
@@ -753,9 +786,13 @@ class MandiriKoranExtractor(BaseExtractor):
         try:
             return date(r['year'], r['month'], r['day'])
         except ValueError:
-            self.warnings.append(
-                f"Tanggal tidak valid pada halaman {r.get('page', '?')}: "
-                f"{r['day']:02d}/{r['month']:02d}/{r['year']}."
+            self._catat(
+                'Sedang',
+                'Ada baris dengan tanggal yang tidak valid, baris itu tidak '
+                'masuk hitungan saldo harian',
+                f"Halaman {r.get('page', '?')}: "
+                f"{r['day']:02d}/{r['month']:02d}/{r['year']}.",
+                halaman=str(r.get('page', '-')),
             )
             return None
 

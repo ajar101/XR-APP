@@ -1,0 +1,144 @@
+{
+ "berkas": "mandiri_kopra_1200010763543.pdf",
+ "bank": "mandiri",
+ "format": "kopra",
+ "identitas": {
+  "no_rekening": "1200010763543",
+  "nama_pemilik": "UMRINDO MANDIRI SEJA",
+  "jenis_rekening": null
+ },
+ "bulan": [
+  {
+   "bulan": "Juni",
+   "tahun": "2025",
+   "saldo_awal": 547883734.03,
+   "jumlah_hari": 30,
+   "jumlah_transaksi": 49,
+   "total_debit": 671667312.75,
+   "total_kredit": 200108393.74
+  }
+ ],
+ "transaksi": [
+  ["Juni", 2, "Debit", 65710000.0, "CLIPAN FINANCE INDONESIA TBK, PT", "Angsuran ke-2 MCM Outw CN CLIPAN FINANCE INDONESIA TBK, PT Clearing Fee 202506021153659524991 02"],
+  ["Juni", 2, "Debit", 2900.0, "Biaya Kliring", "Clearing Fee 202506021153659524 202506021153659524 Clearing Fee 99102"],
+  ["Juni", 4, "Debit", 199120000.0, "UMRINDO MANDIRI SEJA", "Tarik Tunai UMRINDO MANDIRI SEJA 12023"],
+  ["Juni", 11, "Debit", 3500.0, "Pembayaran Tagihan (UBP)", "UBP60213030002FFFFFF86 280785287 99102"],
+  ["Juni", 11, "Debit", 1000000.0, "Pembayaran Tagihan (UBP)", "UBP60213030002FFFFFF86 280785287 99102"],
+  ["Juni", 11, "Debit", 250000.0, "ACHMAD NURUL KAMAL MASHURI", "MCM InhouseTrf KE ACHMAD NURUL KAMAL MASHURI Transfer Fee 202506111617915588991"],
+  ["Juni", 13, "Debit", 10000.0, "Biaya Kartu Bulanan", "02 MONTHLY CARD CHARGE 0004837968809205080 12001"],
+  ["Juni", 17, "Debit", 327000.0, "CARTRACK TECHNOLOGIES INDONESIA", "UMRI00001-INV-77902 MCM InhouseTrf KE CARTRACK TECHNOLOGIES INDONESIA Transfer Fee 202506171223609704991 02"],
+  ["Juni", 17, "Debit", 327000.0, "CARTRACK TECHNOLOGIES INDONESIA", "UMRI00001-INV-78663 MCM InhouseTrf KE CARTRACK TECHNOLOGIES INDONESIA Transfer Fee 202506171220607842991 02"],
+  ["Juni", 17, "Debit", 89360000.0, "UMRINDO MANDIRI SEJA", "PENARIKAN TUNAI Tarik Tunai UMRINDO MANDIRI SEJA 12023"],
+  ["Juni", 18, "Debit", 3500.0, "Pembayaran Tagihan (UBP)", "UBP60213030002FFFFFF14 509828563 99102"],
+  ["Juni", 18, "Debit", 1000000.0, "Pembayaran Tagihan (UBP)", "UBP60213030002FFFFFF14 509828563 99102"],
+  ["Juni", 19, "Debit", 51540000.0, "010223003904 Fee PG MUFC001", "010223003904 Fee PG MUFC001 99102"],
+  ["Juni", 20, "Debit", 2800.0, "Pembayaran Tagihan (UBP)", "UBP60214003502FFFFFF02 143939813 99102"],
+  ["Juni", 20, "Debit", 699300.0, "Pembayaran Tagihan (UBP)", "UBP60214003502FFFFFF02 143939813 99102"],
+  ["Juni", 20, "Debit", 1131434.0, "Pembayaran Tagihan (UBP)", "UBP602130124028000003 0047022 99102"],
+  ["Juni", 20, "Debit", 68060000.0, "UMRINDO MANDIRI SEJA", "Tarik Tunai UMRINDO MANDIRI SEJA 12023"],
+  ["Juni", 20, "Debit", 2500000.0, "PLUMPANGSEM", "S1RH12T4 /5084528176/ATM- PLUMPANGSEM 4837968809205080 PLUMPANGSEM99105"],
+  ["Juni", 20, "Debit", 2500000.0, "PLUMPANGSEM", "S1RH12T4 /5084528177/ATM- PLUMPANGSEM 4837968809205080 PLUMPANGSEM99105"],
+  ["Juni", 20, "Debit", 2500000.0, "PLUMPANGSEM", "S1RH12T4 /5084528178/ATM- PLUMPANGSEM 4837968809205080 PLUMPANGSEM99105"],
+  ["Juni", 20, "Debit", 2500000.0, "PLUMPANGSEM", "S1RH12T4 /5084528179/ATM- PLUMPANGSEM 4837968809205080 PLUMPANGSEM99105"],
+  ["Juni", 23, "Kredit", 100000000.0, "UMRINDO MANDIRI SEJAHTERA", "20250623BNINIDJA010O0 145812259 BNINIDJA/UMRINDO MANDIRI SEJAHTERA 181138402399102"],
+  ["Juni", 23, "Debit", 10200000.0, "RENI WIDIANINGSIH", "MCM InhouseTrf KE RENI WIDIANINGSIH Transfer Fee 202506231154606250991 02"],
+  ["Juni", 23, "Debit", 12750000.0, "KASMAWATI", "6 MCM Outw CN KASMAWATI Clearing Fee 202506231148587829991 02"],
+  ["Juni", 23, "Debit", 2900.0, "Biaya Kliring", "Clearing Fee 202506231148587829 202506231148587829 Clearing Fee 99102"],
+  ["Juni", 23, "Debit", 4462500.0, "UMI CHOLIFATUN MAULI", "6 MCM Outw CN UMI CHOLIFATUN MAULI Clearing Fee 202506231145576707991"],
+  ["Juni", 23, "Debit", 2900.0, "Biaya Kliring", "02 Clearing Fee 202506231145576707 202506231145576707 Clearing Fee 99102"],
+  ["Juni", 23, "Debit", 5100000.0, "SRI WAHYUNI H RUSDI", "5 MCM InhouseTrf KE SRI WAHYUNI H RUSDI Transfer Fee 202506231145580030991 02"],
+  ["Juni", 23, "Debit", 2550000.0, "MUHAMMAD RASYID RIDHO", "- MCM Outw CN MUHAMMAD RASYID RIDHO Clearing Fee 202506231151594054991"],
+  ["Juni", 23, "Debit", 6120000.0, "SYAHRIR M PIDE", "02 6 MCM InhouseTrf KE SYAHRIR M PIDE Transfer"],
+  ["Juni", 23, "Debit", 2900.0, "Biaya Kliring", "Clearing Fee 202506231151594054 202506231151594054 Clearing Fee 99102"],
+  ["Juni", 23, "Debit", 1530000.0, "MUHAMMAD DARIS NASUT", "- MCM Outw CN MUHAMMAD DARIS NASUT Clearing Fee 202506231151594324991"],
+  ["Juni", 23, "Debit", 2900.0, "Biaya Kliring", "02 Clearing Fee 202506231151594324 202506231151594324 Clearing Fee 99102"],
+  ["Juni", 23, "Debit", 2550000.0, "MARISA ROSTANIA", "6 MCM Outw CN MARISA ROSTANIA Clearing Fee 202506231150592292991 02"],
+  ["Juni", 23, "Debit", 2900.0, "Biaya Kliring", "Clearing Fee 202506231150592292 202506231150592292 Clearing Fee 99102"],
+  ["Juni", 23, "Debit", 25500000.0, "UMI KHOLIFATUR ROFIQ", "6 MCM Outw CN UMI KHOLIFATUR ROFIQ Clearing Fee 202506231143574511991"],
+  ["Juni", 23, "Debit", 2900.0, "Biaya Kliring", "02 Clearing Fee 202506231143574511 202506231143574511 Clearing Fee 99102"],
+  ["Juni", 23, "Debit", 5100000.0, "MOHAMAD KHILWAN", "5 MCM Outw CN MOHAMAD KHILWAN Clearing Fee 202506231144574839991 02"],
+  ["Juni", 23, "Debit", 2900.0, "Biaya Kliring", "Clearing Fee 202506231144574839 202506231144574839 Clearing Fee 99102"],
+  ["Juni", 23, "Debit", 14025000.0, "UMI CHOLIFATUN NISA Clearing", "6 MCM Outw CN UMI CHOLIFATUN NISA Clearing"],
+  ["Juni", 23, "Debit", 2900.0, "Biaya Kliring", "Clearing Fee 202506231142570940 202506231142570940 Clearing Fee 99102"],
+  ["Juni", 25, "Debit", 2500000.0, "PRIOKYS", "S1RK1LJ0 /7674489287/ATM- PRIOKYS 4837968809205080 PRIOKYS99105"],
+  ["Juni", 25, "Debit", 2500000.0, "PRIOKYS", "S1RK1LJ0 /7674489288/ATM- PRIOKYS 4837968809205080 PRIOKYS99105"],
+  ["Juni", 25, "Debit", 2000000.0, "PRIOKYS", "S1RK1LJ0 /7674489289/ATM- PRIOKYS 4837968809205080 PRIOKYS99105"],
+  ["Juni", 30, "Kredit", 100000000.0, "UMRINDO MANDIRI SEJAHTERA", "20250630BNINIDJA010O0 175088274 BNINIDJA/UMRINDO MANDIRI SEJAHTERA 181138402399102"],
+  ["Juni", 30, "Debit", 86175000.0, "UMRINDO MANDIRI SEJA", "OPERASIONAL Tarik Tunai UMRINDO MANDIRI SEJA 12023"],
+  ["Juni", 30, "Debit", 12500.0, "Biaya Administrasi", "Biaya Adm 12001"],
+  ["Juni", 30, "Kredit", 108393.74, "Bunga", "Bunga 12001"],
+  ["Juni", 30, "Debit", 21678.75, "Pajak", "Pajak 12001"]
+ ],
+ "saldo_harian": [
+  ["Juni", 1, 547883734.03],
+  ["Juni", 2, 482170834.03],
+  ["Juni", 3, 482170834.03],
+  ["Juni", 4, 283050834.03],
+  ["Juni", 5, 283050834.03],
+  ["Juni", 6, 283050834.03],
+  ["Juni", 7, 283050834.03],
+  ["Juni", 8, 283050834.03],
+  ["Juni", 9, 283050834.03],
+  ["Juni", 10, 283050834.03],
+  ["Juni", 11, 281797334.03],
+  ["Juni", 12, 281797334.03],
+  ["Juni", 13, 281787334.03],
+  ["Juni", 14, 281787334.03],
+  ["Juni", 15, 281787334.03],
+  ["Juni", 16, 281787334.03],
+  ["Juni", 17, 191773334.03],
+  ["Juni", 18, 190769834.03],
+  ["Juni", 19, 139229834.03],
+  ["Juni", 20, 59336300.03],
+  ["Juni", 21, 59336300.03],
+  ["Juni", 22, 59336300.03],
+  ["Juni", 23, 69425600.03],
+  ["Juni", 24, 69425600.03],
+  ["Juni", 25, 62425600.03],
+  ["Juni", 26, 62425600.03],
+  ["Juni", 27, 62425600.03],
+  ["Juni", 28, 62425600.03],
+  ["Juni", 29, 62425600.03],
+  ["Juni", 30, 76324815.02]
+ ],
+ "metadata": {
+  "biaya_admin": {
+   "label_nama": "Biaya Administrasi",
+   "jadwal": {
+    "Juni": {
+     "tanggal": 30,
+     "aturan": "akhir bulan/tanggal 30 (ketentuan Bank Mandiri)"
+    }
+   }
+  },
+  "bunga_pajak": {
+   "kolom": "Nama Pengirim/Penerima",
+   "bunga": [
+    "Bunga"
+   ],
+   "pajak": [
+    "Pajak"
+   ]
+  },
+  "peringatan": []
+ },
+ "checksum": {
+  "ok": true,
+  "duplikat_digabung": 0,
+  "periode": [
+   {
+    "label": "2025-06-01..2025-06-30",
+    "bulan": "Juni",
+    "checks": {
+     "n_debit": true,
+     "n_credit": true,
+     "total_debit": true,
+     "total_credit": true,
+     "closing": true,
+     "rantai_saldo": true
+    }
+   }
+  ],
+  "peringatan": []
+ }
+}

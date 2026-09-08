@@ -1,0 +1,138 @@
+{
+ "berkas": "mandiri_koran_1660001357151.pdf",
+ "bank": "mandiri",
+ "format": "koran",
+ "identitas": {
+  "no_rekening": "1660001357151",
+  "nama_pemilik": "MELODY TRANS WISATA",
+  "jenis_rekening": null
+ },
+ "bulan": [
+  {
+   "bulan": "Januari",
+   "tahun": "2025",
+   "saldo_awal": 364601227.41,
+   "jumlah_hari": 31,
+   "jumlah_transaksi": 42,
+   "total_debit": 233084845.91,
+   "total_kredit": 195260724.53
+  }
+ ],
+ "transaksi": [
+  ["Januari", 2, "Kredit", 2100000.0, "TOYIB ABDULLAH", "MCM InhouseTrf DARI TOYIB ABDULLAH 99101"],
+  ["Januari", 3, "Debit", 23463301.0, "Autodebet Angsuran", "Auto Coll: 9432301167. Ang Ke 22 23463301 2299102"],
+  ["Januari", 4, "Kredit", 13000000.0, "EMI MARYAMI", "20250104BRINIDJA010O0205 790420 BRINIDJA/EMI MARYAMI 32570102705853599102"],
+  ["Januari", 5, "Kredit", 5000000.0, "ANANG SUPRIYANTO", "20250105CENAIDJA010O023 6842362 CENAIDJA/ANANG SUPRIYANTO 060080099099102"],
+  ["Januari", 6, "Kredit", 5600000.0, "INMOTION INOVASI TEKNOLOGI", "MCM InhouseTrf DARI INMOTION INOVASI TEKNOLOGI Transfer Fee 20250106122362103399102"],
+  ["Januari", 7, "Kredit", 1000000.0, "JONET CAHYO NUGROHO", "20250107BRINIDJA010O0235 972335 BRINIDJA/JONET CAHYO NUGROHO 79070101422253499102"],
+  ["Januari", 7, "Kredit", 7000000.0, "TERANG WAHANA HIJAU", "20250107BRINIDJA010O9937 206680 BRINIDJA/TERANG WAHANA HIJAU 14140100021730099102"],
+  ["Januari", 7, "Kredit", 1500000.0, "VIGO NELSON", "Dp bus MCM InhouseTrf DARI VIGO NELSON Dp bus99101"],
+  ["Januari", 8, "Kredit", 5900000.0, "TOYIB ABDULLAH", "MCM InhouseTrf DARI TOYIB ABDULLAH 99101"],
+  ["Januari", 8, "Kredit", 6000000.0, "REYNA NARULITA SUSANTYO", "pel 11 12 jan 55seat an winda an winda MCM InhouseTrf DARI REYNA NARULITA SUSANTYO pel 11 12 jan 55seat an winda99101"],
+  ["Januari", 9, "Kredit", 3570000.0, "1660001357151 090929012500960365 090929012500960365 MCM InhouseTrf", "1660001357151 090929012500960365 090929012500960365 MCM InhouseTrf 99102"],
+  ["Januari", 10, "Kredit", 3750000.0, "SANKYU INDONESIA INTERNATIONAL, 3665IDRCUA", "20250110BOTKIDJX010O990 0024664 BOTKIDJX/SANKYU INDONESIA INTERNATIONAL, 3665IDRCUA5100405757991 02"],
+  ["Januari", 10, "Kredit", 2240000.0, "MINANDA EL KHAIR", "Pelunasan bis MCM InhouseTrf DARI MINANDA EL KHAIR Pelunasan bis99101"],
+  ["Januari", 13, "Kredit", 3750000.0, "ANI RUSYATI", "DARI ANI RUSYATI Transfer ATM S1RH16P0 /5480484663/ATM- 3431903PENG 99105"],
+  ["Januari", 13, "Kredit", 1000000.0, "Euwinto Kristian", "20250113BBLUIDJA010O027 1541136 BBLUIDJA/Euwinto Kristian 00110204121399102"],
+  ["Januari", 14, "Kredit", 5400000.0, "FAJAR CAHYANTO", "MCM InhouseTrf DARI FAJAR CAHYANTO 99101"],
+  ["Januari", 16, "Kredit", 8750000.0, "ANI RUSYATI", "DARI ANI RUSYATI Transfer ATM S1RH16P0 /5480485706/ATM- 3431903PENG 99105"],
+  ["Januari", 16, "Kredit", 2850000.0, "Transaksi Kartu Debit", "ATMB trf Credt BMIDIN01 /0000301110/ATB- 0000000000147 301019984799105"],
+  ["Januari", 20, "Debit", 105000000.0, "OSCAR TOSAGENA", "MCM InhouseTrf KE OSCAR TOSAGENA Transfer Fee 20250119225869960899102"],
+  ["Januari", 21, "Kredit", 3150000.0, "NOVITA LESTARI", "20250121CENAIDJA010O021 1532523 CENAIDJA/NOVITA LESTARI 167289755199102"],
+  ["Januari", 21, "Kredit", 10400000.0, "ACHMAD SOPYAN", "DARI ACHMAD SOPYAN Transfer ATM S1RH157N /5355789729/ATM-PS SEGAR CI 99105"],
+  ["Januari", 22, "Kredit", 1500000.0, "NOERHAQIKAH", "DP Bus tgl 01 Februari 2025 i 2025 MCM InhouseTrf DARI NOERHAQIKAH DP Bus tgl 01 Februari 202599101"],
+  ["Januari", 22, "Kredit", 6000000.0, "Setor Tunai", "DP 30% SPRINGHILL GROUP Setor Tunai 11923"],
+  ["Januari", 22, "Kredit", 2700000.0, "NITA YULIANI", "DP Bus SMP SMA Fajar Dunia Dunia MCM InhouseTrf DARI NITA YULIANI DP Bus SMP SMA Fajar Dunia99101"],
+  ["Januari", 23, "Kredit", 7050000.0, "RINI SETIAWATI", "DP Bus Rini to solo 25sd28Jan25 5sd28Jan25 MCM InhouseTrf DARI RINI SETIAWATI DP Bus Rini to solo 25sd28Jan2599101"],
+  ["Januari", 23, "Kredit", 21000000.0, "ASEP KOSWARA", "MCM InhouseTrf DARI ASEP KOSWARA 99101"],
+  ["Januari", 24, "Debit", 24532000.0, "Warkat Cek/Bilyet Giro", "BG 593484-BG 593484 99411 20250123000174 10593484 99009"],
+  ["Januari", 24, "Kredit", 12600000.0, "IRWAN MATTALUNRU", "pelunasan bus pt solo murni murni MCM InhouseTrf DARI IRWAN MATTALUNRU pelunasan bus pt solo murni99101"],
+  ["Januari", 24, "Kredit", 16450000.0, "RINI SETIAWATI", "Bus Rini to Solo 25sd28 Jan 25 28 Jan 25 MCM InhouseTrf DARI RINI SETIAWATI Bus Rini to Solo 25sd28 Jan 2599101"],
+  ["Januari", 24, "Kredit", 228000.0, "RINI SETIAWATI", "Pemb Air Mineral 4 Dus uk 600ml s uk 600ml MCM InhouseTrf DARI RINI SETIAWATI Pemb Air Mineral 4 Dus uk 600ml99101"],
+  ["Januari", 25, "Kredit", 1260000.0, "Lidyawati Gozali", "20250125BBLUIDJA010O026 6689837 BBLUIDJA/Lidyawati Gozali 00747354508399102"],
+  ["Januari", 25, "Kredit", 6000000.0, "SETIYAWATI", "20250125BSMDIDJA010O028 1277068 BSMDIDJA/SETIYAWATI 263672020099102"],
+  ["Januari", 26, "Kredit", 10000000.0, "Herlin Indahtia Ganabillah", "20250126BBLUIDJA010O020 7620674 BBLUIDJA/Herlin Indahtia Ganabillah 00231624696799102"],
+  ["Januari", 30, "Kredit", 1800000.0, "Transfer via Jaringan PRIMA", "PRMA CR Transf 1660001357151 5260512038142137 S1ACMB9503/623729 /PRM-M-BCA99105"],
+  ["Januari", 30, "Kredit", 7350000.0, "NOVITA LESTARI", "20250130CENAIDJA010O025 6289324 CENAIDJA/NOVITA LESTARI 167289755199102"],
+  ["Januari", 31, "Kredit", 2940000.0, "Setor Tunai", "SEWA BUS TGL 02 FEB 25 Setor Tunai 17601"],
+  ["Januari", 31, "Kredit", 1000000.0, "LIMA SOLUSI RAYA", "20250131SYNAIDJ1010O010 0124643 SYNAIDJ1/LIMA SOLUSI RAYA 86001534880099102"],
+  ["Januari", 31, "Kredit", 5100000.0, "MUHAMMAD NURHADI IHSAN", "DP PT Nusa Maju Sejahtera tera MCM InhouseTrf DARI MUHAMMAD NURHADI IHSAN DP PT Nusa Maju Sejahtera99101"],
+  ["Januari", 31, "Debit", 80000000.0, "OSCAR TOSAGENA", "MCM InhouseTrf KE OSCAR TOSAGENA Transfer Fee 20250131192291395999102"],
+  ["Januari", 31, "Debit", 25000.0, "Biaya Administrasi", "Biaya Adm 16600"],
+  ["Januari", 31, "Kredit", 322724.53, "Bunga", "Bunga 16600"],
+  ["Januari", 31, "Debit", 64544.91, "Pajak", "Pajak 16600"]
+ ],
+ "saldo_harian": [
+  ["Januari", 1, 364601227.41],
+  ["Januari", 2, 366701227.41],
+  ["Januari", 3, 343237926.41],
+  ["Januari", 4, 356237926.41],
+  ["Januari", 5, 361237926.41],
+  ["Januari", 6, 366837926.41],
+  ["Januari", 7, 376337926.41],
+  ["Januari", 8, 388237926.41],
+  ["Januari", 9, 391807926.41],
+  ["Januari", 10, 397797926.41],
+  ["Januari", 11, 397797926.41],
+  ["Januari", 12, 397797926.41],
+  ["Januari", 13, 402547926.41],
+  ["Januari", 14, 407947926.41],
+  ["Januari", 15, 407947926.41],
+  ["Januari", 16, 419547926.41],
+  ["Januari", 17, 419547926.41],
+  ["Januari", 18, 419547926.41],
+  ["Januari", 19, 419547926.41],
+  ["Januari", 20, 314547926.41],
+  ["Januari", 21, 328097926.41],
+  ["Januari", 22, 338297926.41],
+  ["Januari", 23, 366347926.41],
+  ["Januari", 24, 371093926.41],
+  ["Januari", 25, 378353926.41],
+  ["Januari", 26, 388353926.41],
+  ["Januari", 27, 388353926.41],
+  ["Januari", 28, 388353926.41],
+  ["Januari", 29, 388353926.41],
+  ["Januari", 30, 397503926.41],
+  ["Januari", 31, 326777106.03]
+ ],
+ "metadata": {
+  "biaya_admin": {
+   "label_nama": "Biaya Administrasi",
+   "jadwal": {
+    "Januari": {
+     "tanggal": 31,
+     "aturan": "akhir bulan/tanggal 31 (ketentuan Bank Mandiri)"
+    }
+   }
+  },
+  "bunga_pajak": {
+   "kolom": "Nama Pengirim/Penerima",
+   "bunga": [
+    "Bunga"
+   ],
+   "pajak": [
+    "Pajak"
+   ]
+  },
+  "peringatan": []
+ },
+ "checksum": {
+  "ok": true,
+  "duplikat_digabung": 0,
+  "periode": [
+   {
+    "label": "2025-01-01..2025-01-31",
+    "bulan": "Januari",
+    "checks": {
+     "n_debit": true,
+     "n_credit": true,
+     "total_debit": true,
+     "total_credit": true,
+     "closing": true,
+     "rantai_saldo": true
+    }
+   }
+  ],
+  "peringatan": []
+ }
+}

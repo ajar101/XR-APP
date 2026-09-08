@@ -8,7 +8,7 @@ Ringkasan arsitektur, fitur, input/output, dan rencana pengembangan aplikasi eks
 
 ## 1. Apa aplikasi ini
 
-Aplikasi web (Flask) yang menerima upload PDF rekening koran, mengekstrak seluruh mutasi & saldo secara otomatis, lalu menghasilkan laporan Excel multi-sheet — lengkap dengan kategorisasi transaksi, analisis cashflow, konsentrasi nasabah (HHI Score), dan **deteksi otomatis indikasi kejanggalan rekening** (13 indikator, dari saldo tidak balance sampai jadwal biaya admin yang tidak sesuai ketentuan bank).
+Aplikasi web (Flask) yang menerima upload PDF rekening koran, mengekstrak seluruh mutasi & saldo secara otomatis, lalu menghasilkan laporan Excel multi-sheet — lengkap dengan kategorisasi transaksi, analisis cashflow, konsentrasi nasabah (HHI Score), dan **deteksi otomatis indikasi kejanggalan rekening** (17 indikator, dari saldo tidak balance sampai jadwal biaya admin yang tidak sesuai ketentuan bank).
 
 Tujuan jangka panjang: dipakai oleh seluruh tim (pusat & cabang) untuk mempercepat review rekening koran nasabah.
 
@@ -31,12 +31,16 @@ XR-APP/
 │   ├── mandiri_statement.py     #   Sub-extractor Mandiri e-Statement (Livin'/Mandiri Online)
 │   ├── mandiri_koran.py         #   Sub-extractor Mandiri Laporan Rekening Koran (tabel bergaris)
 │   ├── mandiri_nama.py          #   Pipeline nama lawan transaksi, dipakai bersama Kopra & Rekening Koran
+│   ├── peringatan.py            #   Pencatatan peringatan pembacaan dokumen (bank-agnostic)
 │   └── pdf_utils.py             #   Deteksi PDF hasil scan/foto (bank-agnostic)
 ├── engine/                      # Lapisan pemrosesan (bank-agnostic)
 │   ├── excel_builder.py         #   Generator Excel 9-sheet
 │   ├── categorizer.py           #   Kategorisasi transaksi berbasis keyword
-│   ├── anomaly_detector.py      #   13 pemeriksaan indikasi kejanggalan
+│   ├── anomaly_detector.py      #   17 pemeriksaan indikasi kejanggalan
 │   └── multi_pdf_merger.py      #   Gabungkan hasil ekstraksi dari beberapa PDF
+├── tests/                       # Tes regresi ekstraksi
+│   ├── regresi.py               #   Bandingkan hasil ekstraksi seluruh PDF referensi dengan snapshot
+│   └── snapshot/                #   Hasil yang direkam, satu JSON per PDF (1 transaksi = 1 baris)
 ├── references/                  # PDF contoh + hasil Excel untuk validasi manual
 └── parse_rekening.py            # Skrip CLI lama, tidak terhubung ke app.py (peninggalan awal)
 ```
@@ -80,7 +84,7 @@ app.py /upload
 | Deteksi PDF hasil scan/foto | ✅ Aktif — ditolak dengan pesan jelas, bukan error generik |
 | Kategorisasi transaksi debit/kredit otomatis (keyword-based) | ✅ Aktif |
 | Analisis konsentrasi nasabah (HHI Score) | ✅ Aktif |
-| Sheet "Indikasi Kejanggalan" (13 indikator deteksi anomali) | ✅ Aktif (lihat §4) |
+| Sheet "Indikasi Kejanggalan" (17 indikator deteksi anomali) | ✅ Aktif (lihat §4) |
 | Bank BNI | ⏸ Nonaktif sementara (kode masih ada, tinggal `enabled: True` di registry) |
 | Bank Mandiri — format **Kopra by Mandiri** | ✅ Aktif — divalidasi checksum terhadap ringkasan resmi PDF |
 | Bank Mandiri — format **e-Statement** (Livin'/Mandiri Online) | ✅ Aktif — Tabungan, Tabungan Bisnis, Tabungan NOW & Giro; divalidasi 100% terhadap 14 periode dari 5 PDF riil |
@@ -130,9 +134,9 @@ Satu file **Excel (.xlsx)** dengan **9 sheet**:
 | 6 | Kategori Debit | Auto-klasifikasi pengeluaran (gaji, operasional, angsuran, dll) |
 | 7 | Kategori Kredit | Auto-klasifikasi pemasukan |
 | 8 | Summary | Identitas rekening, ringkasan keuangan per bulan, konsentrasi kredit, **HHI Score** + interpretasi |
-| 9 | **Indikasi Kejanggalan** | 13 pemeriksaan otomatis kewajaran rekening — dashboard skor risiko + tabel detail temuan (filterable) |
+| 9 | **Indikasi Kejanggalan** | 17 pemeriksaan otomatis kewajaran rekening — dashboard skor risiko + tabel detail temuan (filterable) |
 
-### 5.1 Sheet 9 — 13 indikator kejanggalan
+### 5.1 Sheet 9 — 17 indikator kejanggalan
 
 Disusun sebagai dashboard ringkas (skor risiko + ringkasan per kategori) diikuti tabel detail temuan (bisa di-filter/sort di Excel), tiap temuan diberi tingkat **Tinggi / Sedang / Rendah**.
 
@@ -152,6 +156,9 @@ Disusun sebagai dashboard ringkas (skor risiko + ringkasan per kategori) diikuti
 | 12 | Indikasi Structuring | Transaksi tunai berulang mendekati ambang pelaporan LTKT Rp500 juta |
 | 13 | Rasio Pajak Bunga Tidak Wajar | Pajak Bunga ÷ Bunga di luar rentang 0,195–0,205 (PPh Final 20%). Baris bunga & pajak dikenali lewat metadata `_bunga_pajak` (BCA lewat kolom Keterangan, Mandiri lewat kolom Nama) |
 | 14 | Jadwal Biaya Admin Tidak Wajar | Tanggal debet biaya admin tidak sesuai jadwal resmi bank ybs. Jadwalnya dikirim extractor lewat metadata `_biaya_admin` — BCA: GIRO akhir bulan / TAHAPAN Jumat ke-3, seragam tanggal 1 sejak Juni 2026; Mandiri: akhir bulan. Baris dicocokkan **persis** lewat kolom Nama, jadi "Biaya administrasi kartu debit" Mandiri (ikut tanggal ulang tahun kartu) tidak ikut diperiksa |
+| 15 | Selisih dengan Ringkasan PDF | Jumlah transaksi & total nominal hasil ekstraksi ≠ angka ringkasan resmi yang tercetak di PDF itu sendiri. Dikirim extractor lewat metadata `_checksum` |
+| 16 | Urutan Tanggal Tidak Wajar | Tanggal transaksi mundur dari baris sebelumnya — rekening koran dicetak kronologis, jadi urutan 01, 02, 03, 01, 04 menandakan baris disisipkan atau dokumen disusun ulang |
+| 17 | Peringatan Pembacaan Dokumen | Kondisi dokumen yang hanya diketahui extractor saat membaca PDF: halaman yang bukan bagian rekening yang diperiksa (mis. PDF rekening lain ikut ter-merge), rentang tanggal yang tidak dicakup laporan mana pun, rantai saldo berjalan yang putus, periode tumpang tindih, baris bertanggal tidak terbaca. Dikirim extractor lewat metadata `_peringatan` — saat ini oleh ketiga extractor Mandiri; BCA belum, jadi untuk BCA bagian ini selalu kosong |
 
 > Catatan jujur soal keterbatasan: daftar hari libur nasional baru mencakup 4 tanggal tetap (Tahun Baru, Buruh, Kemerdekaan, Natal) — **belum** mencakup libur lunar/hijriah (Lebaran, Nyepi, Imlek, dst). Deteksi RTGS bergantung PDF mencetak kata "RTGS" secara eksplisit.
 
@@ -163,6 +170,7 @@ Disusun berdasarkan diskusi sepanjang pengembangan, urut prioritas realistis (bu
 
 ### 6.1 Jangka pendek — masih di arsitektur Flask saat ini
 - **Reaktivasi BNI** setelah proses stabilisasi pola BCA (regex, deteksi nama, dsb.) dianggap cukup matang untuk dijadikan acuan pola bank lain. *(Mandiri sudah aktif: format Kopra dan e-Statement.)*
+- **Rapikan sisa nama lawan transaksi pada PDF Kopra** — setelah perbaikan pipeline nama (yang datanya berasal dari PDF Rekening Koran), tersisa ±127 baris dari 4.682 (2,7%) yang namanya masih berupa nomor referensi, mayoritas di PDF Kopra dengan berita transaksi panjang. Perlu satu putaran khusus dengan PDF Kopra sebagai sampel.
 - **Pemeriksaan Sheet 9 yang masih spesifik pola teks BCA** — empat indikator yang membaca ulang PDF mentah (running balance, nomor halaman, template halaman, format nominal) masih mencocokkan tata letak khas BCA (`HALAMAN :`, baris `dd/mm`), sehingga tidak menyala untuk PDF Mandiri. Bukan salah baca, tapi cakupannya lebih sempit — kedua extractor Mandiri menutupnya lewat checksum internal (`validate()` → metadata `_checksum`) plus pemeriksaan nomor urut transaksi. **Rencana:** generalisasikan dengan cara yang sama seperti `_biaya_admin` — extractor menyerahkan *provenance* per baris (halaman, posisi, saldo tercetak) sebagai bagian kontrak. Sebaiknya dirancang **setelah BNI aktif**, supaya kontraknya diuji dengan tiga bank, bukan satu.
 - **Perluas daftar hari libur nasional** (termasuk libur lunar/hijriah) — perlu referensi kalender resmi per tahun.
 - **OCR / Claude Vision untuk PDF hasil scan** — saat ini hanya terdeteksi & ditolak. Rekomendasi: langsung ke pendekatan vision model (Claude API) ketimbang OCR tradisional + regex, karena data finansial butuh akurasi tinggi dan OCR rentan salah baca digit pada tabel rapat. *(Belum digarap — dinilai jarang terjadi untuk saat ini.)*

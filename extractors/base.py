@@ -62,6 +62,30 @@ class BaseExtractor(ABC):
                 {'label': str, 'bulan': str,
                  'expected': {...}, 'actual': {...}},
             ],
+
+            # Opsional — hal-hal yang DIKETAHUI EXTRACTOR saat membaca PDF dan
+            # perlu dilihat pemeriksa, tapi bukan hasil pencocokan angka
+            # ringkasan (itu lewat '_checksum').
+            #
+            # Contoh nyata yang harus sampai ke pemeriksa: satu PDF ternyata
+            # memuat 60 halaman rekening bank LAIN yang ikut ter-merge, atau
+            # ada rentang tanggal yang tidak dicakup laporan mana pun.
+            # Sebelum kunci ini ada, temuan seperti itu berhenti di dalam
+            # extractor — laporan Excel-nya terlihat bersih padahal dokumen
+            # sumbernya bermasalah. Diam bukan pilihan yang aman untuk
+            # laporan yang dipakai menilai rekening.
+            #
+            # Engine hanya membaca strukturnya, tidak tahu bank apa pun.
+            # Extractor yang tidak mengirimnya cukup dilewati.
+            '_peringatan': [
+                {
+                    'tingkat': 'Tinggi' | 'Sedang' | 'Rendah',
+                    'ringkas': str,   # satu kalimat, jadi "Deskripsi Temuan"
+                    'detail':  str,   # bukti/angka pendukung, boleh kosong
+                    'bulan':   str,   # opsional, default '-'
+                    'halaman': str,   # opsional, default '-'
+                },
+            ],
         }
 
     extract_transaksi() → dict:

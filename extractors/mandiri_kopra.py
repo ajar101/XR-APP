@@ -26,6 +26,7 @@ import pdfplumber
 import pandas as pd
 
 from extractors.base import BaseExtractor
+from extractors.peringatan import PencatatPeringatan, pencatat_laporan
 from extractors.mandiri_nama import extract_nama
 
 BULAN_ORDER = [
@@ -108,12 +109,15 @@ def jadwal_biaya_admin_mandiri(saldo_result: dict) -> dict:
     return {'_biaya_admin': {'label_nama': LABEL_BIAYA_ADMIN, 'jadwal': jadwal}}
 
 
-class MandiriKopraExtractor(BaseExtractor):
+class MandiriKopraExtractor(PencatatPeringatan, BaseExtractor):
 
     def __init__(self, pdf_path: str):
         super().__init__(pdf_path)
         # Peringatan yang terkumpul selama parsing (dibaca app.py / pemanggil).
         self.warnings: list[str] = []
+        # Bentuk terstruktur dari peringatan yang sama, untuk metadata
+        # '_peringatan' (lihat extractors/peringatan.py).
+        self.peringatan: list[dict] = []
         self._cache = None
 
     def get_file_prefix(self) -> str:
@@ -151,9 +155,12 @@ class MandiriKopraExtractor(BaseExtractor):
 
         missing = [n for n in ('Reference', 'Debit', 'Credit', 'Balance') if n not in pos]
         if missing:
-            self.warnings.append(
-                f"Halaman {page.page_number}: kolom header {', '.join(missing)} "
-                f"tidak ditemukan, memakai posisi cadangan."
+            self._catat(
+                'Rendah',
+                'Sebagian kolom header tabel tidak ditemukan, posisi kolom '
+                'memakai nilai cadangan',
+                f"Halaman {page.page_number}: {', '.join(missing)}.",
+                halaman=str(page.page_number),
             )
 
         cols = {
@@ -505,6 +512,10 @@ class MandiriKopraExtractor(BaseExtractor):
         # Laporkan hasil checksum dalam bentuk umum supaya engine bisa
         # menampilkannya sebagai indikator tanpa tahu format Kopra.
         lap = self.validate()
+        # Peringatan pembacaan dokumen diteruskan ke engine supaya muncul di
+        # Sheet Indikasi Kejanggalan (lihat kontrak di extractors/base.py).
+        if lap.get('peringatan'):
+            result['_peringatan'] = lap['peringatan']
         result['_checksum'] = [
             {'label': per['label'], 'bulan': per['bulan'],
              'expected': {k: per['expected'].get(k) for k in
@@ -553,26 +564,32 @@ class MandiriKopraExtractor(BaseExtractor):
         Mengembalikan {'ok': bool, 'periods': [...], 'warnings': [...]}.
         """
         doc = self._parse_document()
-        report = {'ok': True, 'periods': [], 'warnings': list(self.warnings)}
+        report = {'ok': True, 'periods': [], 'warnings': list(self.warnings),
+                  'peringatan': list(self.peringatan)}
+        catat = pencatat_laporan(report)
 
         if not doc['periods']:
             report['ok'] = False
-            report['warnings'].append(
-                'Tidak ada blok ringkasan periode yang terbaca — '
-                'PDF kemungkinan bukan format Kopra by Mandiri.'
-            )
+            catat('Tinggi',
+                  'Tidak ada blok ringkasan periode yang terbaca',
+                  'PDF kemungkinan bukan format Kopra by Mandiri.')
             return report
 
         if not doc['rows']:
             report['ok'] = False
-            report['warnings'].append(
-                'Blok ringkasan terbaca tetapi tidak ada baris transaksi yang terdeteksi.'
-            )
+            catat('Tinggi',
+                  'Blok ringkasan terbaca tetapi tidak ada baris transaksi yang '
+                  'terdeteksi',
+                  'Tata letak tabelnya kemungkinan berbeda dari yang dikenali '
+                  'extractor.')
 
         report['duplikat_digabung'] = len(doc['rows']) - len(self._merged_rows())
         overlap = self._overlap_warning()
         if overlap:
-            report['warnings'].append(overlap)
+            catat('Sedang',
+                  'Ada periode laporan yang saling tumpang tindih dalam satu PDF; '
+                  'transaksi gandanya digabung menjadi satu',
+                  overlap)
 
         for idx, per in enumerate(doc['periods']):
             rows = [r for r in doc['rows'] if r['period_idx'] == idx]
@@ -611,9 +628,12 @@ class MandiriKopraExtractor(BaseExtractor):
                     )
 
             if per['opening'] is None:
-                report['warnings'].append(
-                    f"Periode {label}: Opening Balance tidak terbaca dari PDF."
-                )
+                catat('Rendah',
+                      'Opening Balance satu laporan tidak terbaca, rantai saldo '
+                      'laporan itu tidak bisa diperiksa',
+                      f'Periode {label}.',
+                      bulan=(BULAN_ORDER[per['start'].month - 1]
+                             if per.get('start') else '-'))
             else:
                 # Rantai saldo berjalan: saldo tiap baris harus sama dengan
                 # saldo sebelumnya + kredit - debit. Ini pemeriksaan bebas
@@ -630,11 +650,17 @@ class MandiriKopraExtractor(BaseExtractor):
                     prev = r['balance']
                 checks['rantai_saldo'] = (putus == 0)
                 if putus:
+                    # Tidak tercakup metadata '_checksum' (yang hanya membawa
+                    # lima angka ringkasan), jadi tanpa dicatat di sini temuan
+                    # ini tidak akan pernah sampai ke pemeriksa.
                     report['ok'] = False
-                    report['warnings'].append(
-                        f"Periode {label}: rantai saldo berjalan putus di "
-                        f"{putus} baris — ada transaksi terlewat atau salah baca."
-                    )
+                    catat('Tinggi',
+                          f'Rantai saldo berjalan putus di {putus} baris — ada '
+                          f'transaksi terlewat atau salah baca',
+                          f'Periode {label}. Saldo tiap baris seharusnya sama '
+                          f'dengan saldo baris sebelumnya + kredit − debit.',
+                          bulan=(BULAN_ORDER[per['start'].month - 1]
+                                 if per.get('start') else '-'))
 
             report['periods'].append({
                 'label': label,

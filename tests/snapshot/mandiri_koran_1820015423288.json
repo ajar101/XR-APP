@@ -1,0 +1,102 @@
+{
+ "berkas": "mandiri_koran_1820015423288.pdf",
+ "bank": "mandiri",
+ "format": "koran",
+ "identitas": {
+  "no_rekening": "1820015423288",
+  "nama_pemilik": "PT KARO NUSANTARA LO",
+  "jenis_rekening": null
+ },
+ "bulan": [
+  {
+   "bulan": "Juni",
+   "tahun": "2025",
+   "saldo_awal": 160718073.35,
+   "jumlah_hari": 30,
+   "jumlah_transaksi": 7,
+   "total_debit": 27003772.71,
+   "total_kredit": 42269501.54
+  }
+ ],
+ "transaksi": [
+  ["Juni", 5, "Debit", 8000000.0, "IVAN HAIRANSYAH", "Pengisian kas MCM InhouseTrf KE IVAN HAIRANSYAH Transfer Fee 20250605082993024099102"],
+  ["Juni", 24, "Kredit", 42138138.0, "ORO PLASTINDO PT", "20250624CENAIDJA010O014 1063871 CENAIDJA/ORO PLASTINDO PT 285004106099102"],
+  ["Juni", 25, "Debit", 18950000.0, "IVAN HAIRANSYAH", "Pengisian KAS CENAIDJA/IVAN HAIRANSYAH 20250625BMRIIDJA010O993 782645499102"],
+  ["Juni", 25, "Debit", 2500.0, "Biaya Transfer Antar Bank", "20250625BMRIIDJA010O993 7826454 99102"],
+  ["Juni", 30, "Debit", 25000.0, "Biaya Administrasi", "Biaya Adm 18251"],
+  ["Juni", 30, "Kredit", 131363.54, "Bunga", "Bunga 18251"],
+  ["Juni", 30, "Debit", 26272.71, "Pajak", "Pajak 18251"]
+ ],
+ "saldo_harian": [
+  ["Juni", 1, 160718073.35],
+  ["Juni", 2, 160718073.35],
+  ["Juni", 3, 160718073.35],
+  ["Juni", 4, 160718073.35],
+  ["Juni", 5, 152718073.35],
+  ["Juni", 6, 152718073.35],
+  ["Juni", 7, 152718073.35],
+  ["Juni", 8, 152718073.35],
+  ["Juni", 9, 152718073.35],
+  ["Juni", 10, 152718073.35],
+  ["Juni", 11, 152718073.35],
+  ["Juni", 12, 152718073.35],
+  ["Juni", 13, 152718073.35],
+  ["Juni", 14, 152718073.35],
+  ["Juni", 15, 152718073.35],
+  ["Juni", 16, 152718073.35],
+  ["Juni", 17, 152718073.35],
+  ["Juni", 18, 152718073.35],
+  ["Juni", 19, 152718073.35],
+  ["Juni", 20, 152718073.35],
+  ["Juni", 21, 152718073.35],
+  ["Juni", 22, 152718073.35],
+  ["Juni", 23, 152718073.35],
+  ["Juni", 24, 194856211.35],
+  ["Juni", 25, 175903711.35],
+  ["Juni", 26, 175903711.35],
+  ["Juni", 27, 175903711.35],
+  ["Juni", 28, 175903711.35],
+  ["Juni", 29, 175903711.35],
+  ["Juni", 30, 175983802.18]
+ ],
+ "metadata": {
+  "biaya_admin": {
+   "label_nama": "Biaya Administrasi",
+   "jadwal": {
+    "Juni": {
+     "tanggal": 30,
+     "aturan": "akhir bulan/tanggal 30 (ketentuan Bank Mandiri)"
+    }
+   }
+  },
+  "bunga_pajak": {
+   "kolom": "Nama Pengirim/Penerima",
+   "bunga": [
+    "Bunga"
+   ],
+   "pajak": [
+    "Pajak"
+   ]
+  },
+  "peringatan": []
+ },
+ "checksum": {
+  "ok": true,
+  "duplikat_digabung": 0,
+  "periode": [
+   {
+    "label": "2025-06-01..2025-06-30",
+    "bulan": "Juni",
+    "checks": {
+     "n_debit": true,
+     "n_credit": true,
+     "total_debit": true,
+     "total_credit": true,
+     "closing": true,
+     "rantai_saldo": true
+    }
+   }
+  ],
+  "peringatan": []
+ }
+}

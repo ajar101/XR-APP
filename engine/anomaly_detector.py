@@ -87,6 +87,7 @@ def detect_anomalies(pdf_path, saldo_per_bulan: dict,
     findings += _check_rasio_pajak_bunga(transaksi_per_bulan, saldo_per_bulan)
     findings += _check_jadwal_biaya_adm(transaksi_per_bulan, saldo_per_bulan)
     findings += _check_checksum_extractor(saldo_per_bulan)
+    findings += _check_peringatan_extractor(saldo_per_bulan)
     findings += _check_urutan_tanggal(transaksi_per_bulan)
 
     pdf_paths = [pdf_path] if isinstance(pdf_path, str) else list(pdf_path)
@@ -854,6 +855,52 @@ def _check_checksum_extractor(saldo_per_bulan):
                            f'(selisih Rp{selisih:,.2f})'),
                 'nilai_rp': None if angka else abs(int(selisih)),
             })
+    return out
+
+
+# ============================================================
+# CHECK — Peringatan dari extractor saat membaca PDF
+# ============================================================
+
+def _check_peringatan_extractor(saldo_per_bulan):
+    """
+    Teruskan hal-hal yang hanya diketahui extractor saat membaca PDF, lewat
+    metadata '_peringatan' (lihat kontrak di extractors/base.py).
+
+    Bedanya dengan '_checksum': checksum membandingkan ANGKA hasil parsing
+    dengan angka ringkasan yang tercetak di PDF. Peringatan di sini soal
+    KONDISI DOKUMENnya — halaman yang bukan bagian rekening ini, rentang
+    tanggal yang tidak tercakup laporan mana pun, rantai saldo yang putus.
+    Sebelumnya temuan seperti itu berhenti di dalam extractor dan tidak
+    pernah sampai ke pemeriksa.
+
+    Tetap bank-agnostik: engine hanya membaca strukturnya. Isi teksnya
+    sepenuhnya dari extractor, karena hanya extractor yang tahu tata letak
+    dokumennya.
+    """
+    out = []
+    for p in saldo_per_bulan.get('_peringatan') or []:
+        if not isinstance(p, dict):
+            continue
+        ringkas = str(p.get('ringkas') or '').strip()
+        if not ringkas:
+            continue
+        tingkat = p.get('tingkat')
+        if tingkat not in ('Tinggi', 'Sedang', 'Rendah'):
+            # Extractor mengirim tingkat yang tidak dikenal: jangan diam-diam
+            # diturunkan jadi 'Rendah' — peringatan yang salah tingkat lebih
+            # berbahaya daripada peringatan yang kelewat menonjol.
+            tingkat = 'Sedang'
+        out.append({
+            'kategori': 'Peringatan Pembacaan Dokumen',
+            'tingkat': tingkat,
+            'bulan': str(p.get('bulan') or '-'),
+            'tanggal': '-',
+            'halaman': str(p.get('halaman') or '-'),
+            'deskripsi': ringkas,
+            'detail': str(p.get('detail') or '').strip() or '-',
+            'nilai_rp': None,
+        })
     return out
 
 

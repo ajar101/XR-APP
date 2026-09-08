@@ -633,6 +633,18 @@ DAFTAR_INDIKATOR = [
      'oleh baris ganda, sehingga hanya selisih nominal yang menangkapnya. '
      'PDF yang tidak mencantumkan ringkasan tidak bisa diperiksa dengan cara ini.'),
 
+    ('Peringatan Pembacaan Dokumen', 'Tinggi / Sedang / Rendah', 'Data ekstraksi',
+     'Hal yang diketahui extractor saat membaca PDF dan perlu dilihat pemeriksa, '
+     'tapi bukan soal kecocokan angka.',
+     'Berbeda dari "Selisih dengan Ringkasan PDF" yang membandingkan ANGKA: '
+     'indikator ini soal KONDISI DOKUMEN — halaman yang bukan bagian rekening '
+     'yang diperiksa (mis. PDF rekening lain ikut ter-merge jadi satu berkas), '
+     'rentang tanggal yang tidak dicakup laporan mana pun, rantai saldo berjalan '
+     'yang putus, periode yang saling tumpang tindih, atau baris yang tanggalnya '
+     'tidak terbaca. Isinya datang dari extractor bank yang bersangkutan, jadi '
+     'bank yang extractor-nya belum mengirim peringatan tidak akan memunculkan '
+     'temuan di sini — ketiadaan temuan BUKAN berarti dokumennya bersih.'),
+
     ('Urutan Tanggal Tidak Wajar', 'Tinggi', 'Data ekstraksi',
      'Tanggal transaksi mundur dari baris sebelumnya.',
      'Rekening koran dicetak kronologis, jadi urutan seperti 01, 02, 03, 01, 04 — atau '
@@ -680,7 +692,11 @@ CATATAN_INDIKATOR = [
     'nama berkas dicantumkan di kolom halaman supaya temuan bisa dilacak.',
     'Pemeriksaan "Urutan Tanggal Tidak Wajar" dan "Selisih dengan Ringkasan PDF" hanya '
     'berjalan bila extractor bank tersebut mempertahankan urutan cetak dan membaca angka '
-    'ringkasan PDF. Saat ini keduanya tersedia untuk BCA dan Mandiri Kopra.',
+    'ringkasan PDF. Saat ini keduanya tersedia untuk BCA dan seluruh format Mandiri '
+    '(Kopra, e-Statement, Rekening Koran).',
+    '"Peringatan Pembacaan Dokumen" saat ini dikirim oleh ketiga extractor Mandiri. '
+    'Extractor BCA belum mengirimnya, jadi untuk rekening BCA bagian ini akan selalu '
+    'kosong — itu keterbatasan cakupan, bukan pernyataan bahwa dokumennya bersih.',
 ]
 
 

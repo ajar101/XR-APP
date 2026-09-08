@@ -1,0 +1,126 @@
+{
+ "berkas": "mandiri_kopra_1630003882837.pdf",
+ "bank": "mandiri",
+ "format": "kopra",
+ "identitas": {
+  "no_rekening": "1630003882837",
+  "nama_pemilik": "SUKMA INTAN LESTARI",
+  "jenis_rekening": null
+ },
+ "bulan": [
+  {
+   "bulan": "Juli",
+   "tahun": "2025",
+   "saldo_awal": 18511759.94,
+   "jumlah_hari": 31,
+   "jumlah_transaksi": 30,
+   "total_debit": 256259916.72,
+   "total_kredit": 315318728.61
+  }
+ ],
+ "transaksi": [
+  ["Juli", 1, "Debit", 14000000.0, "LENI PURNIAWATI", "MCM InhouseTrf KE LENI PURNIAWATI Transfer Fee 202507011043843751991 02"],
+  ["Juli", 1, "Debit", 25000.0, "Pindah Buku / Sweep", "DARI 1630003882837 KE 1630003882845 Sweep 16306"],
+  ["Juli", 2, "Debit", 2000000.0, "LENI PURNIAWATI", "MCM InhouseTrf KE LENI PURNIAWATI Transfer Fee 202507021015884407991 02"],
+  ["Juli", 8, "Debit", 10000.0, "Biaya Kartu Bulanan", "MONTHLY CARD CHARGE 0004837968807357156 16306"],
+  ["Juli", 10, "Kredit", 784800.0, "PT TARUNA BINA SARANA", "20250710BDINIDJA010O0 129424144 BDINIDJA/PT TARUNA BINA SARANA 00363983608399102"],
+  ["Juli", 10, "Kredit", 70370400.0, "PT TARUNA BINA SARANA", "20250710BDINIDJA010O0 129423388 BDINIDJA/PT TARUNA BINA SARANA 00363983608399102"],
+  ["Juli", 10, "Kredit", 67073695.0, "PRIMA SARANA MUSTIKA", "MCM InhouseTrf DARI PRIMA SARANA MUSTIKA Transfer Fee 202507101126633031991 02"],
+  ["Juli", 10, "Debit", 42731420.0, "JUBAEDI", "20250710BMRIIDJA010O9 930921382 CENAIDJA/JUBAEDI 202507102136745325991 02"],
+  ["Juli", 10, "Debit", 2500.0, "Biaya Transfer Antar Bank", "20250710BMRIIDJA010O9 930921382 99102"],
+  ["Juli", 10, "Debit", 50000000.0, "LENI PURNIAWATI", "MCM InhouseTrf KE LENI PURNIAWATI Transfer Fee 202507102143746509991 02"],
+  ["Juli", 14, "Debit", 5517580.0, "PUTRA CILEGON MANDIRI", "20250714BMRIIDJA010O9 931301463 BNINIDJA/PUTRA CILEGON MANDIRI inv 229-401- 07299102"],
+  ["Juli", 14, "Debit", 2500.0, "Biaya Transfer Antar Bank", "20250714BMRIIDJA010O9 931301463 99102"],
+  ["Juli", 15, "Kredit", 40542750.0, "PTSAMARATUDA YATEKNIK", "20250715BSMDIDJA010O9 981214859 BSMDIDJA/PTSAMARATUDA YATEKNIK 719761421299102"],
+  ["Juli", 15, "Debit", 17550000.0, "LENI PURNIAWATI", "TITIPAN DAN FEE PROJ MCM InhouseTrf KE LENI PURNIAWATI Transfer Fee 202507151526644791991 02"],
+  ["Juli", 15, "Debit", 11000000.0, "LENI PURNIAWATI", "MCM InhouseTrf KE LENI PURNIAWATI Transfer Fee 202507152019913001991 02"],
+  ["Juli", 18, "Debit", 11895000.0, "INDOMOBIL FINANCE INDONESIA", "PT SUKMA INTAN LEST 7002401039 7002401039 MCM InhouseTrf KE INDOMOBIL FINANCE INDONESIA Transfer Fee"],
+  ["Juli", 18, "Kredit", 45676500.0, "PTSAMARATUDA YATEKNIK", "700240103999102 20250718BSMDIDJA010O9 991833866 BSMDIDJA/PTSAMARATUDA YATEKNIK 719761421299102"],
+  ["Juli", 19, "Debit", 20000000.0, "LENI PURNIAWATI", "MCM InhouseTrf KE LENI PURNIAWATI Transfer Fee 202507192004788309991 02"],
+  ["Juli", 24, "Debit", 11500000.0, "LENI PURNIAWATI", "PEMBAYARAN PAJAKJUNI MCM InhouseTrf KE LENI PURNIAWATI Transfer Fee 202507241438878518991 02"],
+  ["Juli", 25, "Debit", 5000000.0, "LENI PURNIAWATI", "MCM InhouseTrf KE LENI PURNIAWATI Transfer Fee 202507250850603415991 02"],
+  ["Juli", 26, "Kredit", 25613250.0, "PTSAMARATUDA YATEKNIK", "20250726BSMDIDJA010O9 916788266 BSMDIDJA/PTSAMARATUDA YATEKNIK 719761421299102"],
+  ["Juli", 26, "Kredit", 22533000.0, "PTSAMARATUDA YATEKNIK", "20250726BSMDIDJA010O9 916788284 BSMDIDJA/PTSAMARATUDA YATEKNIK 719761421299102"],
+  ["Juli", 27, "Debit", 20000000.0, "LENI PURNIAWATI", "FEE PT SDT MCM InhouseTrf KE LENI PURNIAWATI Transfer Fee 202507270947784613991 02"],
+  ["Juli", 28, "Kredit", 42707250.0, "PTSAMARATUDA YATEKNIK", "20250728BSMDIDJA010O9 923191994 BSMDIDJA/PTSAMARATUDA YATEKNIK 719761421299102"],
+  ["Juli", 29, "Debit", 13000000.0, "LENI PURNIAWATI", "MCM InhouseTrf KE LENI PURNIAWATI Transfer Fee 202507291553815086991 02"],
+  ["Juli", 31, "Debit", 32000000.0, "LENI PURNIAWATI", "GAJI KARYAWAN & ANGS MCM InhouseTrf KE LENI PURNIAWATI Transfer Fee 202507311319967017991 02"],
+  ["Juli", 31, "Debit", 12500.0, "Biaya Administrasi", "Biaya Adm 16306"],
+  ["Juli", 31, "Kredit", 17083.61, "Bunga", "Bunga 16306"],
+  ["Juli", 31, "Debit", 3416.72, "Pajak", "Pajak 16306"],
+  ["Juli", 31, "Debit", 10000.0, "BIAYA ONLINE SWEEP OnlSweepMthChg", "BIAYA ONLINE SWEEP OnlSweepMthChg 16306"]
+ ],
+ "saldo_harian": [
+  ["Juli", 1, 4486759.94],
+  ["Juli", 2, 2486759.94],
+  ["Juli", 3, 2486759.94],
+  ["Juli", 4, 2486759.94],
+  ["Juli", 5, 2486759.94],
+  ["Juli", 6, 2486759.94],
+  ["Juli", 7, 2486759.94],
+  ["Juli", 8, 2476759.94],
+  ["Juli", 9, 2476759.94],
+  ["Juli", 10, 47971734.94],
+  ["Juli", 11, 47971734.94],
+  ["Juli", 12, 47971734.94],
+  ["Juli", 13, 47971734.94],
+  ["Juli", 14, 42451654.94],
+  ["Juli", 15, 54444404.94],
+  ["Juli", 16, 54444404.94],
+  ["Juli", 17, 54444404.94],
+  ["Juli", 18, 88225904.94],
+  ["Juli", 19, 68225904.94],
+  ["Juli", 20, 68225904.94],
+  ["Juli", 21, 68225904.94],
+  ["Juli", 22, 68225904.94],
+  ["Juli", 23, 68225904.94],
+  ["Juli", 24, 56725904.94],
+  ["Juli", 25, 51725904.94],
+  ["Juli", 26, 99872154.94],
+  ["Juli", 27, 79872154.94],
+  ["Juli", 28, 122579404.94],
+  ["Juli", 29, 109579404.94],
+  ["Juli", 30, 109579404.94],
+  ["Juli", 31, 77570571.83]
+ ],
+ "metadata": {
+  "biaya_admin": {
+   "label_nama": "Biaya Administrasi",
+   "jadwal": {
+    "Juli": {
+     "tanggal": 31,
+     "aturan": "akhir bulan/tanggal 31 (ketentuan Bank Mandiri)"
+    }
+   }
+  },
+  "bunga_pajak": {
+   "kolom": "Nama Pengirim/Penerima",
+   "bunga": [
+    "Bunga"
+   ],
+   "pajak": [
+    "Pajak"
+   ]
+  },
+  "peringatan": []
+ },
+ "checksum": {
+  "ok": true,
+  "duplikat_digabung": 0,
+  "periode": [
+   {
+    "label": "2025-07-01..2025-07-31",
+    "bulan": "Juli",
+    "checks": {
+     "n_debit": true,
+     "n_credit": true,
+     "total_debit": true,
+     "total_credit": true,
+     "closing": true,
+     "rantai_saldo": true
+    }
+   }
+  ],
+  "peringatan": []
+ }
+}

@@ -1,0 +1,112 @@
+{
+ "berkas": "mandiri_koran_1820015423288-1.pdf",
+ "bank": "mandiri",
+ "format": "koran",
+ "identitas": {
+  "no_rekening": "1820015423288",
+  "nama_pemilik": "PT KARO NUSANTARA LO",
+  "jenis_rekening": null
+ },
+ "bulan": [
+  {
+   "bulan": "Agustus",
+   "tahun": "2025",
+   "saldo_awal": 180786013.17,
+   "jumlah_hari": 31,
+   "jumlah_transaksi": 16,
+   "total_debit": 55316172.41,
+   "total_kredit": 85779608.03
+  }
+ ],
+ "transaksi": [
+  ["Agustus", 7, "Debit", 8000000.0, "IVAN HAIRANSYAH", "Pengisian Kas karo CENAIDJA/IVAN HAIRANSYAH 20250807BMRIIDJA010O993 495164599102"],
+  ["Agustus", 7, "Debit", 2500.0, "Biaya Transfer Antar Bank", "20250807BMRIIDJA010O993 4951645 99102"],
+  ["Agustus", 9, "Debit", 7312500.0, "ANA MARTI SUSWATI", "Akta Perubahan n AJB MCM InhouseTrf KE ANA MARTI SUSWATI Transfer Fee 20250809035584371599102"],
+  ["Agustus", 12, "Kredit", 41243888.0, "ORO PLASTINDO PT", "20250812CENAIDJA010O013 8050145 CENAIDJA/ORO PLASTINDO PT 285004106099102"],
+  ["Agustus", 15, "Debit", 8000000.0, "IVAN HAIRANSYAH", "Pengisian kaskaro CENAIDJA/IVAN HAIRANSYAH 20250815BMRIIDJA010O993 612507399102"],
+  ["Agustus", 15, "Debit", 2500.0, "Biaya Transfer Antar Bank", "20250815BMRIIDJA010O993 6125073 99102"],
+  ["Agustus", 20, "Debit", 8000000.0, "IVAN HAIRANSYAH", "Pengisian Kas karo CENAIDJA/IVAN HAIRANSYAH 20250820BMRIIDJA010O993 676426299102"],
+  ["Agustus", 20, "Debit", 2500.0, "Biaya Transfer Antar Bank", "20250820BMRIIDJA010O993 6764262 99102"],
+  ["Agustus", 20, "Debit", 5000000.0, "PRABU PENDAWA MOTOR PT", "Tanda jadi Fighter F CENAIDJA/PRABU PENDAWA MOTOR PT 20250820BMRIIDJA010O993 677660299102"],
+  ["Agustus", 20, "Debit", 2500.0, "Biaya Transfer Antar Bank", "20250820BMRIIDJA010O993 6776602 99102"],
+  ["Agustus", 25, "Debit", 18950000.0, "IVAN HAIRANSYAH", "Pengisian kas karo CENAIDJA/IVAN HAIRANSYAH 20250825BMRIIDJA010O993 743331899102"],
+  ["Agustus", 25, "Debit", 2500.0, "Biaya Transfer Antar Bank", "20250825BMRIIDJA010O993 7433318 99102"],
+  ["Agustus", 26, "Kredit", 44454858.0, "ORO PLASTINDO PT", "20250826CENAIDJA010O010 4350510 CENAIDJA/ORO PLASTINDO PT 285004106099102"],
+  ["Agustus", 31, "Debit", 25000.0, "Biaya Administrasi", "Biaya Adm 18251"],
+  ["Agustus", 31, "Kredit", 80862.03, "Bunga", "Bunga 18251"],
+  ["Agustus", 31, "Debit", 16172.41, "Pajak", "Pajak 18251"]
+ ],
+ "saldo_harian": [
+  ["Agustus", 1, 180786013.17],
+  ["Agustus", 2, 180786013.17],
+  ["Agustus", 3, 180786013.17],
+  ["Agustus", 4, 180786013.17],
+  ["Agustus", 5, 180786013.17],
+  ["Agustus", 6, 180786013.17],
+  ["Agustus", 7, 172783513.17],
+  ["Agustus", 8, 172783513.17],
+  ["Agustus", 9, 165471013.17],
+  ["Agustus", 10, 165471013.17],
+  ["Agustus", 11, 165471013.17],
+  ["Agustus", 12, 206714901.17],
+  ["Agustus", 13, 206714901.17],
+  ["Agustus", 14, 206714901.17],
+  ["Agustus", 15, 198712401.17],
+  ["Agustus", 16, 198712401.17],
+  ["Agustus", 17, 198712401.17],
+  ["Agustus", 18, 198712401.17],
+  ["Agustus", 19, 198712401.17],
+  ["Agustus", 20, 185707401.17],
+  ["Agustus", 21, 185707401.17],
+  ["Agustus", 22, 185707401.17],
+  ["Agustus", 23, 185707401.17],
+  ["Agustus", 24, 185707401.17],
+  ["Agustus", 25, 166754901.17],
+  ["Agustus", 26, 211209759.17],
+  ["Agustus", 27, 211209759.17],
+  ["Agustus", 28, 211209759.17],
+  ["Agustus", 29, 211209759.17],
+  ["Agustus", 30, 211209759.17],
+  ["Agustus", 31, 211249448.79]
+ ],
+ "metadata": {
+  "biaya_admin": {
+   "label_nama": "Biaya Administrasi",
+   "jadwal": {
+    "Agustus": {
+     "tanggal": 31,
+     "aturan": "akhir bulan/tanggal 31 (ketentuan Bank Mandiri)"
+    }
+   }
+  },
+  "bunga_pajak": {
+   "kolom": "Nama Pengirim/Penerima",
+   "bunga": [
+    "Bunga"
+   ],
+   "pajak": [
+    "Pajak"
+   ]
+  },
+  "peringatan": []
+ },
+ "checksum": {
+  "ok": true,
+  "duplikat_digabung": 0,
+  "periode": [
+   {
+    "label": "2025-08-01..2025-08-31",
+    "bulan": "Agustus",
+    "checks": {
+     "n_debit": true,
+     "n_credit": true,
+     "total_debit": true,
+     "total_credit": true,
+     "closing": true,
+     "rantai_saldo": true
+    }
+   }
+  ],
+  "peringatan": []
+ }
+}
