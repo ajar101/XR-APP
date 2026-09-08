@@ -82,7 +82,8 @@ app.py /upload
 | Bank BNI | ⏸ Nonaktif sementara (kode masih ada, tinggal `enabled: True` di registry) |
 | Bank Mandiri — format **Kopra by Mandiri** | ✅ Aktif — divalidasi checksum terhadap ringkasan resmi PDF |
 | Bank Mandiri — format **e-Statement** (Livin'/Mandiri Online) | ✅ Aktif — Tabungan, Tabungan Bisnis, Tabungan NOW & Giro; divalidasi 100% terhadap 14 periode dari 5 PDF riil |
-| Bank Mandiri — format **E-Banking** | ❌ Belum ada extractor (ditolak dengan pesan jelas oleh dispatcher) |
+| Bank Mandiri — format **Rekening Koran** (format lama) | ❌ Belum ada extractor — ditolak dengan pesan yang menyebut formatnya |
+| Bank Mandiri — format **E-Banking** | ❌ Belum ada extractor — ditolak dengan pesan yang menyebut formatnya |
 | Bank BRI | 🔜 "Coming soon" di UI, belum ada extractor |
 | OCR / ekstraksi PDF hasil scan | ❌ Belum diimplementasikan (lihat §6) |
 
@@ -106,7 +107,8 @@ app.py /upload
 | Nomor rekening beda antar file yang diupload | Ditolak, sebutkan file mana & rekening apa |
 | Bulan yang sama muncul di >1 file | Ditolak, sebutkan bulan & 2 file yang bentrok |
 | Total bulan gabungan > 6 | Ditolak, minta kurangi jumlah file |
-| Gagal ekstrak saldo (format tak dikenali) | Ditolak, per file |
+| Format terdeteksi tapi extractor-nya belum ada (mis. Mandiri Rekening Koran) | Ditolak 400, menyebut format apa yang terdeteksi |
+| PDF terbaca tapi tidak satu pun periode transaksi dikenali | Ditolak 400, per file — bukan HTTP 500 generik |
 
 Semua file yang sempat diupload ke server **selalu dibersihkan** setelah request selesai — baik sukses, gagal validasi, maupun exception (`finally` block di `app.py`).
 
