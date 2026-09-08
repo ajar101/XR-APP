@@ -632,7 +632,14 @@ def upload_file():
                     f"unduh ulang PDF aslinya, atau hubungi bank untuk mendapatkan e-statement."
                 ), 400
 
-            extractor = ExtractorClass(filepath)
+            try:
+                extractor = ExtractorClass(filepath)
+            except NotImplementedError as e:
+                # Format terdeteksi tapi extractor-nya memang belum ada.
+                # Ini kondisi yang WAJAR, bukan kerusakan — sampaikan apa
+                # adanya (400), jangan jatuh ke handler 500 di bawah yang
+                # hanya menampilkan pesan teknis generik.
+                return f"File '{f.filename}': {e}", 400
             if first_extractor is None:
                 first_extractor = extractor
 
@@ -642,8 +649,20 @@ def upload_file():
                 laporan_checksum.append((f.filename, extractor.validate()))
 
             saldo = extractor.extract_saldo()
-            if not saldo:
-                return f"Gagal mengekstrak data saldo dari '{f.filename}'. Pastikan format PDF sesuai.", 500
+            # Cek keberadaan data BULAN, bukan sekadar dict tidak kosong.
+            # Extractor mengembalikan metadata ('_nama_pemilik', dst) walau
+            # tidak satu pun transaksi terbaca, sehingga `if not saldo` selalu
+            # lolos dan kegagalan baru meledak jauh di hilir sebagai HTTP 500
+            # generik. Bank-agnostik: berlaku untuk semua extractor.
+            if not any(not k.startswith('_') for k in saldo):
+                return (
+                    f"Tidak ada satu pun periode transaksi yang bisa dibaca dari "
+                    f"'{f.filename}'. PDF-nya terbaca, tapi tata letaknya tidak "
+                    f"dikenali oleh extractor {bank_code.upper()} — kemungkinan "
+                    f"format/varian yang belum didukung. Pastikan file ini memang "
+                    f"rekening koran {bank_code.upper()} yang diunduh langsung dari "
+                    f"layanan resmi banknya."
+                ), 400
             trans = extractor.extract_transaksi()
             per_file_results.append((f.filename, saldo, trans))
 

@@ -2,18 +2,26 @@
 mandiri.py — Dispatcher untuk berbagai format rekening Mandiri.
 
 Auto-detect format PDF Mandiri dan delegate ke extractor yang sesuai:
-  - Kopra by Mandiri
-  - Mandiri E-Banking / Livin
-  - Mandiri Statement (format lama)
+  - 'kopra'      : Kopra by Mandiri                          → didukung
+  - 'estatement' : e-Statement (Livin'/Mandiri Online)       → didukung
+  - 'koran'      : Rekening Koran (format lama)              → belum ada extractor
+  - 'ebanking'   : Mandiri E-Banking                         → belum ada extractor
+
+Kunci formatnya sengaja dibedakan 'estatement' vs 'koran'. Keduanya sempat
+memakai nama 'statement' yang sama, sehingga PDF Rekening Koran ikut
+diarahkan ke extractor e-Statement — hasilnya bukan penolakan yang jelas,
+melainkan ekstraksi kosong yang baru meledak di pembuat Excel (HTTP 500).
+Format yang belum didukung harus gagal cepat dengan pesan yang menyebut
+formatnya, bukan gagal jauh di hilir.
 """
 
 import pdfplumber
 from extractors.base import BaseExtractor
 from extractors.mandiri_kopra import MandiriKopraExtractor
+from extractors.mandiri_statement import MandiriStatementExtractor
 
 # Import akan ditambahkan saat format lain sudah dibuat:
 # from extractors.mandiri_ebanking import MandiriEBankingExtractor
-# from extractors.mandiri_statement import MandiriStatementExtractor
 
 
 class MandiriExtractor(BaseExtractor):
@@ -30,17 +38,17 @@ class MandiriExtractor(BaseExtractor):
         # Delegate to appropriate sub-extractor
         if self.format_type == 'kopra':
             self.extractor = MandiriKopraExtractor(pdf_path)
-        elif self.format_type == 'ebanking':
-            # Placeholder: akan diimplementasikan nanti
+        elif self.format_type == 'estatement':
+            self.extractor = MandiriStatementExtractor(pdf_path)
+        else:
+            nama_format = {
+                'koran':    'Rekening Koran (format lama)',
+                'ebanking': 'E-Banking',
+            }.get(self.format_type, self.format_type)
             raise NotImplementedError(
-                "Mandiri E-Banking format belum didukung. "
-                "Saat ini hanya Kopra by Mandiri yang tersedia."
-            )
-        else:  # statement
-            # Placeholder: akan diimplementasikan nanti
-            raise NotImplementedError(
-                "Mandiri Statement format belum didukung. "
-                "Saat ini hanya Kopra by Mandiri yang tersedia."
+                f"PDF terdeteksi sebagai format Mandiri {nama_format}, yang belum "
+                f"didukung. Saat ini yang tersedia: Kopra by Mandiri dan "
+                f"e-Statement (Livin'/Mandiri Online)."
             )
     
     def _detect_format(self) -> str:
@@ -48,31 +56,38 @@ class MandiriExtractor(BaseExtractor):
         Detect Mandiri format from PDF content.
         
         Returns:
-            'kopra', 'ebanking', or 'statement'
+            'kopra', 'estatement', 'koran', atau 'ebanking'
         """
         try:
             with pdfplumber.open(self.pdf_path) as pdf:
                 if not pdf.pages:
-                    return 'statement'  # default fallback
-                
+                    return 'kopra'  # default fallback
+
                 # Check first page
                 text = pdf.pages[0].extract_text() or ''
                 text_upper = text.upper()
-                
+
                 # Detection keywords
                 if 'KOPRA BY MANDIRI' in text_upper or 'KOPRABYMANDIRI.COM' in text_upper:
                     return 'kopra'
-                
+
+                # e-Statement (Livin'/Mandiri Online). Dicek SEBELUM
+                # 'E-BANKING'/'LIVIN' karena halaman disclaimer e-Statement
+                # menyebut "Livin'" juga — kalau urutannya dibalik, format
+                # yang sudah didukung malah dianggap format yang belum ada.
+                if 'E-STATEMENT' in text_upper and 'SALDO AWAL' in text_upper:
+                    return 'estatement'
+
+                # Rekening Koran (format lama) — belum ada extractor-nya.
+                if 'REKENING KORAN' in text_upper:
+                    return 'koran'
+
                 if 'E-BANKING' in text_upper or 'LIVIN' in text_upper:
                     return 'ebanking'
-                
-                # Check for old statement format markers
-                if 'BANK MANDIRI' in text_upper and 'REKENING KORAN' in text_upper:
-                    return 'statement'
-                
+
                 # Default to kopra if uncertain (most common format)
                 return 'kopra'
-                
+
         except Exception:
             return 'kopra'  # safe default
     

@@ -28,9 +28,10 @@ mengembalikan list finding, lalu daftarkan di `detect_anomalies()`.
 import os
 import re
 import datetime
-import calendar
 
 import pdfplumber
+
+from engine.categorizer import kategorisasi_debit, kategorisasi_kredit
 
 BULAN_ORDER = [
     'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
@@ -77,13 +78,13 @@ def detect_anomalies(pdf_path, saldo_per_bulan: dict,
     findings = []
 
     findings += _check_saldo_balance(saldo_per_bulan, transaksi_per_bulan)
-    findings += _check_duplikasi(transaksi_per_bulan)
+    findings += _check_duplikasi(transaksi_per_bulan, saldo_per_bulan)
     findings += _check_gap_transaksi(transaksi_per_bulan)
     findings += _check_setoran_tunai_libur(transaksi_per_bulan, saldo_per_bulan)
     findings += _check_rtgs_libur(transaksi_per_bulan, saldo_per_bulan)
     findings += _check_round_number_bias(transaksi_per_bulan)
     findings += _check_structuring(transaksi_per_bulan)
-    findings += _check_rasio_pajak_bunga(transaksi_per_bulan)
+    findings += _check_rasio_pajak_bunga(transaksi_per_bulan, saldo_per_bulan)
     findings += _check_jadwal_biaya_adm(transaksi_per_bulan, saldo_per_bulan)
     findings += _check_checksum_extractor(saldo_per_bulan)
     findings += _check_urutan_tanggal(transaksi_per_bulan)
@@ -172,8 +173,35 @@ def _check_saldo_balance(saldo_per_bulan, transaksi_per_bulan):
 # CHECK 5 — Duplikasi transaksi
 # ============================================================
 
-def _check_duplikasi(transaksi_per_bulan):
+def _adalah_biaya_bank(row, nama_perusahaan: str) -> bool:
+    """Apakah baris ini terkategori 'Biaya Bank' menurut categorizer bersama."""
+    fungsi = (kategorisasi_debit if row['Jenis Mutasi'] == 'Debit'
+              else kategorisasi_kredit)
+    try:
+        return fungsi(row['Keterangan Transaksi'], '',
+                      row['Mutasi'], nama_perusahaan) == 'Biaya Bank'
+    except Exception:
+        # Kategorisasi gagal bukan alasan menghilangkan temuan — biarkan
+        # baris ini tetap diperiksa seperti biasa.
+        return False
+
+
+def _check_duplikasi(transaksi_per_bulan, saldo_per_bulan=None):
+    """
+    Transaksi identik berulang di tanggal yang sama.
+
+    Baris BIAYA BANK dikecualikan. Biaya per-transaksi (mis. biaya transfer
+    BI Fast Rp2.500) MEMANG wajib berulang identik setiap kali ada transfer,
+    jadi pengulangannya bukan sinyal apa pun — premis pemeriksaan ini tidak
+    berlaku untuk baris seperti itu. Tanpa pengecualian ini, satu rekening
+    yang aktif bertransfer bisa menghasilkan puluhan temuan yang seluruhnya
+    benign dan menenggelamkan temuan yang sungguhan.
+
+    Pengecualiannya bank-agnostik: memakai engine/categorizer.py, yang sudah
+    jadi kosakata kategori bersama untuk semua bank.
+    """
     out = []
+    nama_perusahaan = (saldo_per_bulan or {}).get('_nama_pemilik', '') or ''
     for bulan, df in transaksi_per_bulan.items():
         if df is None or df.empty:
             continue
@@ -183,6 +211,8 @@ def _check_duplikasi(transaksi_per_bulan):
             continue
         grouped = df[dup_mask].groupby(subset).size().reset_index(name='jumlah')
         for _, row in grouped.iterrows():
+            if _adalah_biaya_bank(row, nama_perusahaan):
+                continue
             # Jumlah pengulangan TIDAK menaikkan tingkat indikasi. Transaksi
             # rutin memang wajar berulang identik di hari yang sama (setoran
             # per shift, pembayaran per unit, penarikan bertahap), jadi
@@ -389,23 +419,35 @@ def _check_structuring(transaksi_per_bulan, ambang_bawah=400_000_000, ambang_ata
 # CHECK 10c — Rasio Pajak Bunga terhadap Bunga tidak wajar (≈20%)
 # ============================================================
 
-def _check_rasio_pajak_bunga(transaksi_per_bulan):
+def _check_rasio_pajak_bunga(transaksi_per_bulan, saldo_per_bulan):
     """
     Bank umumnya memotong PPh Final 20% atas bunga tabungan/giro, jadi
-    Pajak Bunga / Bunga seharusnya ≈0.20. Hanya cocokkan baris yang
-    Keterangan Transaksi-nya PERSIS "BUNGA" / "PAJAK BUNGA" (bukan
-    sekadar mengandung kata "bunga") — extractor BCA juga memberi label
-    Nama "Bunga" untuk transaksi tak terkait seperti "KARANGAN BUNGA"
-    (papan bunga dukacita), yang tidak boleh ikut ke perhitungan ini.
+    Pajak Bunga / Bunga seharusnya ≈0.20.
+
+    Baris bunga & pajak dikenali lewat metadata '_bunga_pajak' dari extractor
+    (lihat extractors/base.py): extractor menyebut kolom mana yang andal di
+    format banknya beserta daftar nilainya, dan pencocokannya PERSIS SAMA —
+    bukan "mengandung". Itu penting karena label "Bunga" bisa muncul pada
+    transaksi tak terkait seperti "KARANGAN BUNGA" (papan bunga dukacita),
+    yang tidak boleh ikut ke perhitungan ini.
     """
     out = []
-    for bulan, df in transaksi_per_bulan.items():
-        if df is None or df.empty:
-            continue
-        ket = df['Keterangan Transaksi'].astype(str).str.strip().str.upper()
+    meta = saldo_per_bulan.get('_bunga_pajak') or {}
+    kolom = meta.get('kolom') or 'Keterangan Transaksi'
+    label_bunga = [str(x).strip().upper() for x in (meta.get('bunga') or [])]
+    label_pajak = [str(x).strip().upper() for x in (meta.get('pajak') or [])]
+    if not label_bunga and not label_pajak:
+        # Extractor tidak memberi tahu bagaimana mengenali baris bunga/pajak
+        # di format banknya — jangan menebak.
+        return out
 
-        bunga_rows = df[(df['Jenis Mutasi'] == 'Kredit') & (ket == 'BUNGA')]
-        pajak_rows = df[(df['Jenis Mutasi'] == 'Debit') & (ket == 'PAJAK BUNGA')]
+    for bulan, df in transaksi_per_bulan.items():
+        if df is None or df.empty or kolom not in df.columns:
+            continue
+        kunci = df[kolom].astype(str).str.strip().str.upper()
+
+        bunga_rows = df[(df['Jenis Mutasi'] == 'Kredit') & kunci.isin(label_bunga)]
+        pajak_rows = df[(df['Jenis Mutasi'] == 'Debit') & kunci.isin(label_pajak)]
 
         tanggal_terkait = sorted(set(bunga_rows['Tanggal']) | set(pajak_rows['Tanggal']))
         for tanggal in tanggal_terkait:
@@ -439,94 +481,63 @@ def _check_rasio_pajak_bunga(transaksi_per_bulan):
 
 
 # ============================================================
-# CHECK 13 — Jadwal pendebetan BIAYA ADM tidak sesuai ketentuan BCA
+# CHECK 13 — Jadwal pendebetan biaya admin tidak sesuai ketentuan bank
 # ============================================================
-
-# Cutover aturan jadwal biaya admin BCA: mulai periode Juni 2026, SEMUA
-# jenis rekening (Giro maupun Tabungan) didebet tanggal 1. Sebelum itu,
-# jadwalnya beda per jenis rekening (dikonfirmasi user dari data riil):
-#   - GIRO    : tanggal terakhir bulan berjalan
-#   - TAHAPAN : Jumat minggu ke-3 bulan berjalan
-BIAYA_ADM_CUTOVER = (2026, 6)  # (tahun, bulan) mulai berlaku aturan baru
-
-
-def _hari_jumat_minggu_ke3(tahun: int, bulan: int):
-    """Tanggal Jumat minggu ke-3 (Jumat ke-3) di bulan itu, atau None kalau bulan tidak valid."""
-    try:
-        _, ndays = calendar.monthrange(tahun, bulan)
-    except calendar.IllegalMonthError:
-        return None
-    jumat = [d for d in range(1, ndays + 1) if datetime.date(tahun, bulan, d).weekday() == 4]
-    return jumat[2] if len(jumat) >= 3 else None
-
-
-def _tanggal_seharusnya_biaya_adm(jenis_rekening: str, tahun: int, bulan: int):
-    """Kembalikan tanggal (int) BIAYA ADM seharusnya didebet, atau None kalau
-    tidak bisa ditentukan (jenis rekening tak dikenal / tanggal tak valid)."""
-    if (tahun, bulan) >= BIAYA_ADM_CUTOVER:
-        return 1
-    if jenis_rekening == 'GIRO':
-        try:
-            _, ndays = calendar.monthrange(tahun, bulan)
-        except calendar.IllegalMonthError:
-            return None
-        return ndays
-    if jenis_rekening == 'TAHAPAN':
-        return _hari_jumat_minggu_ke3(tahun, bulan)
-    return None  # jenis rekening lain/tak terdeteksi — aturan belum diketahui
-
 
 def _check_jadwal_biaya_adm(transaksi_per_bulan, saldo_per_bulan):
     """
-    Per 1 Juni 2026 BCA mengubah jadwal pendebetan BIAYA ADM (sebelumnya
-    beda per jenis rekening, sekarang seragam tanggal 1 untuk semua jenis
-    rekening). Kalau tanggal aktual di statement tidak sesuai jadwal yang
-    berlaku untuk periode & jenis rekening itu, itu indikasi kejanggalan
-    (mis. statement diedit, atau tanggal transaksi tidak konsisten).
+    Cocokkan tanggal pendebetan biaya administrasi rekening dengan jadwal
+    resmi bank yang bersangkutan.
+
+    Pemeriksaan ini SEPENUHNYA digerakkan metadata '_biaya_admin' dari
+    extractor (lihat extractors/base.py) — engine tidak tahu ketentuan bank
+    mana pun. Sebelumnya aturan BCA ditulis langsung di sini, sehingga
+    diam-diam ikut diberlakukan ke bank lain yang jadwalnya berbeda.
+
+    Baris dikenali lewat kolom Nama yang dicocokkan PERSIS SAMA dengan
+    'label_nama', bukan "mengandung" — supaya biaya lain yang namanya mirip
+    (mis. "Biaya Administrasi Kartu Debit" di Mandiri, yang mengikuti tanggal
+    ulang tahun kartu dan bukan jadwal rekening) tidak ikut terperiksa.
+
+    Extractor yang tidak mengirim metadata ini membuat pemeriksaan dilewati.
     """
     out = []
-    jenis_rekening = saldo_per_bulan.get('_jenis_rekening', '-')
+    meta = saldo_per_bulan.get('_biaya_admin') or {}
+    label = meta.get('label_nama')
+    jadwal = meta.get('jadwal') or {}
+    if not label or not jadwal:
+        return out
 
     for bulan, df in transaksi_per_bulan.items():
         if df is None or df.empty:
             continue
-        tahun = saldo_per_bulan.get(bulan, {}).get('tahun')
-        bulan_num = BULAN_TO_NUM.get(bulan)
-        if not tahun or not bulan_num:
+        entri = jadwal.get(bulan)
+        if not entri or entri.get('tanggal') is None:
             continue
-        tahun = int(tahun)
 
-        mask = (df['Jenis Mutasi'] == 'Debit') & \
-               df['Keterangan Transaksi'].str.upper().str.contains('BIAYA ADM', na=False)
-        rows = df[mask]
+        nama = df['Nama Pengirim/Penerima'].astype(str).str.strip()
+        rows = df[(df['Jenis Mutasi'] == 'Debit') & (nama == label)]
         if rows.empty:
             continue
 
-        tanggal_seharusnya = _tanggal_seharusnya_biaya_adm(jenis_rekening, tahun, bulan_num)
-        if tanggal_seharusnya is None:
-            # Jenis rekening tak terdeteksi atau bukan GIRO/TAHAPAN — aturan
-            # jadwalnya belum kita ketahui, jangan menebak dan menghasilkan
-            # false-positive.
-            continue
-
-        aturan = 'tanggal 1 (aturan baru per Juni 2026)' if (tahun, bulan_num) >= BIAYA_ADM_CUTOVER \
-            else (f'akhir bulan/tanggal {tanggal_seharusnya} (aturan lama GIRO)' if jenis_rekening == 'GIRO'
-                  else f'Jumat minggu ke-3/tanggal {tanggal_seharusnya} (aturan lama TAHAPAN)')
+        tanggal_seharusnya = int(entri['tanggal'])
+        aturan = entri.get('aturan') or f'tanggal {tanggal_seharusnya}'
 
         for _, row in rows.iterrows():
             tanggal_aktual = int(row['Tanggal'])
-            if tanggal_aktual != tanggal_seharusnya:
-                out.append({
-                    'kategori': 'Jadwal Biaya Admin Tidak Wajar',
-                    'tingkat': 'Sedang',
-                    'bulan': bulan, 'tanggal': tanggal_aktual, 'halaman': '-',
-                    'deskripsi': (
-                        f'BIAYA ADM didebet tanggal {tanggal_aktual}, seharusnya {aturan} '
-                        f'untuk rekening {jenis_rekening or "?"}'
-                    ),
-                    'detail': f"Rp{int(row['Mutasi']):,} — \"{row['Keterangan Transaksi']}\"",
-                    'nilai_rp': int(row['Mutasi']),
-                })
+            if tanggal_aktual == tanggal_seharusnya:
+                continue
+            out.append({
+                'kategori': 'Jadwal Biaya Admin Tidak Wajar',
+                'tingkat': 'Sedang',
+                'bulan': bulan, 'tanggal': tanggal_aktual, 'halaman': '-',
+                'deskripsi': (
+                    f'Biaya administrasi didebet tanggal {tanggal_aktual}, '
+                    f'seharusnya {aturan}'
+                ),
+                'detail': f"Rp{int(row['Mutasi']):,} — \"{row['Keterangan Transaksi']}\"",
+                'nilai_rp': int(row['Mutasi']),
+            })
     return out
 
 

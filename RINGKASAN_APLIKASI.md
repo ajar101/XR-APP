@@ -2,7 +2,7 @@
 
 Ringkasan arsitektur, fitur, input/output, dan rencana pengembangan aplikasi ekstraktor rekening koran.
 
-> Dibuat: 2 September 2026 · Status: fokus stabilisasi BCA (BNI & Mandiri dinonaktifkan sementara)
+> Dibuat: 2 September 2026 · Diperbarui: 7 September 2026 · Status: BCA & Mandiri (Kopra + e-Statement) aktif; BNI dinonaktifkan sementara
 
 ---
 
@@ -24,10 +24,11 @@ XR-APP/
 ├── extractors/                  # Lapisan parsing PDF (spesifik per bank)
 │   ├── base.py                  #   Kontrak abstrak BaseExtractor
 │   ├── registry.py              #   Daftar bank & status aktif/nonaktif
-│   ├── bca.py                   #   Extractor BCA (satu-satunya yang aktif)
+│   ├── bca.py                   #   Extractor BCA (Giro & Tahapan)
 │   ├── bni.py                   #   Extractor BNI (nonaktif sementara)
-│   ├── mandiri.py               #   Dispatcher format Mandiri (nonaktif sementara)
-│   ├── mandiri_kopra.py         #   Sub-extractor Mandiri Kopra (nonaktif sementara)
+│   ├── mandiri.py               #   Dispatcher format Mandiri (auto-detect)
+│   ├── mandiri_kopra.py         #   Sub-extractor Mandiri Kopra
+│   ├── mandiri_statement.py     #   Sub-extractor Mandiri e-Statement (Livin'/Mandiri Online)
 │   └── pdf_utils.py             #   Deteksi PDF hasil scan/foto (bank-agnostic)
 ├── engine/                      # Lapisan pemrosesan (bank-agnostic)
 │   ├── excel_builder.py         #   Generator Excel 9-sheet
@@ -43,7 +44,8 @@ XR-APP/
 ### 2.2 Prinsip desain kunci
 
 - **Kontrak `BaseExtractor` yang ketat** (`extractors/base.py`): setiap extractor bank baru wajib mengimplementasikan `extract_saldo()` dan `extract_transaksi()` dengan struktur output yang sama persis, supaya `engine/` (Excel builder, kategorisasi, deteksi anomali) bisa bekerja **tanpa modifikasi apa pun**, apa pun bank-nya. Menambah bank baru = buat 1 file extractor + daftarkan di `registry.py`.
-- **Pemisahan tegas parsing vs presentasi**: `extractors/` tidak tahu soal Excel/styling; `engine/` tidak tahu soal bank tertentu (kecuali `anomaly_detector.py` yang sebagian pemeriksaannya memang spesifik pola teks BCA, dijelaskan di §4).
+- **Pemisahan tegas parsing vs presentasi**: `extractors/` tidak tahu soal Excel/styling; `engine/` tidak tahu soal bank tertentu.
+- **Ketentuan bank dimiliki extractor-nya, bukan engine.** Aturan yang berbeda antar bank (jadwal pendebetan biaya admin, cara mengenali baris bunga/pajak) dikirim extractor sebagai *metadata* lewat `extract_saldo()` — lihat kontraknya di `extractors/base.py`. Engine hanya membaca strukturnya. Extractor yang tidak mengirim metadata itu membuat pemeriksaan terkait **dilewati**, bukan ditebak dengan aturan bank lain.
 - **`app.py` cuma orkestrasi** — terima upload, panggil extractor yang sesuai, panggil `excel_builder`, kirim file. Tidak ada logika parsing/styling di sana.
 - **Semua keputusan besar divalidasi terhadap data riil**, bukan asumsi — setiap perbaikan bug/fitur baru diverifikasi ulang terhadap total MUTASI CR/DB yang tercetak resmi di footer PDF, sebelum dianggap selesai.
 
@@ -78,7 +80,10 @@ app.py /upload
 | Analisis konsentrasi nasabah (HHI Score) | ✅ Aktif |
 | Sheet "Indikasi Kejanggalan" (13 indikator deteksi anomali) | ✅ Aktif (lihat §4) |
 | Bank BNI | ⏸ Nonaktif sementara (kode masih ada, tinggal `enabled: True` di registry) |
-| Bank Mandiri (Kopra/E-Banking/Statement) | ⏸ Nonaktif sementara — hanya format Kopra yang sempat diimplementasikan |
+| Bank Mandiri — format **Kopra by Mandiri** | ✅ Aktif — divalidasi checksum terhadap ringkasan resmi PDF |
+| Bank Mandiri — format **e-Statement** (Livin'/Mandiri Online) | ✅ Aktif — Tabungan, Tabungan Bisnis, Tabungan NOW & Giro; divalidasi 100% terhadap 14 periode dari 5 PDF riil |
+| Bank Mandiri — format **Rekening Koran** (format lama) | ❌ Belum ada extractor — ditolak dengan pesan yang menyebut formatnya |
+| Bank Mandiri — format **E-Banking** | ❌ Belum ada extractor — ditolak dengan pesan yang menyebut formatnya |
 | Bank BRI | 🔜 "Coming soon" di UI, belum ada extractor |
 | OCR / ekstraksi PDF hasil scan | ❌ Belum diimplementasikan (lihat §6) |
 
@@ -102,7 +107,8 @@ app.py /upload
 | Nomor rekening beda antar file yang diupload | Ditolak, sebutkan file mana & rekening apa |
 | Bulan yang sama muncul di >1 file | Ditolak, sebutkan bulan & 2 file yang bentrok |
 | Total bulan gabungan > 6 | Ditolak, minta kurangi jumlah file |
-| Gagal ekstrak saldo (format tak dikenali) | Ditolak, per file |
+| Format terdeteksi tapi extractor-nya belum ada (mis. Mandiri Rekening Koran) | Ditolak 400, menyebut format apa yang terdeteksi |
+| PDF terbaca tapi tidak satu pun periode transaksi dikenali | Ditolak 400, per file — bukan HTTP 500 generik |
 
 Semua file yang sempat diupload ke server **selalu dibersihkan** setelah request selesai — baik sukses, gagal validasi, maupun exception (`finally` block di `app.py`).
 
@@ -134,7 +140,7 @@ Disusun sebagai dashboard ringkas (skor risiko + ringkasan per kategori) diikuti
 | 2 | Running Balance Tidak Konsisten | Saldo berjalan per baris transaksi ≠ saldo tercetak setelahnya |
 | 3 | Mutasi Hilang / Gap Tidak Wajar | (a) jumlah transaksi hasil ekstraksi ≠ klaim resmi PDF; (b) gap ≥5 hari tanpa transaksi pada rekening aktif |
 | 4 | Halaman/Periode Tidak Berurutan | Nomor halaman PDF meloncat / total halaman berubah di periode sama |
-| 5 | Duplikasi Transaksi | Tanggal + nominal + deskripsi identik berulang |
+| 5 | Duplikasi Transaksi | Tanggal + nominal + deskripsi identik berulang. Baris kategori **Biaya Bank** dikecualikan — biaya per-transaksi (mis. biaya BI Fast Rp2.500) memang wajib berulang identik, jadi bukan sinyal apa pun |
 | 6 | Format Nominal Tidak Konsisten | Format angka non-standar (artefak titik-ribuan/koma-desimal tertukar) |
 | 7 | Template Halaman Berbeda | Header kolom standar hilang di halaman yang berisi transaksi |
 | 8 | Metadata PDF Mencurigakan | Software pembuat/edit tidak lazim, tanggal modifikasi ≠ tanggal buat |
@@ -142,8 +148,8 @@ Disusun sebagai dashboard ringkas (skor risiko + ringkasan per kategori) diikuti
 | 10 | Transaksi RTGS di Hari Libur | Keyword "RTGS" jatuh di hari Minggu/libur (sistem BI-RTGS tidak beroperasi di luar hari kerja) |
 | 11 | Nominal Bulat Berulang | Banyak transaksi bernilai sangat bulat (≥Rp50 juta, kelipatan Rp10 juta) |
 | 12 | Indikasi Structuring | Transaksi tunai berulang mendekati ambang pelaporan LTKT Rp500 juta |
-| 13 | Rasio Pajak Bunga Tidak Wajar | Pajak Bunga ÷ Bunga di luar rentang 0,195–0,205 (PPh Final 20%) |
-| 14 | Jadwal Biaya Admin Tidak Wajar | Tanggal debet "BIAYA ADM" tidak sesuai jadwal resmi BCA (beda aturan GIRO/TAHAPAN, berubah per Juni 2026) |
+| 13 | Rasio Pajak Bunga Tidak Wajar | Pajak Bunga ÷ Bunga di luar rentang 0,195–0,205 (PPh Final 20%). Baris bunga & pajak dikenali lewat metadata `_bunga_pajak` (BCA lewat kolom Keterangan, Mandiri lewat kolom Nama) |
+| 14 | Jadwal Biaya Admin Tidak Wajar | Tanggal debet biaya admin tidak sesuai jadwal resmi bank ybs. Jadwalnya dikirim extractor lewat metadata `_biaya_admin` — BCA: GIRO akhir bulan / TAHAPAN Jumat ke-3, seragam tanggal 1 sejak Juni 2026; Mandiri: akhir bulan. Baris dicocokkan **persis** lewat kolom Nama, jadi "Biaya administrasi kartu debit" Mandiri (ikut tanggal ulang tahun kartu) tidak ikut diperiksa |
 
 > Catatan jujur soal keterbatasan: daftar hari libur nasional baru mencakup 4 tanggal tetap (Tahun Baru, Buruh, Kemerdekaan, Natal) — **belum** mencakup libur lunar/hijriah (Lebaran, Nyepi, Imlek, dst). Deteksi RTGS bergantung PDF mencetak kata "RTGS" secara eksplisit.
 
@@ -154,7 +160,8 @@ Disusun sebagai dashboard ringkas (skor risiko + ringkasan per kategori) diikuti
 Disusun berdasarkan diskusi sepanjang pengembangan, urut prioritas realistis (bukan urut "keren"):
 
 ### 6.1 Jangka pendek — masih di arsitektur Flask saat ini
-- **Reaktivasi BNI & Mandiri** setelah proses stabilisasi pola BCA (regex, deteksi nama, dsb.) dianggap cukup matang untuk dijadikan acuan pola bank lain.
+- **Reaktivasi BNI** setelah proses stabilisasi pola BCA (regex, deteksi nama, dsb.) dianggap cukup matang untuk dijadikan acuan pola bank lain. *(Mandiri sudah aktif: format Kopra dan e-Statement.)*
+- **Pemeriksaan Sheet 9 yang masih spesifik pola teks BCA** — empat indikator yang membaca ulang PDF mentah (running balance, nomor halaman, template halaman, format nominal) masih mencocokkan tata letak khas BCA (`HALAMAN :`, baris `dd/mm`), sehingga tidak menyala untuk PDF Mandiri. Bukan salah baca, tapi cakupannya lebih sempit — kedua extractor Mandiri menutupnya lewat checksum internal (`validate()` → metadata `_checksum`) plus pemeriksaan nomor urut transaksi. **Rencana:** generalisasikan dengan cara yang sama seperti `_biaya_admin` — extractor menyerahkan *provenance* per baris (halaman, posisi, saldo tercetak) sebagai bagian kontrak. Sebaiknya dirancang **setelah BNI aktif**, supaya kontraknya diuji dengan tiga bank, bukan satu.
 - **Perluas daftar hari libur nasional** (termasuk libur lunar/hijriah) — perlu referensi kalender resmi per tahun.
 - **OCR / Claude Vision untuk PDF hasil scan** — saat ini hanya terdeteksi & ditolak. Rekomendasi: langsung ke pendekatan vision model (Claude API) ketimbang OCR tradisional + regex, karena data finansial butuh akurasi tinggi dan OCR rentan salah baca digit pada tabel rapat. *(Belum digarap — dinilai jarang terjadi untuk saat ini.)*
 
