@@ -58,6 +58,12 @@ ROUTING_CODES = {
 
 class BCAExtractor(BaseExtractor):
 
+    def __init__(self, pdf_path: str):
+        super().__init__(pdf_path)
+        # Hasil pemindaian transaksi + jejak cetaknya, di-cache supaya PDF
+        # tidak dibaca ulang oleh extract_transaksi() dan _provenance().
+        self._cache_tx = None
+
     def get_file_prefix(self) -> str:
         return 'BCA'
 
@@ -211,6 +217,8 @@ class BCAExtractor(BaseExtractor):
         result['_nama_pemilik']   = nama_pemilik
         result['_no_rekening']    = no_rekening
         result['_jenis_rekening'] = jenis_rekening
+        result['_provenance'] = self._provenance()
+        result['_checksum'] = self._checksum()
         for bulan, saldo_awal in saldo_awal_bulan.items():
             result[f'_saldo_awal_{bulan}'] = saldo_awal
 
@@ -294,10 +302,31 @@ class BCAExtractor(BaseExtractor):
     # ------------------------------------------------------------------ #
 
     def extract_transaksi(self) -> dict:
+        hasil = self._scan_transaksi()['per_bulan']
+        return {bulan: pd.DataFrame(rows) for bulan, rows in hasil.items() if rows}
+
+    def _provenance(self) -> dict:
+        """
+        Jejak cetak dokumen (lihat kontrak '_provenance' di extractors/base.py).
+
+        'teks_mentah' DIKIRIM untuk BCA karena baris keterangannya adalah teks
+        cetak mesin — angka berformat Eropa di situ memang artefak, bukan
+        berita bebas yang ditulis nasabah.
+        """
+        d = self._scan_transaksi()
+        return {'halaman': d['halaman'], 'baris': d['baris']}
+
+    def _scan_transaksi(self) -> dict:
+        if self._cache_tx is not None:
+            return self._cache_tx
+
         transaksi_per_bulan = {}
         current_periode     = None
         current_tahun       = None
         transaksi_list      = []
+        halaman             = []     # jejak cetak per halaman
+        prov_baris          = []     # jejak cetak per baris
+        ringkasan           = {}     # angka resmi per periode, dari kaki laporan
 
         with pdfplumber.open(self.pdf_path) as pdf:
             for page in pdf.pages:
@@ -322,6 +351,47 @@ class BCAExtractor(BaseExtractor):
                             current_periode = new_periode
                             current_tahun   = new_tahun
                         break
+
+                # Kaki laporan tiap periode memuat angka resmi bank:
+                #   SALDO AWAL : ... | MUTASI CR : ... 59 | MUTASI DB : ... 504
+                #   SALDO AKHIR : ...
+                # Dipakai sebagai checksum — sebelumnya angka ini dibaca ulang
+                # oleh engine dengan parser keduanya sendiri.
+                if current_periode:
+                    r = ringkasan.setdefault(current_periode, {})
+                    for kunci, pola in (
+                        ('opening', r'SALDO AWAL\s*:\s*(-?[\d,]+\.\d{2})'),
+                        ('closing', r'SALDO AKHIR\s*:\s*(-?[\d,]+\.\d{2})'),
+                    ):
+                        m = re.search(pola, text)
+                        if m and kunci not in r:
+                            r[kunci] = float(m.group(1).replace(',', ''))
+                    for kunci_rp, kunci_n, pola in (
+                        ('total_credit', 'n_credit',
+                         r'MUTASI CR\s*:\s*(-?[\d,]+\.\d{2})\s+(\d+)'),
+                        ('total_debit', 'n_debit',
+                         r'MUTASI DB\s*:\s*(-?[\d,]+\.\d{2})\s+(\d+)'),
+                    ):
+                        m = re.search(pola, text)
+                        if m and kunci_rp not in r:
+                            r[kunci_rp] = float(m.group(1).replace(',', ''))
+                            r[kunci_n] = int(m.group(2))
+
+                # "HALAMAN : 2 /42" di kepala halaman.
+                m_hal = re.search(r'HALAMAN\s*:\s*(\d+)\s*/\s*(\d+)', text)
+                halaman.append({
+                    'urut': page.page_number,
+                    'no_tercetak': int(m_hal.group(1)) if m_hal else None,
+                    'total_tercetak': int(m_hal.group(2)) if m_hal else None,
+                    'periode': current_periode,
+                    # BCA mencetak baris header kolom di setiap halaman.
+                    'ada_header_kolom': any(
+                        'TANGGAL' in l and 'KETERANGAN' in l and 'SALDO' in l
+                        for l in lines
+                    ),
+                    'jumlah_baris': 0,    # diisi setelah baris halaman ini selesai
+                })
+                urut_baris = 0
 
                 i = 0
                 while i < len(lines):
@@ -383,7 +453,21 @@ class BCAExtractor(BaseExtractor):
                             keterangan_lines, tanggal, current_periode
                         )
                         if transaksi:
+                            jejak = transaksi.pop('_jejak', None)
                             transaksi_list.append(transaksi)
+                            if jejak is not None:
+                                prov_baris.append({
+                                    'bulan': current_periode,
+                                    'tanggal': tanggal,
+                                    'halaman': page.page_number,
+                                    'urut': urut_baris,
+                                    'periode': current_periode,
+                                    'mutasi': jejak['mutasi'],
+                                    'saldo_tercetak': jejak['saldo_tercetak'],
+                                    'teks_mentah': line,
+                                })
+                                urut_baris += 1
+                                halaman[-1]['jumlah_baris'] += 1
 
                         i = j
                     else:
@@ -392,12 +476,56 @@ class BCAExtractor(BaseExtractor):
             if current_periode and transaksi_list:
                 transaksi_per_bulan[current_periode] = list(transaksi_list)
 
-        result = {}
-        for bulan, transaksi in transaksi_per_bulan.items():
-            if transaksi:
-                result[bulan] = pd.DataFrame(transaksi)
+        self._cache_tx = {'per_bulan': transaksi_per_bulan, 'halaman': halaman,
+                          'baris': prov_baris, 'ringkasan': ringkasan}
+        return self._cache_tx
 
-        return result
+    def _checksum(self) -> list:
+        """
+        Cocokkan hasil parsing dengan angka resmi di kaki laporan tiap periode
+        (SALDO AWAL / MUTASI CR / MUTASI DB / SALDO AKHIR).
+
+        Bentuknya mengikuti metadata '_checksum' di extractors/base.py, sama
+        seperti yang dikirim extractor Mandiri, supaya engine memeriksanya
+        dengan cara yang sama untuk semua bank.
+        """
+        d = self._scan_transaksi()
+        out = []
+        for bulan, rows in d['per_bulan'].items():
+            resmi = d['ringkasan'].get(bulan)
+            if not resmi:
+                continue
+            debit = [r for r in rows if r['Jenis Mutasi'] == 'Debit']
+            kredit = [r for r in rows if r['Jenis Mutasi'] == 'Kredit']
+            saldo = [b['saldo_tercetak'] for b in d['baris']
+                     if b['bulan'] == bulan and b['saldo_tercetak'] is not None]
+            out.append({
+                'label': bulan,
+                'bulan': bulan,
+                # Nominal BCA disimpan dibulatkan ke rupiah penuh
+                # (int(...) di _parse_transaction), jadi TOTAL-nya bisa
+                # melenceng sampai Rp1 per transaksi dari angka resmi yang
+                # bersen. Toleransinya dinyatakan eksplisit sebesar jumlah
+                # transaksi periode itu — bukan angka karangan, melainkan
+                # batas atas selisih pembulatan. Jumlah transaksinya sendiri
+                # tetap dicocokkan persis.
+                'toleransi': max(100.0, float(len(rows))),
+                'expected': {
+                    'n_debit': resmi.get('n_debit'),
+                    'n_credit': resmi.get('n_credit'),
+                    'total_debit': resmi.get('total_debit'),
+                    'total_credit': resmi.get('total_credit'),
+                    'closing': resmi.get('closing'),
+                },
+                'actual': {
+                    'n_debit': len(debit),
+                    'n_credit': len(kredit),
+                    'total_debit': float(sum(r['Mutasi'] for r in debit)),
+                    'total_credit': float(sum(r['Mutasi'] for r in kredit)),
+                    'closing': saldo[-1] if saldo else None,
+                },
+            })
+        return out
 
     # ------------------------------------------------------------------ #
     #  HELPER INTERNAL                                                     #
@@ -460,13 +588,39 @@ class BCAExtractor(BaseExtractor):
         keterangan = re.sub(r'\bDB\b', '', keterangan).strip()
         keterangan = ' '.join(keterangan.split())
 
+        # Saldo berjalan yang TERCETAK di baris ini. BCA hanya mencetaknya di
+        # sebagian baris (nominal kedua), jadi ketiadaannya normal — None,
+        # bukan nol. Dipakai lewat metadata '_provenance' untuk memeriksa
+        # rantai saldo antar baris.
+        #
+        # Diambil dari BARIS PERTAMA saja, bukan dari teks gabungan seluruh
+        # baris transaksi: baris lanjutan (nama, keterangan) bisa memuat
+        # token yang berbentuk nominal — mis. "... TGL: 09/06 ... 34.42" —
+        # dan kalau ikut terbaca, angka itu dikira saldo berjalan lalu
+        # seluruh rantai saldo dilaporkan meleset.
+        baris_pertama = re.findall(
+            r'(?<![\d.])\d{1,3}(?:,\d{3})*\.\d{2}(?!\d)', lines[0]
+        )
+        saldo_tercetak = None
+        if len(baris_pertama) > 1:
+            try:
+                saldo_tercetak = float(baris_pertama[1].replace(',', ''))
+            except ValueError:
+                saldo_tercetak = None
+
         return {
             'Bulan': bulan,
             'Tanggal': tanggal,
             'Jenis Mutasi': jenis_mutasi,
             'Mutasi': nominal,
             'Nama Pengirim/Penerima': nama,
-            'Keterangan Transaksi': keterangan
+            'Keterangan Transaksi': keterangan,
+            # Dikeluarkan pemanggil sebelum masuk DataFrame — bukan kolom
+            # laporan, melainkan bahan metadata '_provenance'.
+            '_jejak': {
+                'mutasi': (-nominal if is_debit else nominal),
+                'saldo_tercetak': saldo_tercetak,
+            },
         }
 
     def _clean_nama(self, nama: str) -> str:

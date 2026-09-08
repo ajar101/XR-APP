@@ -290,6 +290,7 @@ class MandiriKopraExtractor(PencatatPeringatan, BaseExtractor):
 
         periods = []   # {'month','year','opening','closing','n_debit',...}
         rows = []
+        halaman = []   # jejak cetak per halaman (metadata '_provenance')
 
         with pdfplumber.open(self.pdf_path) as pdf:
             for page in pdf.pages:
@@ -307,17 +308,64 @@ class MandiriKopraExtractor(PencatatPeringatan, BaseExtractor):
 
                 # Baris dimiliki oleh blok ringkasan terakhir sebelum halaman
                 # ini — bukan ditebak dari bulannya.
-                for urut, r in enumerate(self._page_rows(page)):
+                page_rows = self._page_rows(page)
+                for urut, r in enumerate(page_rows):
                     r['page'] = page.page_number
                     r['urut'] = urut          # posisi baris di halaman
                     r['period_idx'] = len(periods) - 1
                     r['date'] = date(r['year'], r['month'], r['day'])
                     rows.append(r)
 
+                # "Page 2 of 4" di kaki halaman.
+                m = re.search(r'Page\s+(\d+)\s+of\s+(\d+)', text)
+                halaman.append({
+                    'urut': page.page_number,
+                    'no_tercetak': int(m.group(1)) if m else None,
+                    'total_tercetak': int(m.group(2)) if m else None,
+                    'periode': self._label_periode(periods),
+                    # Kopra mengulang baris header kolom di setiap halaman
+                    # bertabel, jadi ketiadaannya di halaman berisi transaksi
+                    # memang layak dipertanyakan.
+                    'ada_header_kolom': ('Remark' in text and 'Balance' in text),
+                    'jumlah_baris': len(page_rows),
+                })
+
             meta = self._parse_identity(pdf)
 
-        self._cache = {'periods': periods, 'rows': rows, 'meta': meta}
+        self._cache = {'periods': periods, 'rows': rows, 'meta': meta,
+                       'halaman': halaman}
         return self._cache
+
+    @staticmethod
+    def _label_periode(periods: list) -> str | None:
+        """Penanda blok laporan yang sedang berjalan, untuk jejak cetak."""
+        if not periods:
+            return None
+        p = periods[-1]
+        return f"{p['start']}..{p['end']}" if p.get('start') else None
+
+    def _provenance(self) -> dict:
+        """
+        Jejak cetak dokumen (lihat kontrak '_provenance' di extractors/base.py).
+
+        Kolom Remark sengaja TIDAK dikirim sebagai 'teks_mentah': isinya berita
+        bebas dari nasabah yang lazim memuat nominal bergaya Indonesia, dan itu
+        bukan artefak dokumen.
+        """
+        doc = self._parse_document()
+        label = {idx: (f"{p['start']}..{p['end']}" if p.get('start') else None)
+                 for idx, p in enumerate(doc['periods'])}
+        baris = [{
+            'bulan': BULAN_ORDER[r['month'] - 1],
+            'tanggal': r['day'],
+            'halaman': r['page'],
+            'urut': r['urut'],
+            'periode': label.get(r['period_idx']),
+            'mutasi': r['credit'] - r['debit'],
+            'saldo_tercetak': r['balance'],
+            'teks_mentah': None,
+        } for r in self._merged_rows()]
+        return {'halaman': list(doc['halaman']), 'baris': baris}
 
     def _merged_rows(self) -> list:
         """
@@ -516,6 +564,7 @@ class MandiriKopraExtractor(PencatatPeringatan, BaseExtractor):
         # Sheet Indikasi Kejanggalan (lihat kontrak di extractors/base.py).
         if lap.get('peringatan'):
             result['_peringatan'] = lap['peringatan']
+        result['_provenance'] = self._provenance()
         result['_checksum'] = [
             {'label': per['label'], 'bulan': per['bulan'],
              'expected': {k: per['expected'].get(k) for k in

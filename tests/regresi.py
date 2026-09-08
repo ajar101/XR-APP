@@ -127,11 +127,17 @@ def rekam_satu(path: str, bank: str) -> dict:
     # ekstraksi di atas — ia membaca ulang PDF mentah. Tanpa direkam,
     # perubahan pada pemeriksaan itu (mis. temuan palsu yang hilang, atau
     # temuan asli yang ikut hilang) tidak akan tertangkap tes ini.
-    for f in detect_anomalies(path, saldo, transaksi, bank_name=prefix(ex)):
-        hasil['temuan'].append([
-            f['kategori'], f['tingkat'], str(f['bulan']), str(f['tanggal']),
-            str(f['halaman']), f['deskripsi'], f['detail'], f['nilai_rp'],
-        ])
+    # Diurutkan kanonik, BUKAN mengikuti urutan tampil di Sheet 9. Urutan
+    # tampil ditentukan sort eksplisit di detect_anomalies() dan bersifat
+    # kosmetik; kalau ikut direkam, menambah satu pemeriksaan saja menggeser
+    # posisi puluhan temuan lain dan diff-nya jadi tidak terbaca — persis
+    # yang membuat tes regresi diabaikan orang.
+    temuan = [
+        [f['kategori'], f['tingkat'], str(f['bulan']), str(f['tanggal']),
+         str(f['halaman']), f['deskripsi'], f['detail'], f['nilai_rp']]
+        for f in detect_anomalies(path, saldo, transaksi, bank_name=prefix(ex))
+    ]
+    hasil['temuan'] = sorted(temuan, key=lambda t: [str(x) for x in t])
 
     if hasattr(ex, 'validate'):
         lap = ex.validate()

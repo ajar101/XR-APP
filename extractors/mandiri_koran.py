@@ -253,6 +253,7 @@ class MandiriKoranExtractor(PencatatPeringatan, BaseExtractor):
             return self._cache
 
         periods = []    # {'start','end','opening','closing','n_debit',...}
+        halaman = []    # jejak cetak per halaman (lihat metadata '_provenance')
         mentah = []     # baris tabel dalam bentuk teks per kolom
         meta = {'no_rekening': 'unknown', 'nama_pemilik': '-'}
         halaman_asing = []
@@ -301,6 +302,22 @@ class MandiriKoranExtractor(PencatatPeringatan, BaseExtractor):
                     r['page'] = page.page_number
                     r['period_idx'] = len(periods) - 1
 
+                halaman.append({
+                    'urut': page.page_number,
+                    # Format ini tidak mencetak nomor halaman sama sekali.
+                    # None = "dokumen memang tidak memuatnya", bukan nol.
+                    'no_tercetak': None,
+                    'total_tercetak': None,
+                    'periode': self._label_periode(periods),
+                    # Header kolom hanya dicetak di halaman pembuka tiap
+                    # laporan, tidak diulang di halaman lanjutan — jadi
+                    # ketiadaannya bukan kejanggalan dan tidak dilaporkan.
+                    'ada_header_kolom': None,
+                    # Diisi setelah konversi: page_rows masih memuat baris
+                    # kepala tabel yang bukan transaksi.
+                    'jumlah_baris': 0,
+                })
+
                 # Potongan di kepala halaman menyambung baris terakhir halaman
                 # sebelumnya; kalau halaman sebelumnya tidak menghasilkan baris
                 # apa pun, ia justru pembuka baris pertama halaman ini.
@@ -341,6 +358,12 @@ class MandiriKoranExtractor(PencatatPeringatan, BaseExtractor):
             r['date'] = self._tanggal_aman(r)
             rows.append(r)
 
+        per_halaman = {}
+        for r in rows:
+            per_halaman[r['page']] = per_halaman.get(r['page'], 0) + 1
+        for h in halaman:
+            h['jumlah_baris'] = per_halaman.get(h['urut'], 0)
+
         if halaman_asing:
             # Tingkat Tinggi: halaman yang bukan bagian laporan ini biasanya
             # berarti PDF rekening LAIN ikut tergabung dalam satu berkas.
@@ -356,8 +379,45 @@ class MandiriKoranExtractor(PencatatPeringatan, BaseExtractor):
                 halaman=self._ringkas_halaman(halaman_asing),
             )
 
-        self._cache = {'periods': periods, 'rows': rows, 'meta': meta}
+        self._cache = {'periods': periods, 'rows': rows, 'meta': meta,
+                       'halaman': halaman}
         return self._cache
+
+    @staticmethod
+    def _label_periode(periods: list) -> str | None:
+        """Penanda blok laporan yang sedang berjalan, untuk jejak cetak."""
+        if not periods:
+            return None
+        p = periods[-1]
+        return f"{p['start']}..{p['end']}" if p.get('start') else None
+
+    def _provenance(self) -> dict:
+        """
+        Jejak cetak dokumen (lihat kontrak '_provenance' di extractors/base.py).
+
+        Kolom Remark sengaja TIDAK dikirim sebagai 'teks_mentah': isinya berita
+        bebas dari nasabah, yang lazim memuat nominal bergaya Indonesia
+        ("19.655.050"). Itu bukan artefak dokumen, dan kalau dikirim akan
+        muncul sebagai temuan format nominal yang keliru.
+        """
+        doc = self._parse_document()
+        label = {}
+        for idx, p in enumerate(doc['periods']):
+            label[idx] = (f"{p['start']}..{p['end']}" if p.get('start') else None)
+
+        baris = []
+        for r in self._merged_rows():
+            baris.append({
+                'bulan': BULAN_ORDER[r['month'] - 1],
+                'tanggal': r['day'],
+                'halaman': r['page'],
+                'urut': r['urut'],
+                'periode': label.get(r['period_idx']),
+                'mutasi': r['credit'] - r['debit'],
+                'saldo_tercetak': r['balance'],
+                'teks_mentah': None,
+            })
+        return {'halaman': list(doc['halaman']), 'baris': baris}
 
     def _merged_rows(self) -> list:
         """
@@ -570,6 +630,7 @@ class MandiriKoranExtractor(PencatatPeringatan, BaseExtractor):
         # terlihat bersih padahal dokumen sumbernya bermasalah.
         if lap.get('peringatan'):
             result['_peringatan'] = lap['peringatan']
+        result['_provenance'] = self._provenance()
         result['_checksum'] = [
             {'label': per['label'], 'bulan': per['bulan'],
              'expected': {k: per['expected'].get(k) for k in

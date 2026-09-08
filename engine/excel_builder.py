@@ -652,32 +652,37 @@ DAFTAR_INDIKATOR = [
      'atau dokumen disusun ulang. Beberapa transaksi di tanggal yang sama tidak dihitung '
      'sebagai pelanggaran urutan.'),
 
-    ('Running Balance Tidak Konsisten', 'Tinggi', 'PDF mentah (khusus BCA)',
-     'Saldo berjalan antar baris di PDF tidak menyambung.',
-     'Saldo tiap baris dihitung ulang dari baris sebelumnya (+kredit −debit) langsung '
-     'dari teks PDF, dengan toleransi Rp5. Saldo di-reset tiap ganti periode. '
-     'Pemindainya mencocokkan tata letak khas BCA, jadi hanya dijalankan untuk '
-     'rekening BCA — untuk bank lain, rantai saldo diperiksa extractor-nya sendiri '
-     'lewat checksum internal.'),
+    ('Running Balance Tidak Konsisten', 'Tinggi', 'Jejak cetak dokumen',
+     'Saldo berjalan antar baris di dokumen tidak menyambung.',
+     'Saldo tiap baris dihitung ulang dari saldo tercetak sebelumnya ditambah mutasi '
+     'di antaranya, dengan toleransi Rp5, dan di-reset tiap ganti blok laporan. '
+     'Angkanya diserahkan extractor lewat metadata _provenance — berlaku untuk semua '
+     'bank yang extractor-nya mengirimkannya (saat ini BCA dan seluruh format '
+     'Mandiri).'),
 
-    ('Halaman/Periode Tidak Berurutan', 'Sedang / Tinggi', 'PDF mentah (khusus BCA)',
-     'Nomor halaman meloncat atau periode tidak berurutan.',
-     'Nomor halaman dalam satu periode harus naik satu per satu. '
-     'Hanya dijalankan untuk rekening BCA — pemindai teks mentahnya '
-     'mencocokkan tata letak khas BCA.'),
+    ('Halaman/Periode Tidak Berurutan', 'Sedang / Tinggi', 'Jejak cetak dokumen',
+     'Nomor halaman meloncat, atau total halaman berubah di tengah satu laporan.',
+     'Nomor halaman dalam satu blok laporan harus naik satu per satu. Hanya berlaku '
+     'untuk dokumen yang MENCETAK nomor halaman (BCA: "HALAMAN : 2 /42"; Kopra: '
+     '"Page 2 of 4"). Rekening Koran dan e-Statement Mandiri tidak mencetaknya sama '
+     'sekali, jadi untuk keduanya pemeriksaan ini dilewati — bukan berarti lolos.'),
 
-    ('Template Halaman Berbeda', 'Sedang', 'PDF mentah (khusus BCA)',
+    ('Template Halaman Berbeda', 'Sedang', 'Jejak cetak dokumen',
      'Halaman berisi transaksi tapi header kolom standar tidak ditemukan.',
-     'Bisa berarti halaman disisipkan dari sumber lain atau layout diubah. '
-     'Hanya dijalankan untuk rekening BCA — pemindai teks mentahnya '
-     'mencocokkan tata letak khas BCA.'),
+     'Bisa berarti halaman disisipkan dari sumber lain atau tata letaknya diubah. '
+     'Hanya berlaku untuk format yang memang mengulang header kolom di SETIAP '
+     'halaman (BCA, Kopra, e-Statement). Rekening Koran Mandiri mencetaknya sekali '
+     'di awal tiap laporan, jadi ketiadaannya di halaman lanjutan wajar dan tidak '
+     'diperiksa.'),
 
-    ('Format Nominal Tidak Konsisten', 'Sedang', 'PDF mentah (khusus BCA)',
+    ('Format Nominal Tidak Konsisten', 'Sedang', 'Jejak cetak dokumen',
      'Ada baris memakai format angka yang berbeda dari sisa dokumen.',
-     'Mendeteksi campuran format ribuan/desimal gaya Eropa di antara baris '
-     'berformat standar — pola yang lazim muncul pada dokumen yang diedit. '
-     'Hanya dijalankan untuk rekening BCA — pemindai teks mentahnya '
-     'mencocokkan tata letak khas BCA.'),
+     'Mendeteksi campuran format ribuan/desimal gaya Eropa di antara baris berformat '
+     'standar — pola yang lazim muncul pada dokumen yang diedit. Hanya diperiksa pada '
+     'baris yang extractor-nya nyatakan berisi teks CETAK MESIN. Keterangan yang '
+     'memuat berita bebas dari nasabah sengaja dikecualikan: nasabah lazim menulis '
+     'nominal gaya Indonesia di berita transfer ("19.655.050"), dan itu bukan artefak '
+     'dokumen. Saat ini yang memenuhi syarat baru BCA.'),
 
     ('Metadata PDF', 'Rendah / Sedang', 'PDF mentah',
      'Informasi pembuat, aplikasi, dan waktu pembuatan/modifikasi berkas.',
@@ -699,13 +704,13 @@ CATATAN_INDIKATOR = [
     'dengan hati-hati.',
     'Pemeriksaan berbasis PDF mentah dijalankan per berkas. Pada upload beberapa PDF, '
     'nama berkas dicantumkan di kolom halaman supaya temuan bisa dilacak.',
-    'Empat pemeriksaan berbasis pola teks mentah (Running Balance, Halaman/Periode, '
-    'Template Halaman, Format Nominal) HANYA berjalan untuk rekening BCA, karena '
-    'pemindainya mencocokkan tata letak khas BCA. Dijalankan pada bank lain ia bisa '
-    'salah menemukan — mis. pada PDF gabungan yang ikut memuat halaman bank lain, '
-    'ringkasan milik bank lain itu akan dibandingkan dengan data rekening yang '
-    'diperiksa. Untuk bank selain BCA, pemeriksaan setara dilakukan extractor-nya '
-    'sendiri lewat checksum internal terhadap ringkasan resmi PDF.',
+    'Empat pemeriksaan bersumber "Jejak cetak dokumen" (Running Balance, '
+    'Halaman/Periode, Template Halaman, Format Nominal) memakai fakta yang '
+    'diserahkan extractor lewat metadata _provenance — bukan pembacaan ulang PDF. '
+    'Cakupannya karena itu mengikuti apa yang memang dicetak dokumennya: nomor '
+    'halaman, header kolom per halaman, dan saldo berjalan tidak selalu ada di semua '
+    'format. Bagian yang dilewati BUKAN berarti dokumennya bersih — kolom Sumber dan '
+    'penjelasan tiap indikator menyebutkan syaratnya.',
     'Pemeriksaan "Urutan Tanggal Tidak Wajar" dan "Selisih dengan Ringkasan PDF" hanya '
     'berjalan bila extractor bank tersebut mempertahankan urutan cetak dan membaca angka '
     'ringkasan PDF. Saat ini keduanya tersedia untuk BCA dan seluruh format Mandiri '

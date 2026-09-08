@@ -288,6 +288,7 @@ class MandiriStatementExtractor(PencatatPeringatan, BaseExtractor):
 
         periods = []
         rows = []
+        halaman = []   # jejak cetak per halaman (metadata '_provenance')
         meta = {'no_rekening': 'unknown', 'nama_pemilik': '-',
                 'jenis_rekening': '-', 'cabang': '-'}
 
@@ -306,11 +307,22 @@ class MandiriStatementExtractor(PencatatPeringatan, BaseExtractor):
                     if meta['no_rekening'] == 'unknown':
                         meta.update(self._parse_identity(text))
 
-                for urut, r in enumerate(self._page_rows(page)):
+                page_rows = self._page_rows(page)
+                for urut, r in enumerate(page_rows):
                     r['page'] = page.page_number
                     r['urut'] = urut
                     r['period_idx'] = len(periods) - 1
                     rows.append(r)
+
+                halaman.append({
+                    'urut': page.page_number,
+                    # e-Statement tidak mencetak nomor halaman.
+                    'no_tercetak': None,
+                    'total_tercetak': None,
+                    'periode': self._label_periode(periods),
+                    'ada_header_kolom': ('Remark' in text and 'Saldo' in text),
+                    'jumlah_baris': len(page_rows),
+                })
 
         # Tanggal dicetak sekali per transaksi; kalau satu baris gagal
         # terbaca tanggalnya, warisi dari baris sebelumnya agar transaksinya
@@ -331,8 +343,43 @@ class MandiriStatementExtractor(PencatatPeringatan, BaseExtractor):
             else:
                 terakhir = r['date']
 
-        self._cache = {'periods': periods, 'rows': rows, 'meta': meta}
+        self._cache = {'periods': periods, 'rows': rows, 'meta': meta,
+                       'halaman': halaman}
         return self._cache
+
+    @staticmethod
+    def _label_periode(periods: list) -> str | None:
+        """Penanda blok laporan yang sedang berjalan, untuk jejak cetak."""
+        if not periods:
+            return None
+        p = periods[-1]
+        return f"{p['start']}..{p['end']}" if p.get('start') else None
+
+    def _provenance(self) -> dict:
+        """
+        Jejak cetak dokumen (lihat kontrak '_provenance' di extractors/base.py).
+
+        Kolom keterangan sengaja TIDAK dikirim sebagai 'teks_mentah': isinya
+        berita bebas dari nasabah, bukan teks cetak mesin.
+        """
+        doc = self._parse_document()
+        label = {idx: (f"{p['start']}..{p['end']}" if p.get('start') else None)
+                 for idx, p in enumerate(doc['periods'])}
+        baris = []
+        for r in self._merged_rows():
+            if r['date'] is None:
+                continue
+            baris.append({
+                'bulan': BULAN_ORDER[r['date'].month - 1],
+                'tanggal': r['date'].day,
+                'halaman': r['page'],
+                'urut': r['urut'],
+                'periode': label.get(r['period_idx']),
+                'mutasi': r['nominal'],
+                'saldo_tercetak': r['balance'],
+                'teks_mentah': None,
+            })
+        return {'halaman': list(doc['halaman']), 'baris': baris}
 
     def _merged_rows(self) -> list:
         """
@@ -530,6 +577,7 @@ class MandiriStatementExtractor(PencatatPeringatan, BaseExtractor):
         # Sheet Indikasi Kejanggalan (lihat kontrak di extractors/base.py).
         if lap.get('peringatan'):
             result['_peringatan'] = lap['peringatan']
+        result['_provenance'] = self._provenance()
         result['_checksum'] = [
             {'label': per['label'], 'bulan': per['bulan'],
              'expected': {k: per['expected'].get(k) for k in

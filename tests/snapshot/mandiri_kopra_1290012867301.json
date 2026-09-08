@@ -221,8 +221,8 @@
  "temuan": [
   ["Duplikasi Transaksi", "Sedang", "Agustus", "26", "-", "Transaksi identik berulang 2x pada tanggal 26", "Debit Rp2,500,000.0 — \"Temporary Payment Temporary Payment BRINIDJA/FLORA INTAN MARIA 20250826BMRIIDJA010O9\" — cek apakah ini transaksi rutin yang wajar berulang", 5000000],
   ["Duplikasi Transaksi", "Sedang", "Agustus", "8", "-", "Transaksi identik berulang 2x pada tanggal 8", "Debit Rp1,000,000.0 — \"Setoran Awal Setoran Awal Setoran Awal MCM InhouseTrf KE ROMAS CEMERLANG LOGISTIK Transfer Fee Setoran Awal99102\" — cek apakah ini transaksi rutin yang wajar berulang", 2000000],
-  ["Nominal Bulat Berulang", "Rendah", "Agustus", "-", "-", "13 transaksi bernilai sangat bulat (kelipatan Rp10 juta, ≥Rp50,000,000)", "7.9% dari total 165 transaksi bulan Agustus — pola umum di transaksi rekayasa", 3950000000],
-  ["Metadata PDF", "Rendah", "-", "-", "-", "Info metadata PDF (untuk review manual)", "Producer: iText 2.1.7 by 1T3XT | Creator: JasperReports Library version 5.6.0 | Created: D:20250901100025+07'00' | Modified: D:20250901100025+07'00'", null]
+  ["Metadata PDF", "Rendah", "-", "-", "-", "Info metadata PDF (untuk review manual)", "Producer: iText 2.1.7 by 1T3XT | Creator: JasperReports Library version 5.6.0 | Created: D:20250901100025+07'00' | Modified: D:20250901100025+07'00'", null],
+  ["Nominal Bulat Berulang", "Rendah", "Agustus", "-", "-", "13 transaksi bernilai sangat bulat (kelipatan Rp10 juta, ≥Rp50,000,000)", "7.9% dari total 165 transaksi bulan Agustus — pola umum di transaksi rekayasa", 3950000000]
  ],
  "metadata": {
   "biaya_admin": {

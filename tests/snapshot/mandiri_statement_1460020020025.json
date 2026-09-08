@@ -461,8 +461,8 @@
   ["September", 30, 1943121.74]
  ],
  "temuan": [
-  ["Metadata PDF Mencurigakan", "Sedang", "-", "-", "-", "PDF tercatat dibuat/diedit dengan software \"Ilovepdf\", bukan software cetak rekening umum", "Producer: iLovePDF | Creator: - — perlu verifikasi keaslian dokumen", null],
-  ["Metadata PDF", "Rendah", "-", "-", "-", "Info metadata PDF (untuk review manual)", "Producer: iLovePDF | Creator: - | Created: - | Modified: D:20260105024749Z", null]
+  ["Metadata PDF", "Rendah", "-", "-", "-", "Info metadata PDF (untuk review manual)", "Producer: iLovePDF | Creator: - | Created: - | Modified: D:20260105024749Z", null],
+  ["Metadata PDF Mencurigakan", "Sedang", "-", "-", "-", "PDF tercatat dibuat/diedit dengan software \"Ilovepdf\", bukan software cetak rekening umum", "Producer: iLovePDF | Creator: - — perlu verifikasi keaslian dokumen", null]
  ],
  "metadata": {
   "biaya_admin": {

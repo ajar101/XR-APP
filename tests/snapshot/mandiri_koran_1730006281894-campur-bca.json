@@ -737,14 +737,14 @@
   ["Mei", 31, 20384643.85]
  ],
  "temuan": [
-  ["Peringatan Pembacaan Dokumen", "Tinggi", "-", "-", "36, 37, 38, 39, 40, 41, 42, 43, ... (+52)", "60 halaman dalam PDF tidak dikenali sebagai Laporan Rekening Koran Mandiri dan tidak ikut diekstrak", "Halaman 36, 37, 38, 39, 40, 41, 42, 43, ... (+52). Pastikan PDF yang diunggah hanya berisi rekening yang diperiksa — halaman itu bisa jadi milik rekening atau bank lain.", null],
-  ["Peringatan Pembacaan Dokumen", "Sedang", "April", "-", "-", "Rentang 2025-04-30..2025-04-30 tidak tercakup laporan mana pun", "Mutasi pada rentang itu tidak ikut terhitung di laporan ini. Laporan sebelumnya berakhir 2025-04-29, laporan berikutnya baru mulai 2025-05-01.", null],
+  ["Metadata PDF", "Rendah", "-", "-", "-", "Info metadata PDF (untuk review manual)", "Producer: Pdftools SDK | Creator: - | Created: - | Modified: D:20250710075410Z", null],
   ["Mutasi Hilang / Gap Tidak Wajar", "Sedang", "April", "11-16", "-", "Tidak ada transaksi selama 6 hari berturut-turut", "Rekening aktif (201 transaksi di bulan April) tapi kosong tanggal 11 s.d. 16. Gap belum tentu janggal — libur panjang, rekening musiman, atau pola bisnis tertentu bisa menjelaskannya. Bandingkan dengan pola bulan lain sebelum menyimpulkan.", null],
   ["Mutasi Hilang / Gap Tidak Wajar", "Sedang", "April", "22-26", "-", "Tidak ada transaksi selama 5 hari berturut-turut", "Rekening aktif (201 transaksi di bulan April) tapi kosong tanggal 22 s.d. 26. Gap belum tentu janggal — libur panjang, rekening musiman, atau pola bisnis tertentu bisa menjelaskannya. Bandingkan dengan pola bulan lain sebelum menyimpulkan.", null],
   ["Mutasi Hilang / Gap Tidak Wajar", "Sedang", "Mei", "26-30", "-", "Tidak ada transaksi selama 5 hari berturut-turut", "Rekening aktif (399 transaksi di bulan Mei) tapi kosong tanggal 26 s.d. 30. Gap belum tentu janggal — libur panjang, rekening musiman, atau pola bisnis tertentu bisa menjelaskannya. Bandingkan dengan pola bulan lain sebelum menyimpulkan.", null],
   ["Nominal Bulat Berulang", "Rendah", "April", "-", "-", "124 transaksi bernilai sangat bulat (kelipatan Rp10 juta, ≥Rp50,000,000)", "61.7% dari total 201 transaksi bulan April — pola umum di transaksi rekayasa", 20090000000],
   ["Nominal Bulat Berulang", "Rendah", "Mei", "-", "-", "207 transaksi bernilai sangat bulat (kelipatan Rp10 juta, ≥Rp50,000,000)", "51.9% dari total 399 transaksi bulan Mei — pola umum di transaksi rekayasa", 51700000000],
-  ["Metadata PDF", "Rendah", "-", "-", "-", "Info metadata PDF (untuk review manual)", "Producer: Pdftools SDK | Creator: - | Created: - | Modified: D:20250710075410Z", null]
+  ["Peringatan Pembacaan Dokumen", "Sedang", "April", "-", "-", "Rentang 2025-04-30..2025-04-30 tidak tercakup laporan mana pun", "Mutasi pada rentang itu tidak ikut terhitung di laporan ini. Laporan sebelumnya berakhir 2025-04-29, laporan berikutnya baru mulai 2025-05-01.", null],
+  ["Peringatan Pembacaan Dokumen", "Tinggi", "-", "-", "36, 37, 38, 39, 40, 41, 42, 43, ... (+52)", "60 halaman dalam PDF tidak dikenali sebagai Laporan Rekening Koran Mandiri dan tidak ikut diekstrak", "Halaman 36, 37, 38, 39, 40, 41, 42, 43, ... (+52). Pastikan PDF yang diunggah hanya berisi rekening yang diperiksa — halaman itu bisa jadi milik rekening atau bank lain.", null]
  ],
  "metadata": {
   "biaya_admin": {

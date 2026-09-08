@@ -50,6 +50,10 @@ LIBUR_TANGGAL_TETAP = {
     (12, 25), # Natal
 }
 
+# Angka bergaya Eropa (titik ribuan, koma desimal) di antara baris berformat
+# standar: "15.840.000,B".
+FORMAT_ASING_RE = re.compile(r'\d{1,3}(?:\.\d{3}){2,}(?:,\d{2})?')
+
 TOLERANSI_SALDO = 100          # toleransi pembulatan int() saldo (Rp)
 TOLERANSI_RUNNING_BALANCE = 5  # toleransi pembulatan running balance (Rp)
 
@@ -60,22 +64,6 @@ TOLERANSI_RUNNING_BALANCE = 5  # toleransi pembulatan running balance (Rp)
 RASIO_PAJAK_BUNGA_MIN = 0.195
 RASIO_PAJAK_BUNGA_MAX = 0.205
 
-# Bank yang tata letak teks mentahnya dikenali _scan_pdf_raw(). Pemindai itu
-# mencocokkan pola khas BCA ("HALAMAN : 1 / 60", baris transaksi "dd/mm",
-# "MUTASI CR :"), jadi hasilnya hanya bermakna untuk dokumen BCA.
-#
-# Dijalankan pada bank lain, ia bukan sekadar tidak menemukan apa-apa — ia
-# bisa SALAH menemukan. Pada satu PDF Mandiri yang ikut memuat halaman
-# rekening BCA milik rekening lain, pemindai ini membaca ringkasan BCA itu
-# lalu membandingkannya dengan data Mandiri, dan menghasilkan empat temuan
-# "RISIKO TINGGI" yang seluruhnya keliru. Karena itu pemeriksaan berbasis
-# pola ini digerbangi nama bank, bukan dibiarkan jalan atas dokumen apa pun.
-#
-# Ini gerbang sementara. Rencana sebenarnya: extractor menyerahkan fakta
-# per baris/halaman (halaman, urutan, saldo tercetak, ada tidaknya header
-# kolom) sebagai bagian kontrak, sehingga keempat pemeriksaan itu bisa
-# bank-agnostik dan tidak perlu parser kedua sama sekali.
-BANK_POLA_MENTAH = frozenset({'BCA'})
 
 
 def detect_anomalies(pdf_path, saldo_per_bulan: dict,
@@ -83,9 +71,9 @@ def detect_anomalies(pdf_path, saldo_per_bulan: dict,
     """
     Jalankan semua pemeriksaan dan kembalikan list finding (belum diurutkan).
 
-    `bank_name` menentukan apakah pemeriksaan berbasis POLA TEKS MENTAH ikut
-    dijalankan (lihat BANK_POLA_MENTAH). Pemeriksaan metadata PDF tidak
-    tergantung tata letak, jadi selalu jalan untuk bank apa pun.
+    `bank_name` hanya dipakai untuk pelabelan; tidak ada lagi pemeriksaan yang
+    bergantung pada bank apa. Pemeriksaan yang dulu membaca ulang PDF dengan
+    pola satu bank kini bekerja atas metadata '_provenance' dari extractor.
 
     `pdf_path` boleh satu path (str) atau list path — dipakai saat user
     upload beberapa PDF sekaligus (lihat engine/multi_pdf_merger.py).
@@ -111,30 +99,26 @@ def detect_anomalies(pdf_path, saldo_per_bulan: dict,
     findings += _check_peringatan_extractor(saldo_per_bulan)
     findings += _check_urutan_tanggal(transaksi_per_bulan)
 
+    # Pemeriksaan atas jejak cetak dokumen. Datanya dari extractor
+    # (metadata '_provenance'), jadi bank-agnostik: extractor yang tahu tata
+    # letak dokumennya, engine hanya membaca faktanya.
+    prov = _provenance(saldo_per_bulan)
+    findings += _check_running_balance(prov, saldo_per_bulan)
+    findings += _check_halaman_sequence(prov)
+    findings += _check_template_halaman(prov)
+    findings += _check_format_nominal(prov)
+
     pdf_paths = [pdf_path] if isinstance(pdf_path, str) else list(pdf_path)
     beri_label_file = len(pdf_paths) > 1
-    pola_dikenali = (bank_name or '').upper() in BANK_POLA_MENTAH
 
-    # Pemeriksaan yang butuh baca ulang PDF mentah (running balance, nomor
-    # halaman, template, format angka, metadata) — per file. Kalau satu file
-    # tak terbaca (mis. path tidak valid), lewati file itu saja, jangan
-    # gagalkan seluruh laporan.
+    # Satu-satunya pemeriksaan yang masih membuka PDF: metadata berkas
+    # (Producer/Creator/tanggal). Isinya properti berkas, bukan tata letak,
+    # jadi berlaku untuk bank apa pun. Kalau satu berkas tak terbaca, lewati
+    # berkas itu saja — jangan gagalkan seluruh laporan.
     for path in pdf_paths:
         label = os.path.basename(path)
         try:
-            file_findings = []
-            # Pemeriksaan berbasis pola tata letak — hanya untuk bank yang
-            # tata letaknya memang dikenali pemindai.
-            if pola_dikenali:
-                raw = _scan_pdf_raw(path)
-                file_findings += _check_running_balance(raw)
-                file_findings += _check_halaman_sequence(raw)
-                file_findings += _check_template_halaman(raw)
-                file_findings += _check_format_nominal(raw)
-                file_findings += _check_mutasi_hilang(raw, transaksi_per_bulan)
-            # Metadata PDF tidak ada hubungannya dengan tata letak, jadi
-            # berlaku untuk bank apa pun.
-            file_findings += _check_metadata_pdf(path)
+            file_findings = list(_check_metadata_pdf(path))
             if beri_label_file:
                 for f in file_findings:
                     if f['halaman'] not in (None, '-'):
@@ -570,269 +554,206 @@ def _check_jadwal_biaya_adm(transaksi_per_bulan, saldo_per_bulan):
 
 
 # ============================================================
-# RAW PDF SCAN — dipakai bersama oleh beberapa check di bawah
+# JEJAK CETAK — fakta per baris/halaman yang diserahkan extractor
 # ============================================================
 
-def _scan_pdf_raw(pdf_path: str) -> dict:
+def _provenance(saldo_per_bulan) -> dict:
     """
-    Baca ulang PDF secara mentah untuk hal-hal yang tidak disimpan kontrak
-    BaseExtractor: nomor halaman, header/template tiap halaman, baris
-    running balance, dan pola format angka yang tidak standar.
+    Ambil metadata '_provenance' (lihat kontrak di extractors/base.py).
+
+    Extractor yang tidak mengirimnya menghasilkan dict kosong, sehingga
+    pemeriksaan yang bergantung padanya tidak menemukan apa pun — dilewati,
+    bukan menebak.
     """
-    pages = []
-    with pdfplumber.open(pdf_path) as pdf:
-        for idx, page in enumerate(pdf.pages):
-            text = page.extract_text() or ''
-            lines = text.split('\n')
-
-            halaman_match = re.search(r'HALAMAN\s*:\s*(\d+)\s*/\s*(\d+)', text)
-            periode_match = re.search(r'PERIODE\s*:\s*(\w+)\s+(\d{4})', text)
-            has_kolom_header = any('TANGGAL' in l and 'KETERANGAN' in l and 'SALDO' in l for l in lines)
-
-            tx_lines = []
-            for line in lines:
-                m = re.match(r'^(\d{2})/(\d{2})\s+(.+)', line)
-                if not m:
-                    continue
-                rest = m.group(3)
-                if 'SALDO AWAL' in rest:
-                    continue
-                # Nominal standar: grup ribuan koma + 2 desimal.
-                nominal_matches = re.findall(
-                    r'(?<![\d.])\d{1,3}(?:,\d{3})*\.\d{2}(?!\d)', rest
-                )
-                # Fragmen format Eropa (titik ribuan, koma desimal) yang nyasar
-                # ke baris transaksi — indikasi kualitas sumber/OCR bermasalah.
-                format_asing = re.findall(r'\d{1,3}(?:\.\d{3}){2,}(?:,\d{2})?', rest)
-
-                # Aturan klasifikasi ini WAJIB sinkron dengan BCAExtractor._parse_transaction
-                # di extractors/bca.py — termasuk fallback BIAYA/TARIKAN/PAJAK yang tidak
-                # punya penanda CR/DB eksplisit. Dicek atas SATU BARIS PENUH (bukan cuma
-                # teks sebelum nominal): beberapa tipe transaksi menaruh "DB" SETELAH
-                # nominal, mis. "TRANSAKSI DEBIT TGL: 01/06 34,000.00 DB" — kalau cuma
-                # baca sebelum nominal, penanda "DB" di ujung baris itu terlewat dan
-                # transaksi debit malah kehitung kredit (running balance meleset 2x lipat
-                # nominalnya).
-                line_upper = rest.upper()
-                if 'KR OTOMATIS' in line_upper or re.match(r'^KR\b', line_upper):
-                    jenis = 'Kredit'
-                elif re.search(r'\bCR\b', line_upper):
-                    jenis = 'Kredit'
-                elif re.search(r'\bDB\b', line_upper):
-                    jenis = 'Debit'
-                elif 'TARIKAN' in line_upper or 'PAJAK' in line_upper or re.search(
-                    r'BIAYA (ADM|TRANSFER|ADMINISTRASI)|BIAYA TXN', line_upper
-                ):
-                    jenis = 'Debit'
-                else:
-                    jenis = 'Kredit'
-
-                tx_lines.append({
-                    'tanggal': int(m.group(1)),
-                    'nominal_matches': nominal_matches,
-                    'jenis': jenis,
-                    'format_asing': format_asing,
-                    'raw': line,
-                })
-
-            pages.append({
-                'index': idx,
-                'no_halaman': int(halaman_match.group(1)) if halaman_match else None,
-                'total_halaman': int(halaman_match.group(2)) if halaman_match else None,
-                'periode': f'{periode_match.group(1).capitalize()} {periode_match.group(2)}' if periode_match else None,
-                'has_kolom_header': has_kolom_header,
-                'tx_lines': tx_lines,
-                'saldo_awal_match': re.search(r'SALDO AWAL\s*:?\s*(-?[\d,]+\.\d{2})', text),
-                'mutasi_cr_match': re.search(r'MUTASI CR\s*:\s*(-?[\d,]+\.\d{2})\s+(\d+)', text),
-                'mutasi_db_match': re.search(r'MUTASI DB\s*:\s*(-?[\d,]+\.\d{2})\s+(\d+)', text),
-            })
-    return {'pages': pages}
+    prov = saldo_per_bulan.get('_provenance') or {}
+    return {'halaman': prov.get('halaman') or [], 'baris': prov.get('baris') or []}
 
 
 # ============================================================
 # CHECK 2 — Running balance tidak konsisten
 # ============================================================
 
-def _check_running_balance(raw):
+def _check_running_balance(prov, saldo_per_bulan):
+    """
+    Saldo berjalan yang TERCETAK di tiap baris harus sama dengan saldo
+    tercetak sebelumnya ditambah mutasi baris-baris di antaranya.
+
+    Rantainya di-reset tiap ganti blok laporan ('periode'): sebagian PDF
+    menyusun halaman antar-bulan tidak kronologis, dan antar blok laporan
+    boleh ada celah tanggal yang sah — saldo akhir blok sebelumnya tidak
+    boleh "nyambung" begitu saja ke blok berikutnya.
+    """
     out = []
+    if not prov['baris']:
+        return out
+
+    periode_kini = object()   # sentinel, beda dari periode mana pun
     running = None
-    current_periode = object()  # sentinel unik, beda dari periode manapun (termasuk None)
-    for page in raw['pages']:
-        # Reset saldo berjalan tiap kali masuk periode (bulan) baru — beberapa PDF
-        # BCA menyusun halaman antar-bulan TIDAK kronologis (mis. Juni, lalu Mei,
-        # lalu Juli), jadi saldo akhir bulan sebelumnya tidak boleh "nyambung"
-        # begitu saja ke saldo awal bulan berikutnya.
-        if page['periode'] != current_periode:
-            current_periode = page['periode']
-            running = None
-        if page['saldo_awal_match'] and running is None:
-            running = float(page['saldo_awal_match'].group(1).replace(',', ''))
-        for tx in page['tx_lines']:
-            if not tx['nominal_matches']:
-                continue
-            try:
-                amt = float(tx['nominal_matches'][0].replace(',', ''))
-            except ValueError:
-                continue
-            if running is None:
-                continue
-            delta = amt if tx['jenis'] == 'Kredit' else -amt
-            expected = running + delta
+    for b in prov['baris']:
+        if b.get('periode') != periode_kini:
+            periode_kini = b.get('periode')
+            # Saldo awal bulan pertama blok ini jadi titik mula kalau ada,
+            # supaya baris PERTAMA pun ikut terperiksa.
+            awal = saldo_per_bulan.get(f"_saldo_awal_{b.get('bulan')}")
+            running = float(awal) if awal is not None else None
 
-            if len(tx['nominal_matches']) > 1:
-                try:
-                    reported = float(tx['nominal_matches'][1].replace(',', ''))
-                except ValueError:
-                    reported = None
-                if reported is not None and abs(reported - expected) > TOLERANSI_RUNNING_BALANCE:
-                    out.append({
-                        'kategori': 'Running Balance Tidak Konsisten',
-                        'tingkat': 'Tinggi',
-                        'bulan': page['periode'] or '-', 'tanggal': tx['tanggal'],
-                        'halaman': page['index'] + 1,
-                        'deskripsi': 'Saldo berjalan tidak sesuai dengan mutasi tercatat',
-                        'detail': (
-                            f'Perkiraan saldo {expected:,.2f} vs tercetak {reported:,.2f} '
-                            f'(selisih {reported - expected:,.2f}) — baris: "{tx["raw"]}"'
-                        ),
-                        'nilai_rp': int(reported - expected),
-                    })
-                    running = reported  # resync ke angka tercetak, lanjut dari sana
-                    continue
-            running = expected
-    return out
+        mutasi = b.get('mutasi')
+        tercetak = b.get('saldo_tercetak')
+        if mutasi is None:
+            continue
+        if running is None:
+            # Belum ada titik mula: pakai saldo tercetak pertama sebagai
+            # patokan — jangan menuduh dari angka yang tidak diketahui.
+            if tercetak is not None:
+                running = float(tercetak)
+            continue
 
+        harapan = running + float(mutasi)
+        if tercetak is None:
+            running = harapan
+            continue
 
-# ============================================================
-# CHECK 4 — Nomor halaman/periode tidak berurutan
-# ============================================================
-
-def _check_halaman_sequence(raw):
-    out = []
-    pages = [p for p in raw['pages'] if p['no_halaman'] is not None]
-    prev = None
-    for p in pages:
-        if prev and p['periode'] == prev['periode']:
-            if p['no_halaman'] != prev['no_halaman'] + 1:
-                out.append({
-                    'kategori': 'Halaman/Periode Tidak Berurutan',
-                    'tingkat': 'Tinggi',
-                    'bulan': p['periode'] or '-', 'tanggal': '-', 'halaman': p['index'] + 1,
-                    'deskripsi': f"Nomor halaman meloncat dari {prev['no_halaman']} ke {p['no_halaman']}",
-                    'detail': f'Kemungkinan ada halaman yang hilang atau disisipkan (posisi file: halaman ke-{p["index"]+1})',
-                    'nilai_rp': None,
-                })
-            if p['total_halaman'] != prev['total_halaman']:
-                out.append({
-                    'kategori': 'Halaman/Periode Tidak Berurutan',
-                    'tingkat': 'Sedang',
-                    'bulan': p['periode'] or '-', 'tanggal': '-', 'halaman': p['index'] + 1,
-                    'deskripsi': f"Total halaman berubah dari {prev['total_halaman']} jadi {p['total_halaman']} dalam periode yang sama",
-                    'detail': f'Posisi file: halaman ke-{p["index"]+1}',
-                    'nilai_rp': None,
-                })
-        prev = p
-    return out
-
-
-# ============================================================
-# CHECK 7 — Halaman berbeda template
-# ============================================================
-
-def _check_template_halaman(raw):
-    out = []
-    for p in raw['pages']:
-        if p['tx_lines'] and not p['has_kolom_header']:
+        selisih = float(tercetak) - harapan
+        if abs(selisih) > TOLERANSI_RUNNING_BALANCE:
             out.append({
-                'kategori': 'Template Halaman Berbeda',
+                'kategori': 'Running Balance Tidak Konsisten',
+                'tingkat': 'Tinggi',
+                'bulan': b.get('bulan') or '-', 'tanggal': b.get('tanggal', '-'),
+                'halaman': b.get('halaman', '-'),
+                'deskripsi': 'Saldo berjalan tidak sesuai dengan mutasi tercatat',
+                'detail': (
+                    f'Perkiraan saldo {harapan:,.2f} vs tercetak {float(tercetak):,.2f} '
+                    f'(selisih {selisih:,.2f})'
+                    + (f' — baris: "{b["teks_mentah"]}"' if b.get('teks_mentah') else '')
+                ),
+                'nilai_rp': int(selisih),
+            })
+        # Selalu lanjut dari angka TERCETAK, bukan dari perkiraan: satu baris
+        # yang meleset tidak boleh membuat semua baris sesudahnya ikut
+        # dilaporkan meleset.
+        running = float(tercetak)
+    return out
+
+
+# ============================================================
+# CHECK 3 — Nomor halaman / periode tidak berurutan
+# ============================================================
+
+def _check_halaman_sequence(prov):
+    """
+    Nomor halaman yang TERCETAK harus naik satu per satu dalam satu blok
+    laporan, dan total halamannya seragam.
+
+    Dokumen yang tidak mencetak nomor halaman mengirim None — pemeriksaannya
+    dilewati untuk dokumen itu, bukan dianggap lolos.
+    """
+    out = []
+    sebelumnya = None
+    periode_kini = object()
+    for h in prov['halaman']:
+        if h.get('periode') != periode_kini:
+            periode_kini = h.get('periode')
+            sebelumnya = None
+        no = h.get('no_tercetak')
+        if no is None:
+            continue
+        if sebelumnya is not None and no != sebelumnya + 1:
+            out.append({
+                'kategori': 'Halaman/Periode Tidak Berurutan',
+                'tingkat': 'Tinggi' if no < sebelumnya else 'Sedang',
+                'bulan': h.get('periode') or '-', 'tanggal': '-',
+                'halaman': h.get('urut', '-'),
+                'deskripsi': 'Nomor halaman yang tercetak tidak berurutan',
+                'detail': (f'Setelah halaman {sebelumnya} muncul halaman {no} '
+                           f'(halaman ke-{h.get("urut")} dalam berkas) — ada halaman '
+                           f'yang hilang atau disisipkan'),
+                'nilai_rp': None,
+            })
+        sebelumnya = no
+
+    # Total halaman dibandingkan DI DALAM satu blok laporan, bukan lintas
+    # berkas: satu PDF gabungan wajar memuat beberapa laporan yang masing-
+    # masing punya jumlah halaman sendiri ("Page 1 of 4" lalu "Page 1 of 12").
+    per_periode = {}
+    for h in prov['halaman']:
+        if h.get('total_tercetak') is not None:
+            per_periode.setdefault(h.get('periode'), set()).add(h['total_tercetak'])
+    for periode, total in per_periode.items():
+        if len(total) > 1:
+            out.append({
+                'kategori': 'Halaman/Periode Tidak Berurutan',
                 'tingkat': 'Sedang',
-                'bulan': p['periode'] or '-', 'tanggal': '-', 'halaman': p['index'] + 1,
-                'deskripsi': 'Halaman berisi transaksi tapi header kolom standar (TANGGAL/KETERANGAN/SALDO) tidak ditemukan',
-                'detail': 'Bisa jadi halaman disisipkan dari sumber lain atau layout diedit',
+                'bulan': periode or '-', 'tanggal': '-', 'halaman': '-',
+                'deskripsi': 'Total halaman yang tercetak berubah di tengah satu laporan',
+                'detail': f'Nilai total halaman yang ditemukan: {sorted(total)}',
                 'nilai_rp': None,
             })
     return out
 
 
 # ============================================================
-# CHECK 6 — Format nominal/tanggal tidak konsisten
+# CHECK 4 — Template halaman berbeda
 # ============================================================
 
-def _check_format_nominal(raw):
+def _check_template_halaman(prov):
+    """
+    Halaman yang memuat transaksi tapi kehilangan baris header kolom.
+
+    Hanya berlaku untuk dokumen yang memang mencetak header di setiap
+    halaman; format yang mencetaknya sekali di awal laporan mengirim None dan
+    tidak ikut diperiksa.
+    """
     out = []
-    for p in raw['pages']:
-        for tx in p['tx_lines']:
-            if tx['format_asing']:
-                out.append({
-                    'kategori': 'Format Nominal Tidak Konsisten',
-                    'tingkat': 'Sedang',
-                    'bulan': p['periode'] or '-', 'tanggal': tx['tanggal'], 'halaman': p['index'] + 1,
-                    'deskripsi': 'Ditemukan format angka non-standar (titik ribuan/koma desimal) di baris transaksi',
-                    'detail': f'Baris: "{tx["raw"]}" — kemungkinan hasil edit/OCR, nominal wajib dicek manual ke PDF asli',
-                    'nilai_rp': None,
-                })
+    for h in prov['halaman']:
+        if h.get('ada_header_kolom') is not False or not h.get('jumlah_baris'):
+            continue
+        out.append({
+            'kategori': 'Template Halaman Berbeda',
+            'tingkat': 'Sedang',
+            'bulan': h.get('periode') or '-', 'tanggal': '-',
+            'halaman': h.get('urut', '-'),
+            'deskripsi': 'Halaman berisi transaksi tapi header kolom standar tidak ditemukan',
+            'detail': (f'{h.get("jumlah_baris")} transaksi di halaman ini, tapi baris '
+                       f'header kolomnya hilang — bisa berarti halaman disisipkan dari '
+                       f'sumber lain atau tata letaknya diubah'),
+            'nilai_rp': None,
+        })
     return out
 
 
 # ============================================================
-# CHECK 3b — Mutasi hilang (jumlah transaksi vs klaim PDF)
+# CHECK 6 — Format nominal tidak konsisten
 # ============================================================
 
-def _check_mutasi_hilang(raw, transaksi_per_bulan):
+def _check_format_nominal(prov):
+    """
+    Angka bergaya Eropa (titik ribuan, koma desimal) yang nyasar di antara
+    baris berformat standar — pola yang lazim pada dokumen hasil edit.
+
+    Hanya baris yang extractor-nya nyatakan berisi TEKS CETAK MESIN
+    ('teks_mentah') yang diperiksa. Kolom keterangan yang memuat berita bebas
+    dari nasabah sengaja tidak dikirim extractor: nasabah lazim menulis
+    nominal bergaya Indonesia di berita transfer ("19.655.050"), dan itu
+    bukan artefak dokumen.
+    """
     out = []
-    declared = {}
-    for p in raw['pages']:
-        if p['mutasi_cr_match'] and p['periode']:
-            bulan = p['periode'].split(' ')[0]
-            declared.setdefault(bulan, {})['cr_n'] = int(p['mutasi_cr_match'].group(2))
-            declared[bulan]['cr_rp'] = float(p['mutasi_cr_match'].group(1).replace(',', ''))
-        if p['mutasi_db_match'] and p['periode']:
-            bulan = p['periode'].split(' ')[0]
-            declared.setdefault(bulan, {})['db_n'] = int(p['mutasi_db_match'].group(2))
-            declared[bulan]['db_rp'] = float(p['mutasi_db_match'].group(1).replace(',', ''))
-
-    for bulan, d in declared.items():
-        df = transaksi_per_bulan.get(bulan)
-        n_kredit = int((df['Jenis Mutasi'] == 'Kredit').sum()) if df is not None else 0
-        n_debit = int((df['Jenis Mutasi'] == 'Debit').sum()) if df is not None else 0
-        rp_kredit = float(df[df['Jenis Mutasi'] == 'Kredit']['Mutasi'].sum()) if df is not None else 0.0
-        rp_debit = float(df[df['Jenis Mutasi'] == 'Debit']['Mutasi'].sum()) if df is not None else 0.0
-
-        # Selain jumlah transaksi, TOTAL NOMINAL-nya juga dicocokkan. Baris
-        # yang hilang bisa saja terkompensasi jumlahnya oleh baris ganda,
-        # sehingga hanya selisih nominal yang menangkapnya.
-        for label, kunci_rp, aktual_rp in (('Kredit', 'cr_rp', rp_kredit),
-                                           ('Debit', 'db_rp', rp_debit)):
-            if kunci_rp in d and abs(d[kunci_rp] - aktual_rp) > TOLERANSI_SALDO:
-                out.append({
-                    'kategori': 'Selisih dengan Ringkasan PDF',
-                    'tingkat': 'Tinggi',
-                    'bulan': bulan, 'tanggal': '-', 'halaman': '-',
-                    'deskripsi': f'Total nominal {label} hasil ekstraksi tidak sama dengan '
-                                 f'ringkasan yang tercetak di PDF pada bulan {bulan}',
-                    'detail': f"PDF mencantumkan Rp{d[kunci_rp]:,.2f}, hasil ekstraksi "
-                              f"Rp{aktual_rp:,.2f} (selisih Rp{d[kunci_rp] - aktual_rp:,.2f})",
-                    'nilai_rp': abs(int(d[kunci_rp] - aktual_rp)),
-                })
-
-        if 'cr_n' in d and d['cr_n'] != n_kredit:
-            out.append({
-                'kategori': 'Selisih dengan Ringkasan PDF',
-                'tingkat': 'Tinggi',
-                'bulan': bulan, 'tanggal': '-', 'halaman': '-',
-                'deskripsi': f'Jumlah transaksi Kredit hasil ekstraksi tidak sama dengan klaim PDF di bulan {bulan}',
-                'detail': f"PDF mengklaim {d['cr_n']} transaksi Kredit, hasil ekstraksi {n_kredit}",
-                'nilai_rp': None,
-            })
-        if 'db_n' in d and d['db_n'] != n_debit:
-            out.append({
-                'kategori': 'Selisih dengan Ringkasan PDF',
-                'tingkat': 'Tinggi',
-                'bulan': bulan, 'tanggal': '-', 'halaman': '-',
-                'deskripsi': f'Jumlah transaksi Debit hasil ekstraksi tidak sama dengan klaim PDF di bulan {bulan}',
-                'detail': f"PDF mengklaim {d['db_n']} transaksi Debit, hasil ekstraksi {n_debit}",
-                'nilai_rp': None,
-            })
+    for b in prov['baris']:
+        teks = b.get('teks_mentah')
+        if not teks:
+            continue
+        if not FORMAT_ASING_RE.search(teks):
+            continue
+        out.append({
+            'kategori': 'Format Nominal Tidak Konsisten',
+            'tingkat': 'Sedang',
+            'bulan': b.get('bulan') or '-', 'tanggal': b.get('tanggal', '-'),
+            'halaman': b.get('halaman', '-'),
+            'deskripsi': 'Ditemukan format angka non-standar (titik ribuan/koma '
+                         'desimal) di baris transaksi',
+            'detail': f'Baris: "{teks}" — kemungkinan hasil edit/OCR, nominal wajib '
+                      f'dicek manual ke PDF asli',
+            'nilai_rp': None,
+        })
     return out
 
 
@@ -862,11 +783,17 @@ def _check_checksum_extractor(saldo_per_bulan):
     for per in laporan:
         label = per.get('label', '-')
         exp, act = per.get('expected') or {}, per.get('actual') or {}
+        # Toleransi nominal boleh ditentukan extractor: sebagian extractor
+        # menyimpan nominal dibulatkan ke rupiah penuh, sehingga totalnya
+        # wajar melenceng beberapa rupiah dari angka resmi yang bersen.
+        # Jumlah transaksi TIDAK ikut ditoleransi — itu harus sama persis.
+        toleransi = float(per.get('toleransi') or 0.005)
         for kunci, nama in NAMA.items():
             e, a = exp.get(kunci), act.get(kunci)
             if e is None or a is None:
                 continue
-            if abs(float(e) - float(a)) < 0.005:
+            batas = 0.005 if kunci.startswith('n_') else toleransi
+            if abs(float(e) - float(a)) < batas:
                 continue
             selisih = float(e) - float(a)
             angka = kunci.startswith('n_')

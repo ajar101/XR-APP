@@ -102,8 +102,8 @@
   ["Juni", 30, 76324815.02]
  ],
  "temuan": [
-  ["Mutasi Hilang / Gap Tidak Wajar", "Sedang", "Juni", "5-10", "-", "Tidak ada transaksi selama 6 hari berturut-turut", "Rekening aktif (49 transaksi di bulan Juni) tapi kosong tanggal 5 s.d. 10. Gap belum tentu janggal — libur panjang, rekening musiman, atau pola bisnis tertentu bisa menjelaskannya. Bandingkan dengan pola bulan lain sebelum menyimpulkan.", null],
-  ["Metadata PDF", "Rendah", "-", "-", "-", "Info metadata PDF (untuk review manual)", "Producer: iText 2.1.7 by 1T3XT | Creator: JasperReports Library version 5.6.0 | Created: D:20250702105656+07'00' | Modified: D:20250702105656+07'00'", null]
+  ["Metadata PDF", "Rendah", "-", "-", "-", "Info metadata PDF (untuk review manual)", "Producer: iText 2.1.7 by 1T3XT | Creator: JasperReports Library version 5.6.0 | Created: D:20250702105656+07'00' | Modified: D:20250702105656+07'00'", null],
+  ["Mutasi Hilang / Gap Tidak Wajar", "Sedang", "Juni", "5-10", "-", "Tidak ada transaksi selama 6 hari berturut-turut", "Rekening aktif (49 transaksi di bulan Juni) tapi kosong tanggal 5 s.d. 10. Gap belum tentu janggal — libur panjang, rekening musiman, atau pola bisnis tertentu bisa menjelaskannya. Bandingkan dengan pola bulan lain sebelum menyimpulkan.", null]
  ],
  "metadata": {
   "biaya_admin": {

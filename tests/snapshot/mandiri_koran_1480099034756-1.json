@@ -161,8 +161,8 @@
   ["Maret", 31, 48923274.54]
  ],
  "temuan": [
-  ["Nominal Bulat Berulang", "Rendah", "Maret", "-", "-", "15 transaksi bernilai sangat bulat (kelipatan Rp10 juta, ≥Rp50,000,000)", "14.0% dari total 107 transaksi bulan Maret — pola umum di transaksi rekayasa", 990000000],
-  ["Metadata PDF", "Rendah", "-", "-", "-", "Info metadata PDF (untuk review manual)", "Producer: iText 2.1.7 by 1T3XT | Creator: JasperReports Library version 5.6.0 | Created: D:20250410073848+07'00' | Modified: D:20250410073848+07'00'", null]
+  ["Metadata PDF", "Rendah", "-", "-", "-", "Info metadata PDF (untuk review manual)", "Producer: iText 2.1.7 by 1T3XT | Creator: JasperReports Library version 5.6.0 | Created: D:20250410073848+07'00' | Modified: D:20250410073848+07'00'", null],
+  ["Nominal Bulat Berulang", "Rendah", "Maret", "-", "-", "15 transaksi bernilai sangat bulat (kelipatan Rp10 juta, ≥Rp50,000,000)", "14.0% dari total 107 transaksi bulan Maret — pola umum di transaksi rekayasa", 990000000]
  ],
  "metadata": {
   "biaya_admin": {

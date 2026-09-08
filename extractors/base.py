@@ -86,6 +86,62 @@ class BaseExtractor(ABC):
                     'halaman': str,   # opsional, default '-'
                 },
             ],
+
+            # Opsional — JEJAK CETAK: di mana tiap baris muncul di dokumen dan
+            # apa yang tercetak di sebelahnya. Bukan hasil pemeriksaan, hanya
+            # fakta mentah.
+            #
+            # Gunanya: beberapa indikasi hanya bisa dilihat dari susunan
+            # dokumen, bukan dari angka mutasinya — saldo berjalan antar baris,
+            # nomor halaman yang meloncat, halaman yang kehilangan header
+            # kolom. Sebelum kunci ini ada, engine membaca ULANG PDF dengan
+            # parser keduanya sendiri; parser kedua itu hanya mengenali tata
+            # letak satu bank dan pernah SALAH menemukan (membaca ringkasan
+            # bank lain pada PDF gabungan, lalu membandingkannya dengan data
+            # rekening yang diperiksa).
+            #
+            # Extractor sudah mengetahui semua ini saat parsing. Yang
+            # diserahkan FAKTA, bukan pola/regex: begitu yang diserahkan pola,
+            # parser kedua itu cuma pindah tempat, tidak hilang.
+            #
+            # Nilai None berarti "dokumen ini memang tidak memuatnya" — bukan
+            # nol, bukan tidak ada masalah. Pemeriksaan terkait dilewati,
+            # persis seperti perlakuan '_biaya_admin' yang tidak dikirim.
+            '_provenance': {
+                'halaman': [
+                    {
+                        'urut': int,              # halaman ke-berapa di PDF (1-based)
+                        'no_tercetak': int|None,  # nomor halaman yang TERCETAK
+                        'total_tercetak': int|None,
+                        'periode': str|None,      # penanda blok laporan halaman ini
+                        'ada_header_kolom': bool|None,  # None = format ini memang
+                                                        # tidak mencetak header
+                                                        # kolom di tiap halaman
+                        'jumlah_baris': int,
+                    },
+                ],
+                'baris': [
+                    {
+                        'bulan': str,
+                        'tanggal': int,
+                        'halaman': int,           # 'urut' halaman tempat baris ini
+                        'urut': int,              # posisi baris di halaman itu
+                        'periode': str|None,      # blok laporan; saldo berjalan
+                                                  # hanya menyambung DI DALAM blok
+                        'mutasi': float,          # bertanda: + kredit, − debit
+                        'saldo_tercetak': float|None,
+                        'teks_mentah': str|None,  # baris apa adanya — HANYA kalau
+                                                  # isinya teks cetak mesin. Kolom
+                                                  # keterangan yang memuat berita
+                                                  # bebas dari nasabah TIDAK boleh
+                                                  # dikirim di sini: angka bergaya
+                                                  # Indonesia yang ditulis nasabah
+                                                  # di berita transfer bukan
+                                                  # artefak dokumen, dan akan jadi
+                                                  # temuan palsu.
+                    },
+                ],
+            },
         }
 
     extract_transaksi() → dict:

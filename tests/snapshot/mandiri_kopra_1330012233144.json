@@ -2601,10 +2601,10 @@
   ["Mei", 31, 373295123.96]
  ],
  "temuan": [
+  ["Metadata PDF", "Rendah", "-", "-", "-", "Info metadata PDF (untuk review manual)", "Producer: iLovePDF | Creator: - | Created: - | Modified: D:20260602073052Z", null],
   ["Metadata PDF Mencurigakan", "Sedang", "-", "-", "-", "PDF tercatat dibuat/diedit dengan software \"Ilovepdf\", bukan software cetak rekening umum", "Producer: iLovePDF | Creator: - — perlu verifikasi keaslian dokumen", null],
   ["Nominal Bulat Berulang", "Rendah", "Maret", "-", "-", "9 transaksi bernilai sangat bulat (kelipatan Rp10 juta, ≥Rp50,000,000)", "1.4% dari total 654 transaksi bulan Maret — pola umum di transaksi rekayasa", 470000000],
-  ["Nominal Bulat Berulang", "Rendah", "Mei", "-", "-", "5 transaksi bernilai sangat bulat (kelipatan Rp10 juta, ≥Rp50,000,000)", "0.5% dari total 976 transaksi bulan Mei — pola umum di transaksi rekayasa", 280000000],
-  ["Metadata PDF", "Rendah", "-", "-", "-", "Info metadata PDF (untuk review manual)", "Producer: iLovePDF | Creator: - | Created: - | Modified: D:20260602073052Z", null]
+  ["Nominal Bulat Berulang", "Rendah", "Mei", "-", "-", "5 transaksi bernilai sangat bulat (kelipatan Rp10 juta, ≥Rp50,000,000)", "0.5% dari total 976 transaksi bulan Mei — pola umum di transaksi rekayasa", 280000000]
  ],
  "metadata": {
   "biaya_admin": {

@@ -270,11 +270,11 @@
   ["Oktober", 31, 831030997.09]
  ],
  "temuan": [
+  ["Metadata PDF", "Rendah", "-", "-", "-", "Info metadata PDF (untuk review manual)", "Producer: iLovePDF | Creator: - | Created: - | Modified: D:20260202032926Z", null],
   ["Metadata PDF Mencurigakan", "Sedang", "-", "-", "-", "PDF tercatat dibuat/diedit dengan software \"Ilovepdf\", bukan software cetak rekening umum", "Producer: iLovePDF | Creator: - — perlu verifikasi keaslian dokumen", null],
-  ["Nominal Bulat Berulang", "Rendah", "Oktober", "-", "-", "11 transaksi bernilai sangat bulat (kelipatan Rp10 juta, ≥Rp50,000,000)", "21.6% dari total 51 transaksi bulan Oktober — pola umum di transaksi rekayasa", 6750000000],
-  ["Nominal Bulat Berulang", "Rendah", "November", "-", "-", "12 transaksi bernilai sangat bulat (kelipatan Rp10 juta, ≥Rp50,000,000)", "24.0% dari total 50 transaksi bulan November — pola umum di transaksi rekayasa", 3580000000],
   ["Nominal Bulat Berulang", "Rendah", "Desember", "-", "-", "12 transaksi bernilai sangat bulat (kelipatan Rp10 juta, ≥Rp50,000,000)", "33.3% dari total 36 transaksi bulan Desember — pola umum di transaksi rekayasa", 5100000000],
-  ["Metadata PDF", "Rendah", "-", "-", "-", "Info metadata PDF (untuk review manual)", "Producer: iLovePDF | Creator: - | Created: - | Modified: D:20260202032926Z", null]
+  ["Nominal Bulat Berulang", "Rendah", "November", "-", "-", "12 transaksi bernilai sangat bulat (kelipatan Rp10 juta, ≥Rp50,000,000)", "24.0% dari total 50 transaksi bulan November — pola umum di transaksi rekayasa", 3580000000],
+  ["Nominal Bulat Berulang", "Rendah", "Oktober", "-", "-", "11 transaksi bernilai sangat bulat (kelipatan Rp10 juta, ≥Rp50,000,000)", "21.6% dari total 51 transaksi bulan Oktober — pola umum di transaksi rekayasa", 6750000000]
  ],
  "metadata": {
   "biaya_admin": {
