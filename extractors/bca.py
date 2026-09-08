@@ -9,10 +9,34 @@ Mengimplementasikan BaseExtractor dengan logika parsing format PDF BCA:
 """
 
 import re
+import calendar
+import datetime
 import pdfplumber
 import pandas as pd
 
 from extractors.base import BaseExtractor
+
+BULAN_TO_NUM = {
+    'Januari': 1, 'Februari': 2, 'Maret': 3, 'April': 4, 'Mei': 5, 'Juni': 6,
+    'Juli': 7, 'Agustus': 8, 'September': 9, 'Oktober': 10, 'November': 11,
+    'Desember': 12,
+}
+
+# Ketentuan jadwal pendebetan BIAYA ADM di BCA. Sebelumnya konstanta ini
+# tinggal di engine/anomaly_detector.py, yang membuat engine "tahu" aturan
+# satu bank tertentu dan diam-diam memberlakukannya juga ke bank lain.
+# Tempatnya di sini: aturan BCA dimiliki extractor BCA.
+#
+# Mulai periode Juni 2026, SEMUA jenis rekening BCA (Giro maupun Tabungan)
+# didebet tanggal 1. Sebelum itu jadwalnya beda per jenis rekening
+# (dikonfirmasi dari data riil):
+#   - GIRO    : tanggal terakhir bulan berjalan
+#   - TAHAPAN : Jumat minggu ke-3 bulan berjalan
+BIAYA_ADM_CUTOVER = (2026, 6)   # (tahun, bulan) mulai berlaku aturan baru
+
+# Nilai kolom 'Nama Pengirim/Penerima' yang dipakai extractor ini untuk baris
+# BIAYA ADM. Harus sama persis dengan yang dihasilkan _extract_nama().
+LABEL_BIAYA_ADMIN = 'Biaya Admin'
 
 ROUTING_CODES = {
     'HRDAIDJ1', 'BKKBIDJA', 'AKTBIDJ1', 'NETBIDJA', 'LOMAIDJ1', 'ARTGIDJA', 'PDJBIDJA', 'BNINIDJA', 'BBAIIDJA', 'BCIAIDJA',
@@ -190,7 +214,80 @@ class BCAExtractor(BaseExtractor):
         for bulan, saldo_awal in saldo_awal_bulan.items():
             result[f'_saldo_awal_{bulan}'] = saldo_awal
 
+        # Ketentuan BCA yang tidak boleh diketahui engine (lihat base.py).
+        jadwal = {}
+        for bulan, info in result.items():
+            if bulan.startswith('_') or not isinstance(info, dict):
+                continue
+            entri = self._jadwal_biaya_admin(jenis_rekening, bulan, info.get('tahun'))
+            if entri:
+                jadwal[bulan] = entri
+        if jadwal:
+            result['_biaya_admin'] = {'label_nama': LABEL_BIAYA_ADMIN,
+                                      'jadwal': jadwal}
+
+        # Baris bunga & pajak bunga BCA dicetak dengan keterangan persis ini.
+        # Dicocokkan persis (bukan "mengandung") supaya transaksi tak terkait
+        # seperti "KARANGAN BUNGA" tidak ikut terhitung.
+        result['_bunga_pajak'] = {'kolom': 'Keterangan Transaksi',
+                                  'bunga': ['BUNGA'], 'pajak': ['PAJAK BUNGA']}
+
         return result
+
+    # ------------------------------------------------------------------ #
+    #  KETENTUAN BCA — JADWAL BIAYA ADMIN                                #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _hari_jumat_minggu_ke3(tahun: int, bulan: int):
+        """Tanggal Jumat ke-3 di bulan itu, atau None kalau bulan tidak valid."""
+        try:
+            _, ndays = calendar.monthrange(tahun, bulan)
+        except (calendar.IllegalMonthError, ValueError):
+            return None
+        jumat = [d for d in range(1, ndays + 1)
+                 if datetime.date(tahun, bulan, d).weekday() == 4]
+        return jumat[2] if len(jumat) >= 3 else None
+
+    def _jadwal_biaya_admin(self, jenis_rekening: str, bulan: str, tahun) -> dict | None:
+        """
+        Tanggal seharusnya BIAYA ADM didebet pada bulan itu + penjelasannya.
+
+        Mengembalikan None kalau aturannya tidak bisa ditentukan (jenis
+        rekening tak dikenal atau tahun/bulan tidak valid) — dengan begitu
+        engine melewatkan pemeriksaannya alih-alih menebak.
+        """
+        bulan_num = BULAN_TO_NUM.get(bulan)
+        try:
+            tahun = int(tahun)
+        except (TypeError, ValueError):
+            return None
+        if not bulan_num:
+            return None
+
+        if jenis_rekening not in ('GIRO', 'TAHAPAN'):
+            # Aturan cutover pun tidak diberlakukan di sini: kalau jenis
+            # rekeningnya sendiri tidak terbaca, kita tidak tahu ini rekening
+            # BCA jenis apa — menebaknya justru menghasilkan temuan palsu.
+            return None
+
+        if (tahun, bulan_num) >= BIAYA_ADM_CUTOVER:
+            return {'tanggal': 1,
+                    'aturan': 'tanggal 1 (ketentuan BCA per Juni 2026)'}
+
+        if jenis_rekening == 'GIRO':
+            try:
+                _, ndays = calendar.monthrange(tahun, bulan_num)
+            except (calendar.IllegalMonthError, ValueError):
+                return None
+            return {'tanggal': ndays,
+                    'aturan': f'akhir bulan/tanggal {ndays} (ketentuan BCA GIRO)'}
+
+        tanggal = self._hari_jumat_minggu_ke3(tahun, bulan_num)
+        if tanggal is None:
+            return None
+        return {'tanggal': tanggal,
+                'aturan': f'Jumat minggu ke-3/tanggal {tanggal} (ketentuan BCA TAHAPAN)'}
 
     # ------------------------------------------------------------------ #
     #  DETAIL TRANSAKSI                                                    #

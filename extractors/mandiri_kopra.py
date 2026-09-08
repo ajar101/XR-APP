@@ -53,6 +53,60 @@ FALLBACK_COLS = {
 }
 
 
+# Ketentuan Bank Mandiri: biaya administrasi rekening didebet pada HARI
+# TERAKHIR bulan berjalan. Dikonfirmasi dari data riil — 8/8 kejadian pada
+# PDF Kopra dan 11/11 pada PDF e-Statement, lintas Giro & seluruh jenis
+# Tabungan. Berlaku untuk kedua format, jadi ditaruh di satu tempat dan
+# dipakai bersama oleh mandiri_kopra.py dan mandiri_statement.py.
+#
+# Catatan: "Biaya administrasi kartu debit" pada e-Statement SENGAJA tidak
+# ikut diperiksa — itu biaya kartu yang mengikuti tanggal ulang tahun kartu,
+# bukan biaya rekening, dan jadwalnya beda per nasabah. Karena label_nama
+# dicocokkan PERSIS SAMA, baris itu otomatis tidak ikut.
+LABEL_BIAYA_ADMIN = 'Biaya Administrasi'
+
+# Baris bunga & pajak bunga dicocokkan lewat kolom Nama, bukan Keterangan:
+# keterangan Kopra selalu berekor kode cabang ("Bunga 12001"), sedangkan
+# nama sudah dinormalkan extractor.
+BUNGA_PAJAK_MANDIRI = {
+    'kolom': 'Nama Pengirim/Penerima',
+    'bunga': ['Bunga'],
+    'pajak': ['Pajak'],
+}
+
+
+def jadwal_biaya_admin_mandiri(saldo_result: dict) -> dict:
+    """
+    Bangun metadata '_biaya_admin' dari bulan-bulan yang ada di hasil saldo.
+
+    Dipakai kedua extractor Mandiri. Bulan yang tahunnya tidak terbaca
+    dilewati — engine lebih baik tidak memeriksa daripada memeriksa dengan
+    tanggal tebakan.
+    """
+    jadwal = {}
+    for bulan, info in saldo_result.items():
+        if bulan.startswith('_') or not isinstance(info, dict):
+            continue
+        bulan_num = BULAN_ORDER.index(bulan) + 1 if bulan in BULAN_ORDER else None
+        try:
+            tahun = int(info.get('tahun'))
+        except (TypeError, ValueError):
+            continue
+        if not bulan_num:
+            continue
+        try:
+            _, ndays = calendar.monthrange(tahun, bulan_num)
+        except (calendar.IllegalMonthError, ValueError):
+            continue
+        jadwal[bulan] = {
+            'tanggal': ndays,
+            'aturan': f'akhir bulan/tanggal {ndays} (ketentuan Bank Mandiri)',
+        }
+    if not jadwal:
+        return {}
+    return {'_biaya_admin': {'label_nama': LABEL_BIAYA_ADMIN, 'jadwal': jadwal}}
+
+
 class MandiriKopraExtractor(BaseExtractor):
 
     def __init__(self, pdf_path: str):
@@ -444,6 +498,8 @@ class MandiriKopraExtractor(BaseExtractor):
 
         result['_nama_pemilik'] = doc['meta']['nama_pemilik']
         result['_no_rekening'] = doc['meta']['no_rekening']
+        result.update(jadwal_biaya_admin_mandiri(result))
+        result['_bunga_pajak'] = BUNGA_PAJAK_MANDIRI
 
         # Laporkan hasil checksum dalam bentuk umum supaya engine bisa
         # menampilkannya sebagai indikator tanpa tahu format Kopra.
@@ -727,6 +783,11 @@ class MandiriKopraExtractor(BaseExtractor):
         # mencetak ekor nomor referensi di kolom Remark. Untuk pencocokan
         # kategori, pecahan itu diabaikan — teks aslinya tidak diubah.
         text = re.sub(r'^(?:\d{1,4}\s+)+', '', text) or text
+        # Bentuk lain dari sisa nomor referensi yang sama: satu token panjang
+        # "<angka>/<kode>" di awal remark, mis.
+        # "00000000002/G299105 Biaya Adm 12001". Tanpa dibuang, baris biaya
+        # admin tidak dikenali dan namanya jadi nomor referensi.
+        text = re.sub(r'^\d{6,}/[A-Z0-9]+\s+', '', text) or text
         upper = text.upper()
 
         # Transaksi kartu debit / ATM / EDC:

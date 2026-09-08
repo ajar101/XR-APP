@@ -38,6 +38,10 @@ import pdfplumber
 import pandas as pd
 
 from extractors.base import BaseExtractor
+from extractors.mandiri_kopra import (
+    BUNGA_PAJAK_MANDIRI,
+    jadwal_biaya_admin_mandiri,
+)
 
 BULAN_ORDER = [
     'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
@@ -504,6 +508,10 @@ class MandiriStatementExtractor(BaseExtractor):
         result['_nama_pemilik'] = doc['meta']['nama_pemilik']
         result['_no_rekening'] = doc['meta']['no_rekening']
         result['_jenis_rekening'] = doc['meta']['jenis_rekening']
+        # Ketentuan Bank Mandiri (akhir bulan) dipakai bersama dengan format
+        # Kopra — definisinya ada di mandiri_kopra.py supaya tidak berdua.
+        result.update(jadwal_biaya_admin_mandiri(result))
+        result['_bunga_pajak'] = BUNGA_PAJAK_MANDIRI
 
         # Laporkan hasil checksum dalam bentuk umum supaya engine bisa
         # menampilkannya sebagai indikator tanpa tahu format e-Statement.

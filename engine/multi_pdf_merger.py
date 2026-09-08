@@ -7,6 +7,10 @@ BaseExtractor.extract_saldo() / extract_transaksi() (lihat extractors/base.py).
 Dipakai app.py saat user upload beberapa file PDF sekaligus untuk rekening
 & bank yang sama (mis. 2 file @ 3 bulan = 6 bulan total).
 
+Metadata extractor (kunci berawalan '_') diteruskan secara generik, jadi
+extractor bisa menambah metadata baru — mis. '_checksum' atau '_biaya_admin'
+— tanpa perlu mengubah file ini.
+
 Validasi yang ditegakkan (menghentikan proses dengan MergeValidationError
 kalau dilanggar — bukan best-effort merge yang bisa diam-diam salah):
   1. Semua file harus dari nomor rekening yang sama.
@@ -15,6 +19,43 @@ kalau dilanggar — bukan best-effort merge yang bisa diam-diam salah):
 """
 
 MAX_BULAN = 6
+
+# Metadata identitas rekening: nilainya harus SATU untuk seluruh gabungan
+# (sudah divalidasi sama antar file), jadi ditetapkan sekali di akhir dan
+# tidak ikut alur penggabungan generik.
+METADATA_IDENTITAS = ('_no_rekening', '_nama_pemilik', '_jenis_rekening')
+
+
+def _gabung_metadata(gabungan: dict, key, val) -> None:
+    """
+    Gabungkan satu metadata extractor dari sebuah file ke hasil gabungan.
+
+    Aturannya mengikuti bentuk datanya, bukan nama kuncinya, supaya metadata
+    baru tidak perlu didaftarkan di sini:
+      - list  → disambung (mis. '_checksum': laporan per periode dari tiap file)
+      - dict  → di-update per kunci (mis. '_biaya_admin': jadwal per bulan);
+                sub-dict digabung rekursif supaya bagian per-bulan dari dua
+                file tidak saling menimpa seluruhnya
+      - selain itu → file pertama menang (nilainya sama untuk seluruh rekening)
+
+    File yang diproses lebih dulu menang saat terjadi bentrok kunci — konsisten
+    dengan aturan bulan yang tidak boleh tumpang tindih antar file.
+    """
+    lama = gabungan.get(key)
+    if lama is None:
+        gabungan[key] = val
+        return
+    if isinstance(lama, list) and isinstance(val, list):
+        gabungan[key] = lama + val
+    elif isinstance(lama, dict) and isinstance(val, dict):
+        hasil = dict(lama)
+        for k, v in val.items():
+            if isinstance(hasil.get(k), dict) and isinstance(v, dict):
+                hasil[k] = {**v, **hasil[k]}
+            else:
+                hasil.setdefault(k, v)
+        gabungan[key] = hasil
+    # Skalar: biarkan nilai file pertama.
 
 
 class MergeValidationError(Exception):
@@ -71,9 +112,19 @@ def merge_extractions(per_file_results: list) -> tuple:
             saldo_gabungan[bulan] = info
             sumber_bulan[bulan] = filename
 
+        # Metadata extractor diteruskan APA ADANYA, tanpa daftar putih.
+        #
+        # Sebelumnya hanya '_saldo_awal_*' yang diteruskan, sehingga metadata
+        # lain yang dikirim extractor (mis. '_checksum' hasil pencocokan dengan
+        # ringkasan resmi PDF) diam-diam terbuang di sini — padahal app.py
+        # SELALU memanggil merger, bahkan untuk satu file. Akibatnya
+        # pemeriksaan yang bergantung metadata itu tidak pernah menyala sama
+        # sekali. Meneruskan secara generik membuat extractor bisa menambah
+        # metadata baru tanpa perlu menyentuh file ini.
         for key, val in saldo.items():
-            if key.startswith('_saldo_awal_'):
-                saldo_gabungan[key] = val
+            if not key.startswith('_') or key in METADATA_IDENTITAS:
+                continue
+            _gabung_metadata(saldo_gabungan, key, val)
 
         for bulan, df in transaksi.items():
             # Bulan yang sama sudah divalidasi lewat saldo di atas — dict transaksi
