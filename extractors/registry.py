@@ -29,7 +29,7 @@ BANK_REGISTRY = {
         'extractor':   MandiriExtractor,
         'color':       '#003D7C',   # biru Mandiri
         'logo_text':   'MDR',       # logo placeholder
-        'description': 'Rekening Giro & Tabungan Mandiri (Auto-detect: Kopra/E-Banking/Statement)',
+        'description': 'Rekening Giro & Tabungan Mandiri (Auto-detect: Kopra/e-Statement/Rekening Koran)',
         'enabled':     True,   # ✓ Aktif — parser Kopra sudah divalidasi checksum
     },
     'bni': {

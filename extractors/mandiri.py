@@ -4,7 +4,8 @@ mandiri.py — Dispatcher untuk berbagai format rekening Mandiri.
 Auto-detect format PDF Mandiri dan delegate ke extractor yang sesuai:
   - 'kopra'      : Kopra by Mandiri                          → didukung
   - 'estatement' : e-Statement (Livin'/Mandiri Online)       → didukung
-  - 'koran'      : Rekening Koran (format lama)              → belum ada extractor
+  - 'koran'      : Laporan Rekening Koran (Account Statement
+                   Report, tabel bergaris)                   → didukung
   - 'ebanking'   : Mandiri E-Banking                         → belum ada extractor
 
 Kunci formatnya sengaja dibedakan 'estatement' vs 'koran'. Keduanya sempat
@@ -19,6 +20,7 @@ import pdfplumber
 from extractors.base import BaseExtractor
 from extractors.mandiri_kopra import MandiriKopraExtractor
 from extractors.mandiri_statement import MandiriStatementExtractor
+from extractors.mandiri_koran import MandiriKoranExtractor
 
 # Import akan ditambahkan saat format lain sudah dibuat:
 # from extractors.mandiri_ebanking import MandiriEBankingExtractor
@@ -40,15 +42,16 @@ class MandiriExtractor(BaseExtractor):
             self.extractor = MandiriKopraExtractor(pdf_path)
         elif self.format_type == 'estatement':
             self.extractor = MandiriStatementExtractor(pdf_path)
+        elif self.format_type == 'koran':
+            self.extractor = MandiriKoranExtractor(pdf_path)
         else:
             nama_format = {
-                'koran':    'Rekening Koran (format lama)',
                 'ebanking': 'E-Banking',
             }.get(self.format_type, self.format_type)
             raise NotImplementedError(
                 f"PDF terdeteksi sebagai format Mandiri {nama_format}, yang belum "
-                f"didukung. Saat ini yang tersedia: Kopra by Mandiri dan "
-                f"e-Statement (Livin'/Mandiri Online)."
+                f"didukung. Saat ini yang tersedia: Kopra by Mandiri, e-Statement "
+                f"(Livin'/Mandiri Online), dan Laporan Rekening Koran."
             )
     
     def _detect_format(self) -> str:
@@ -78,7 +81,7 @@ class MandiriExtractor(BaseExtractor):
                 if 'E-STATEMENT' in text_upper and 'SALDO AWAL' in text_upper:
                     return 'estatement'
 
-                # Rekening Koran (format lama) — belum ada extractor-nya.
+                # Laporan Rekening Koran (Account Statement Report).
                 if 'REKENING KORAN' in text_upper:
                     return 'koran'
 

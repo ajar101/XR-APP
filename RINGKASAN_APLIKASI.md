@@ -2,7 +2,7 @@
 
 Ringkasan arsitektur, fitur, input/output, dan rencana pengembangan aplikasi ekstraktor rekening koran.
 
-> Dibuat: 2 September 2026 · Diperbarui: 7 September 2026 · Status: BCA & Mandiri (Kopra + e-Statement) aktif; BNI dinonaktifkan sementara
+> Dibuat: 2 September 2026 · Diperbarui: 8 September 2026 · Status: BCA & Mandiri (Kopra + e-Statement + Rekening Koran) aktif; BNI dinonaktifkan sementara
 
 ---
 
@@ -29,6 +29,8 @@ XR-APP/
 │   ├── mandiri.py               #   Dispatcher format Mandiri (auto-detect)
 │   ├── mandiri_kopra.py         #   Sub-extractor Mandiri Kopra
 │   ├── mandiri_statement.py     #   Sub-extractor Mandiri e-Statement (Livin'/Mandiri Online)
+│   ├── mandiri_koran.py         #   Sub-extractor Mandiri Laporan Rekening Koran (tabel bergaris)
+│   ├── mandiri_nama.py          #   Pipeline nama lawan transaksi, dipakai bersama Kopra & Rekening Koran
 │   └── pdf_utils.py             #   Deteksi PDF hasil scan/foto (bank-agnostic)
 ├── engine/                      # Lapisan pemrosesan (bank-agnostic)
 │   ├── excel_builder.py         #   Generator Excel 9-sheet
@@ -82,7 +84,7 @@ app.py /upload
 | Bank BNI | ⏸ Nonaktif sementara (kode masih ada, tinggal `enabled: True` di registry) |
 | Bank Mandiri — format **Kopra by Mandiri** | ✅ Aktif — divalidasi checksum terhadap ringkasan resmi PDF |
 | Bank Mandiri — format **e-Statement** (Livin'/Mandiri Online) | ✅ Aktif — Tabungan, Tabungan Bisnis, Tabungan NOW & Giro; divalidasi 100% terhadap 14 periode dari 5 PDF riil |
-| Bank Mandiri — format **Rekening Koran** (format lama) | ❌ Belum ada extractor — ditolak dengan pesan yang menyebut formatnya |
+| Bank Mandiri — format **Laporan Rekening Koran** (Account Statement Report) | ✅ Aktif — divalidasi 100% terhadap 13 periode laporan dari 9 PDF riil (jumlah & total mutasi, saldo akhir, plus rantai saldo berjalan per baris) |
 | Bank Mandiri — format **E-Banking** | ❌ Belum ada extractor — ditolak dengan pesan yang menyebut formatnya |
 | Bank BRI | 🔜 "Coming soon" di UI, belum ada extractor |
 | OCR / ekstraksi PDF hasil scan | ❌ Belum diimplementasikan (lihat §6) |
@@ -107,7 +109,7 @@ app.py /upload
 | Nomor rekening beda antar file yang diupload | Ditolak, sebutkan file mana & rekening apa |
 | Bulan yang sama muncul di >1 file | Ditolak, sebutkan bulan & 2 file yang bentrok |
 | Total bulan gabungan > 6 | Ditolak, minta kurangi jumlah file |
-| Format terdeteksi tapi extractor-nya belum ada (mis. Mandiri Rekening Koran) | Ditolak 400, menyebut format apa yang terdeteksi |
+| Format terdeteksi tapi extractor-nya belum ada (mis. Mandiri E-Banking) | Ditolak 400, menyebut format apa yang terdeteksi |
 | PDF terbaca tapi tidak satu pun periode transaksi dikenali | Ditolak 400, per file — bukan HTTP 500 generik |
 
 Semua file yang sempat diupload ke server **selalu dibersihkan** setelah request selesai — baik sukses, gagal validasi, maupun exception (`finally` block di `app.py`).
