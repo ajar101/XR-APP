@@ -55,6 +55,18 @@ def strip_berita(tail: str, prefix: str) -> str:
     terpotong itu dipakai sebagai penanda di mana nama berakhir.
     """
     prefix = ' '.join((prefix or '').split())
+    # Label kanal ("MCM") berdiri di antara berita dan kata InhouseTrf, jadi
+    # ikut terbawa ke prefix padahal bukan bagian berita. Kalau tidak
+    # dibuang, penandanya tidak akan ketemu di ekor dan seluruh berita
+    # tertinggal di dalam nama ("DYA PRASETYAWAN OB KOJA 4X20 2X4099101").
+    prefix = re.sub(r'\s+(?:MCM|PRMA)\s*$', '', prefix)
+    # Sisa nomor referensi baris sebelumnya kadang mengawali remark
+    # ("00000000002/G299105 OB JICT ... MCM InhouseTrf DARI ..."). Sama
+    # seperti label kanal di atas: bukan bagian berita, dan kalau dibiarkan
+    # membuat penandanya tidak ketemu. Pola yang dibuang sama persis dengan
+    # yang sudah dipakai membersihkan awal remark di bawah.
+    prefix = re.sub(r'^\d{6,}/[A-Z0-9]+\s+', '', prefix)
+    prefix = re.sub(r'^(?:\d{1,4}\s+)+', '', prefix)
     if len(prefix) < 12:
         return tail
     probe = prefix[:20].strip()
@@ -163,7 +175,7 @@ def extract_nama(keterangan: str) -> str:
     # Transaksi kartu debit / ATM / EDC:
     #   "<terminal> /<urut>/<TIPE>- <merchant> <no kartu> <lokasi><cabang>"
     # Nama merchant atau lokasi ATM ada SETELAH nomor kartu 16 digit.
-    m = re.search(r'/(VAP|ATM|JPN|LNK|ATB|CB)-\s*(.+)', text)
+    m = re.search(r'/(VAP|ATM|JPN|LNK|LMP|ATB|CB)-\s*(.*)', text)
     if m:
         tail = m.group(2)
         parts = re.split(r'\b\d{16}\b', tail)
@@ -172,7 +184,11 @@ def extract_nama(keterangan: str) -> str:
         # Nama merchant sering bercampur huruf besar-kecil, jadi di sini
         # TIDAK dipotong di huruf kecil seperti pada nama perorangan.
         cand = clean_nama(cand)
-        if re.search(r'[A-Za-z]{2,}', cand):
+        # Butuh kata sungguhan, bukan sekadar dua huruf di antara kode:
+        # ekor transaksi ATM kerap hanya berisi kode lokasi ("PB 34.1430"),
+        # dan kalau itu dipakai sebagai nama, tiap penarikan jadi "pihak"
+        # yang berbeda.
+        if re.search(r'[A-Za-z]{4,}', cand):
             return cand
         return {
             'VAP': 'Pembayaran EDC/Merchant',
@@ -194,6 +210,24 @@ def extract_nama(keterangan: str) -> str:
     # berkumpul jadi satu di rekap.
     if re.match(r'^RTGS\s+Fee\b', text, re.IGNORECASE):
         return 'Biaya Transfer Antar Bank'
+
+    # Biaya payment gateway: remark hanya memuat nomor transaksi dan kode
+    # merchant aggregator ("010223003904 Fee PG MUFC001 99102"), tanpa nama
+    # pihak. Nomornya unik per transaksi, jadi kalau dipakai sebagai nama,
+    # tiap biaya jadi "pihak" tersendiri.
+    if re.search(r'\bFee\s+PG\b', text, re.IGNORECASE):
+        return 'Biaya Payment Gateway'
+
+    # Transfer online yang tidak menyebut nama sama sekali — yang tercetak
+    # nomor rekening tujuan, nomor referensi, dan beritanya
+    # ("Penarikan Armada CDD 38501085401500/OI3600 0867631051 Transfer Fee
+    # 202604011007509095991"). Nomor rekening tujuan itulah satu-satunya
+    # penanda pihak yang tersedia, dan ia berulang untuk pihak yang sama —
+    # jadi dipakai sebagai pengelompokan, dengan awalan "Rek." supaya jelas
+    # ini nomor rekening, bukan nama.
+    m = re.search(r'(\d{9,})\s*/\s*OI\d*', text)
+    if m:
+        return f'Rek. {m.group(1)}'
 
     # 6. Pembayaran tagihan (UBP). Remark UBP hanya berisi kode biller,
     #    tidak memuat nama — jadi dipakai label kategori.
