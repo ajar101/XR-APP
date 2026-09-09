@@ -38,8 +38,8 @@ BANK_REGISTRY = {
         'extractor':   BNIExtractor,
         'color':       '#F47920',   # oranye BNI
         'logo_text':   'BNI',
-        'description': 'Rekening Giro BNI (e-Statement)',
-        'enabled':     False,  # ⏸ Dinonaktifkan sementara — fokus stabilisasi BCA
+        'description': 'Rekening Giro BNI (Account Statement)',
+        'enabled':     True,   # ✓ Aktif — parser Account Statement sudah divalidasi checksum
     },
 }
 

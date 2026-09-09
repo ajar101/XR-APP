@@ -47,6 +47,7 @@ SNAPSHOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'snapshot')
 AWALAN_BANK = {
     'BCA_': 'bca',
     'mandiri_': 'mandiri',
+    'bni_': 'bni',
 }
 
 

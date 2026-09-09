@@ -2,7 +2,7 @@
 
 Ringkasan arsitektur, fitur, input/output, dan rencana pengembangan aplikasi ekstraktor rekening koran.
 
-> Dibuat: 2 September 2026 · Diperbarui: 8 September 2026 · Status: BCA & Mandiri (Kopra + e-Statement + Rekening Koran) aktif; BNI dinonaktifkan sementara
+> Dibuat: 2 September 2026 · Diperbarui: 9 September 2026 · Status: BCA, Mandiri (Kopra + e-Statement + Rekening Koran), dan BNI (Account Statement) aktif
 
 ---
 
@@ -25,7 +25,8 @@ XR-APP/
 │   ├── base.py                  #   Kontrak abstrak BaseExtractor
 │   ├── registry.py              #   Daftar bank & status aktif/nonaktif
 │   ├── bca.py                   #   Extractor BCA (Giro & Tahapan)
-│   ├── bni.py                   #   Extractor BNI (nonaktif sementara)
+│   ├── bni.py                   #   Dispatcher format BNI (auto-detect)
+│   ├── bni_statement.py         #   Sub-extractor BNI ACCOUNT STATEMENT (tabel bergaris)
 │   ├── mandiri.py               #   Dispatcher format Mandiri (auto-detect)
 │   ├── mandiri_kopra.py         #   Sub-extractor Mandiri Kopra
 │   ├── mandiri_statement.py     #   Sub-extractor Mandiri e-Statement (Livin'/Mandiri Online)
@@ -85,7 +86,8 @@ app.py /upload
 | Kategorisasi transaksi debit/kredit otomatis (keyword-based) | ✅ Aktif |
 | Analisis konsentrasi nasabah (HHI Score) | ✅ Aktif |
 | Sheet "Indikasi Kejanggalan" (17 indikator deteksi anomali) | ✅ Aktif (lihat §4) |
-| Bank BNI | ⏸ Nonaktif sementara (kode masih ada, tinggal `enabled: True` di registry) |
+| Bank BNI — format **ACCOUNT STATEMENT** (giro/CURRENT) | ✅ Aktif — divalidasi 100% terhadap 7 blok laporan dari 4 PDF riil (jumlah & total mutasi Debet/Kredit dan saldo akhir, dicocokkan dengan kaki ringkasan tiap blok) |
+| Bank BNI — format lain | ❌ Belum ada extractor — ditolak dengan pesan yang menyebut format yang didukung |
 | Bank Mandiri — format **Kopra by Mandiri** | ✅ Aktif — divalidasi checksum terhadap ringkasan resmi PDF |
 | Bank Mandiri — format **e-Statement** (Livin'/Mandiri Online) | ✅ Aktif — Tabungan, Tabungan Bisnis, Tabungan NOW & Giro; divalidasi 100% terhadap 14 periode dari 5 PDF riil |
 | Bank Mandiri — format **Laporan Rekening Koran** (Account Statement Report) | ✅ Aktif — divalidasi 100% terhadap 13 periode laporan dari 9 PDF riil (jumlah & total mutasi, saldo akhir, plus rantai saldo berjalan per baris) |
@@ -169,7 +171,7 @@ Disusun sebagai dashboard ringkas (skor risiko + ringkasan per kategori) diikuti
 Disusun berdasarkan diskusi sepanjang pengembangan, urut prioritas realistis (bukan urut "keren"):
 
 ### 6.1 Jangka pendek — masih di arsitektur Flask saat ini
-- **Reaktivasi BNI** setelah proses stabilisasi pola BCA (regex, deteksi nama, dsb.) dianggap cukup matang untuk dijadikan acuan pola bank lain. *(Mandiri sudah aktif: format Kopra dan e-Statement.)*
+- **Nama lawan transaksi pada BNI e-channel.** Untuk transfer keluar lewat e-channel, dokumen BNI memang tidak mencetak nama penerima sama sekali — yang ada hanya nomor rekening tujuan, dan nomor itulah yang dipakai sebagai identitas di kolom Nama. Untuk transfer masuk, nama pengirim dicetak menyatu dengan berita transaksi tanpa pemisah apa pun (tidak ada gap kolom — sudah diperiksa sampai ke koordinat glif), jadi pemisahannya bertumpu pada bentuk huruf: nama dicetak sistem dalam huruf besar, berita diketik nasabah. Berita yang kebetulan ditulis huruf besar semua masih ikut terbawa. Butuh lebih banyak sampel sebelum aturannya diperketat.
 - **Sisa nama lawan transaksi (Mandiri: 32 baris dari 6.892 = 0,46%)** — ekor panjang yang tiap polanya hanya muncul 1–2 kali, jadi aturan untuknya akan lahir dari terlalu sedikit contoh. Dibiarkan apa adanya sampai ada lebih banyak sampel. Keterangan lengkapnya tetap ada di Sheet Detail Transaksi.
 - **Nama pada PDF BCA (18 baris)** — pipeline namanya terpisah (`extractors/bca.py`, bukan `mandiri_nama.py`). Kelompok terbesarnya top-up Flazz (16 baris) yang namanya masih berupa nomor kartu. Belum digarap.
 - **Pemeriksaan Sheet 9 yang masih spesifik pola teks BCA** — empat indikator yang membaca ulang PDF mentah (running balance, nomor halaman, template halaman, format nominal) plus pencocokan "mutasi hilang" mencocokkan tata letak khas BCA (`HALAMAN :`, baris `dd/mm`, `MUTASI CR :`). Sejak dipasang gerbang `BANK_POLA_MENTAH`, kelimanya **hanya dijalankan untuk rekening BCA**.
