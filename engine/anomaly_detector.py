@@ -917,10 +917,14 @@ def _check_metadata_pdf(pdf_path):
     with pdfplumber.open(pdf_path) as pdf:
         meta = pdf.metadata or {}
 
-    producer = str(meta.get('Producer', '') or '')
-    creator = str(meta.get('Creator', '') or '')
-    created = meta.get('CreationDate')
-    modified = meta.get('ModDate')
+    # Spasi/karakter pinggir dibuang: pada PDF terenkripsi AES, pdfminer.six
+    # versi lama menyisakan byte padding di ekor tiap nilai metadata, sehingga
+    # tanggalnya tercetak berekor tab panjang dan perbandingan Created vs
+    # Modified di bawah bisa meleset hanya karena panjang padding-nya beda.
+    producer = str(meta.get('Producer', '') or '').strip()
+    creator = str(meta.get('Creator', '') or '').strip()
+    created = str(meta.get('CreationDate') or '').strip()
+    modified = str(meta.get('ModDate') or '').strip()
 
     # Selalu tampilkan metadata mentah sebagai baris info, terlepas dari
     # mencurigakan atau tidak — transparan untuk direview manual.

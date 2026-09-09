@@ -44,6 +44,67 @@ BULAN_ORDER = [
 
 
 # ============================================================
+# PEMBERSIHAN TEKS SEBELUM MASUK SEL
+# ============================================================
+
+# Karakter kontrol yang ditolak format file Excel (XML 1.0 tidak mengizinkannya
+# sama sekali). openpyxl memeriksanya di setiap penulisan sel dan melempar
+# IllegalCharacterError begitu ketemu satu saja.
+#
+# Kenapa ini perlu: seluruh teks di laporan berasal dari LUAR — nama, berita
+# transaksi yang diketik nasabah, sampai metadata PDF. Salah satu sumbernya
+# terbukti bisa membawa karakter kontrol yang tak kelihatan: PDF e-Statement
+# BCA terenkripsi AES-256, dan pdfminer.six versi lama TIDAK membuang padding
+# AES setelah mendekripsi, sehingga nilai metadata-nya berakhiran byte padding
+# (mis. Producer + 11x \x0b, Creator + 8x \x08). Teksnya terbaca normal, tapi
+# openpyxl menolaknya.
+#
+# Akibatnya fatal dan menyesatkan: kegagalan muncul di LANGKAH TERAKHIR, sesudah
+# PDF selesai diurai, dan pesannya menampilkan teks yang kelihatan bersih —
+# seolah dokumennya yang bermasalah, padahal tidak. Karena itu pembersihan
+# dilakukan di sini, di satu tempat, bukan di tiap sumber teks: yang punya
+# batasan ini adalah format Excel-nya, bukan bank atau extractor-nya.
+KARAKTER_TERLARANG_RE = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f]')
+
+
+def bersihkan_teks(nilai):
+    """
+    Buang karakter yang tidak bisa disimpan Excel dari sebuah nilai.
+
+    Nilai non-teks (angka, None, tanggal) dikembalikan apa adanya — hanya str
+    yang bisa memuat karakter terlarang. Yang dibuang MURNI karakter kontrol
+    yang tak punya wujud tampilan; tidak ada isi terbaca yang hilang.
+    """
+    if not isinstance(nilai, str):
+        return nilai
+    return KARAKTER_TERLARANG_RE.sub('', nilai)
+
+
+def _masukan_aman(saldo_per_bulan: dict, transaksi_per_bulan: dict) -> tuple:
+    """
+    Salinan data masukan yang seluruh teksnya sudah aman ditulis ke sel.
+
+    Dikerjakan atas SALINAN, bukan data aslinya: create_excel dipanggil di
+    ujung alur, dan pemanggilnya (mis. tes regresi) masih memakai struktur
+    yang sama untuk keperluan lain.
+    """
+    saldo = {k: (bersihkan_teks(v) if isinstance(v, str) else v)
+             for k, v in saldo_per_bulan.items()}
+
+    transaksi = {}
+    for bulan, df in transaksi_per_bulan.items():
+        if df is None or df.empty:
+            transaksi[bulan] = df
+            continue
+        df = df.copy()
+        for kolom in df.columns:
+            if df[kolom].dtype == object:
+                df[kolom] = df[kolom].map(bersihkan_teks)
+        transaksi[bulan] = df
+    return saldo, transaksi
+
+
+# ============================================================
 # HELPERS STYLING
 # ============================================================
 
@@ -114,6 +175,11 @@ def create_excel(saldo_per_bulan: dict, transaksi_per_bulan: dict,
                               memuat pemeriksaan yang tidak butuh PDF mentah.
     """
     wb = Workbook()
+
+    # Bersihkan dulu, sebelum satu sel pun ditulis (lihat bersihkan_teks).
+    saldo_per_bulan, transaksi_per_bulan = _masukan_aman(
+        saldo_per_bulan, transaksi_per_bulan)
+    bank_name = bersihkan_teks(bank_name)
 
     # Urut kronologis: tahun dulu, baru bulan. Tanpa tahun, laporan yang
     # melintasi pergantian tahun jadi kacau — Nov/Des 2025 akan terurut
@@ -1429,6 +1495,10 @@ def _build_sheet9_indikasi(wb, saldo_per_bulan, transaksi_per_bulan, pdf_path,
     findings = (detect_anomalies(pdf_path, saldo_per_bulan, transaksi_per_bulan,
                                  bank_name=bank_name)
                 if pdf_path else [])
+    # Temuan dibersihkan terpisah: isinya dirakit di dalam detect_anomalies —
+    # termasuk metadata PDF mentah — jadi tidak ikut terbersihkan lewat data
+    # masukan create_excel.
+    findings = [{k: bersihkan_teks(v) for k, v in f.items()} for f in findings]
 
     # ---- Disclaimer ----
     disclaimer = (
