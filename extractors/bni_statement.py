@@ -568,6 +568,9 @@ class BNIStatementExtractor(PencatatPeringatan, BaseExtractor):
     # Lebar kolom nama pada baris kredit antarbank: 15 karakter, sisanya
     # berita transaksi yang menempel tanpa pemisah (lihat _potong_lebar).
     LEBAR_NAMA_KREDIT = 15
+    # Kata yang mencampur huruf dan angka dalam satu kata ("S1ACIR9510",
+    # "BWS0"): penanda kode mesin, bukan nama pihak (lihat _terbaca_sebagai_nama).
+    RE_KATA_KODE = re.compile(r'^(?=.*[A-Za-z])(?=.*\d)[A-Za-z0-9]+$')
 
     def _nama_lawan(self, keterangan: str, arah: str) -> str:
         """
@@ -606,7 +609,7 @@ class BNIStatementExtractor(PencatatPeringatan, BaseExtractor):
                 continue
             rekening, ekor = m.group(1), m.group(2).strip()
             nama = self._rapikan(self._potong_berita(ekor))
-            if nama:
+            if self._terbaca_sebagai_nama(nama):
                 return nama
             # Nama tidak menempel di klausa pemindahan. Segmen terakhir masih
             # bisa memuatnya: pada transaksi masuk lewat e-channel segmen itu
@@ -622,7 +625,7 @@ class BNIStatementExtractor(PencatatPeringatan, BaseExtractor):
                     and akhir.upper() not in self.LABEL_KANAL
                     and not re.match(r'^0*' + rekening + r'\b', akhir)):
                 nama = self._rapikan(self._potong_berita(akhir))
-                if nama:
+                if self._terbaca_sebagai_nama(nama):
                     return nama
             # Dokumen tidak mencetak nama pihak lawan untuk transaksi ini —
             # yang tersedia hanya nomor rekeningnya. Nomor itu yang dipakai:
@@ -668,6 +671,36 @@ class BNIStatementExtractor(PencatatPeringatan, BaseExtractor):
         if not hasil:
             return semua[0] if semua else ''
         return ' '.join(hasil)
+
+    @classmethod
+    def _terbaca_sebagai_nama(cls, teks: str) -> bool:
+        """
+        Apakah teks ini benar-benar nama pihak, bukan kode mesin?
+
+        Kolom keterangan e-channel BNI kerap diisi kode terminal/agen dan
+        nomor urutnya alih-alih nama pengirim: "S1ACIR9510 4095",
+        "62800200 BWS0", "99102000 7377". Kode seperti itu berganti tiap
+        transaksi, jadi kalau diperlakukan sebagai nama, satu pengirim yang
+        sama pecah jadi puluhan baris di Rekap — persis informasi yang mau
+        dirangkum sheet itu.
+
+        Dua tanda yang membedakannya, keduanya harus terpenuhi:
+          - tidak ada kata yang mencampur huruf dan angka di dalam satu kata
+            ("S1ACIR9510", "BWS0"); nama orang & badan usaha tidak begitu;
+          - ada setidaknya satu kata yang murni huruf dan panjangnya ≥2,
+            sehingga "99102000 7377" yang seluruhnya angka ikut tersaring.
+
+        Yang tidak lolos BUKAN dibuang: pemanggilnya jatuh ke nomor rekening
+        lawan yang tercetak di baris yang sama — identitas yang tetap dari
+        transaksi ke transaksi, jadi transaksinya terkumpul jadi satu.
+        """
+        kata = [k.strip('.,-/()') for k in (teks or '').split()]
+        kata = [k for k in kata if k]
+        if not kata:
+            return False
+        if any(cls.RE_KATA_KODE.match(k) for k in kata):
+            return False
+        return any(len(k) >= 2 and k.isalpha() for k in kata)
 
     @classmethod
     def _potong_berita(cls, ekor: str) -> str:
