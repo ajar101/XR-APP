@@ -1,0 +1,30 @@
+# requirements.txt — pustaka pihak ketiga yang dibutuhkan XR-App.
+#
+#   pip install -r requirements.txt
+#
+# Diuji dengan Python 3.11. Versinya dipatok persis (==) karena ini aplikasi,
+# bukan pustaka: hasil ekstraksi rekening dipakai untuk menilai dokumen, jadi
+# mesin siapa pun yang menjalankannya harus mendapat hasil yang sama.
+
+Flask==3.1.3
+pandas==3.0.5
+openpyxl==3.1.5
+pdfplumber==0.11.10
+
+# pdfminer.six sebenarnya ikut terpasang sendiri sebagai dependensi
+# pdfplumber. Ia tetap ditulis di sini karena versinya menentukan KEBENARAN
+# hasil, bukan sekadar kompatibilitas:
+#
+# PDF e-Statement sebagian bank (mis. BCA) terenkripsi AES-256. Sampai rilis
+# 20250506 ("Remove padding from AES-encrypted strings", PR #1123),
+# pdfminer.six tidak membuang padding AES setelah mendekripsi, sehingga tiap
+# teks hasil dekripsi berekor byte padding yang tak kelihatan — dan byte itu
+# terlarang di format Excel. Akibatnya pembuatan laporan gagal di langkah
+# TERAKHIR dengan pesan yang menampilkan teks tampak bersih, seolah PDF-nya
+# yang rusak.
+#
+# engine/excel_builder.py kini membersihkan karakter tersebut sendiri, jadi
+# versi lama tidak lagi menggagalkan laporan. Batas bawah ini tetap dipasang
+# karena pembersihan itu menangani gejalanya di sisi kita, bukan salah
+# dekripsi di sisi pdfminer — yang efek lainnya belum tentu ketahuan.
+pdfminer.six==20260107
