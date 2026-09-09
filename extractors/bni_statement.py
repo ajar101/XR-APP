@@ -571,6 +571,13 @@ class BNIStatementExtractor(PencatatPeringatan, BaseExtractor):
     # Kata yang mencampur huruf dan angka dalam satu kata ("S1ACIR9510",
     # "BWS0"): penanda kode mesin, bukan nama pihak (lihat _terbaca_sebagai_nama).
     RE_KATA_KODE = re.compile(r'^(?=.*[A-Za-z])(?=.*\d)[A-Za-z0-9]+$')
+    # Nama kanal transfer yang dicetak MENEMPEL di ekor nama pengirim
+    # ("PT. POS LOGISTIK IND BI FAST Transfer"). Kanalnya bukan bagian nama,
+    # dan kalau dibiarkan, pengirim yang sama terpecah antara baris yang
+    # berekor kanal dan yang tidak. Daftarnya sengaja hanya memuat label yang
+    # benar-benar terlihat di PDF referensi — menambah label yang belum
+    # pernah muncul berisiko memotong nama pihak yang kebetulan mirip.
+    RE_EKOR_KANAL = re.compile(r'\s+BI[\s-]?FAST\s*$', re.IGNORECASE)
 
     def _nama_lawan(self, keterangan: str, arah: str) -> str:
         """
@@ -739,6 +746,7 @@ class BNIStatementExtractor(PencatatPeringatan, BaseExtractor):
         nama = re.sub(r'(?:\s+\d{6,})+\s*$', '', nama)
         # "BILL PAYMENT (MPN G2 IDR )" -> "BILL PAYMENT (MPN G2 IDR)"
         nama = re.sub(r'\s+([)\]])', r'\1', nama)
+        nama = BNIStatementExtractor.RE_EKOR_KANAL.sub('', nama)
         return nama.strip(' .,-/|')
 
     # ------------------------------------------------------------------ #
