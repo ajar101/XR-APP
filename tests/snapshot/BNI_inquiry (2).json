@@ -1,0 +1,109 @@
+{
+ "berkas": "BNI_inquiry (2).pdf",
+ "bank": "bni",
+ "format": "inquiry",
+ "identitas": {
+  "no_rekening": "773392009",
+  "nama_pemilik": "MATARI JELAJAH INDONESIA PT",
+  "jenis_rekening": "-"
+ },
+ "bulan": [
+  {
+   "bulan": "November",
+   "tahun": "2025",
+   "saldo_awal": 79749155.0,
+   "jumlah_hari": 30,
+   "jumlah_transaksi": 13,
+   "total_debit": 82664962.0,
+   "total_kredit": 3062804.0
+  }
+ ],
+ "transaksi": [
+  ["November", 1, "Debit", 5000000.0, "1010004916597", "TRF/PAY/TOP-UP ECHANNEL | PEMINDAHAN KE 1010004916597 | 0000000000000000 | 1010004916597 KAS KECIL - MANDIRI RIA EL"],
+  ["November", 1, "Debit", 2500.0, "Biaya Transaksi BI-FAST", "BY TRX BIFAST"],
+  ["November", 2, "Debit", 33000000.0, "8801326463", "TRF/PAY/TOP-UP ECHANNEL | PEMINDAHAN KE 8801326463 | 0000000000000000 | 8801326463 INTERNAL TRANSFER KE BCA MA"],
+  ["November", 2, "Debit", 2500.0, "Biaya Transaksi BI-FAST", "BY TRX BIFAST"],
+  ["November", 5, "Debit", 41500000.0, "2910327766", "TRF/PAY/TOP-UP ECHANNEL | PEMINDAHAN KE 2910327766 | 0000000000000000 | 2910327766 KAS BESAR - BCA RIA ELISABE"],
+  ["November", 5, "Debit", 2500.0, "Biaya Transaksi BI-FAST", "BY TRX BIFAST"],
+  ["November", 17, "Debit", 127462.0, "2610056078", "TRF/PAY/TOP-UP ECHANNEL | PEMINDAHAN KE 2610056078 | 0000000000000000 | 2610056078 MARKETING"],
+  ["November", 17, "Debit", 2500.0, "Biaya Transaksi BI-FAST", "BY TRX BIFAST"],
+  ["November", 20, "Kredit", 3060000.0, "CITRA ABADI SEJATI", "TRANSFER DARI | PEMINDAHAN DARI 201277351 CITRA ABADI SEJATI | 129 INV GT S 2025 | SEWA DAN TOL | 0773392009 202511204643175755"],
+  ["November", 23, "Debit", 3000000.0, "8801326463", "TRF/PAY/TOP-UP ECHANNEL | PEMINDAHAN KE 8801326463 | 0000000000000000 | 8801326463 INTERNAL TRANSFER KE BCA MA"],
+  ["November", 23, "Debit", 2500.0, "Biaya Transaksi BI-FAST", "BY TRX BIFAST"],
+  ["November", 30, "Kredit", 2804.0, "Jasa Giro/Bunga", "JASA GIRO/BUNGA"],
+  ["November", 30, "Debit", 25000.0, "Biaya Admin", "BIAYA ADM REK"]
+ ],
+ "saldo_harian": [
+  ["November", 1, 74746655.0],
+  ["November", 2, 41744155.0],
+  ["November", 3, 41744155.0],
+  ["November", 4, 41744155.0],
+  ["November", 5, 241655.0],
+  ["November", 6, 241655.0],
+  ["November", 7, 241655.0],
+  ["November", 8, 241655.0],
+  ["November", 9, 241655.0],
+  ["November", 10, 241655.0],
+  ["November", 11, 241655.0],
+  ["November", 12, 241655.0],
+  ["November", 13, 241655.0],
+  ["November", 14, 241655.0],
+  ["November", 15, 241655.0],
+  ["November", 16, 241655.0],
+  ["November", 17, 111693.0],
+  ["November", 18, 111693.0],
+  ["November", 19, 111693.0],
+  ["November", 20, 3171693.0],
+  ["November", 21, 3171693.0],
+  ["November", 22, 3171693.0],
+  ["November", 23, 169193.0],
+  ["November", 24, 169193.0],
+  ["November", 25, 169193.0],
+  ["November", 26, 169193.0],
+  ["November", 27, 169193.0],
+  ["November", 28, 169193.0],
+  ["November", 29, 169193.0],
+  ["November", 30, 146997.0]
+ ],
+ "temuan": [
+  ["Metadata PDF", "Rendah", "-", "-", "-", "Info metadata PDF (untuk review manual)", "Producer: iText 1.4.5 (by lowagie.com) | Creator: JasperReports (transaction_history_c08) | Created: D:20251203154711+07'00' | Modified: D:20251203154711+07'00'", null],
+  ["Rasio Pajak Bunga Tidak Wajar", "Rendah", "November", "30", "-", "Bunga tercatat tanpa pasangan Pajak Bunga (atau sebaliknya)", "Bunga: Rp2,804 | Pajak Bunga: Rp0 — cek apakah salah satunya hilang saat ekstraksi", null]
+ ],
+ "metadata": {
+  "biaya_admin": {
+   "label_nama": "Biaya Admin",
+   "jadwal": {
+    "November": {
+     "tanggal": 30,
+     "aturan": "akhir bulan (ketentuan BNI)"
+    }
+   }
+  },
+  "bunga_pajak": {
+   "kolom": "Keterangan Transaksi",
+   "bunga": [
+    "JASA GIRO/BUNGA"
+   ],
+   "pajak": [
+    "PPH"
+   ]
+  },
+  "peringatan": []
+ },
+ "checksum": {
+  "ok": true,
+  "duplikat_digabung": null,
+  "periode": [
+   {
+    "label": "01-Nov-2025 - 30-Nov-2025",
+    "bulan": "November",
+    "checks": {
+     "total_debit": true,
+     "total_credit": true,
+     "closing": true
+    }
+   }
+  ],
+  "peringatan": []
+ }
+}

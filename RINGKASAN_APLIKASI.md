@@ -2,7 +2,7 @@
 
 Ringkasan arsitektur, fitur, input/output, dan rencana pengembangan aplikasi ekstraktor rekening koran.
 
-> Dibuat: 2 September 2026 · Diperbarui: 9 September 2026 · Status: BCA, Mandiri (Kopra + e-Statement + Rekening Koran), dan BNI (Account Statement) aktif
+> Dibuat: 2 September 2026 · Diperbarui: 12 September 2026 · Status: BCA, Mandiri (Kopra + e-Statement + Rekening Koran), dan BNI (Account Statement + Transaction Inquiry) aktif
 
 ---
 
@@ -27,6 +27,8 @@ XR-APP/
 │   ├── bca.py                   #   Extractor BCA (Giro & Tahapan)
 │   ├── bni.py                   #   Dispatcher format BNI (auto-detect)
 │   ├── bni_statement.py         #   Sub-extractor BNI ACCOUNT STATEMENT (tabel bergaris)
+│   ├── bni_inquiry.py           #   Sub-extractor BNI TRANSACTION INQUIRY (tabel bergaris)
+│   ├── bni_nama.py              #   Pipeline nama lawan transaksi, dipakai bersama kedua format BNI
 │   ├── mandiri.py               #   Dispatcher format Mandiri (auto-detect)
 │   ├── mandiri_kopra.py         #   Sub-extractor Mandiri Kopra
 │   ├── mandiri_statement.py     #   Sub-extractor Mandiri e-Statement (Livin'/Mandiri Online)
@@ -87,6 +89,7 @@ app.py /upload
 | Analisis konsentrasi nasabah (HHI Score) | ✅ Aktif |
 | Sheet "Indikasi Kejanggalan" (17 indikator deteksi anomali) | ✅ Aktif (lihat §4) |
 | Bank BNI — format **ACCOUNT STATEMENT** (giro/CURRENT) | ✅ Aktif — divalidasi 100% terhadap 7 blok laporan dari 4 PDF riil (jumlah & total mutasi Debet/Kredit dan saldo akhir, dicocokkan dengan kaki ringkasan tiap blok) |
+| Bank BNI — format **TRANSACTION INQUIRY** (hasil query BNI Direct) | ✅ Aktif — divalidasi terhadap 12 blok inquiry dari 8 PDF riil; 11 blok cocok 100% (Total Debit, Total Credit, saldo akhir), 1 blok **sengaja tidak cocok** karena PDF sumbernya memang tidak konsisten (lihat §7.1) |
 | Bank BNI — format lain | ❌ Belum ada extractor — ditolak dengan pesan yang menyebut format yang didukung |
 | Bank Mandiri — format **Kopra by Mandiri** | ✅ Aktif — divalidasi checksum terhadap ringkasan resmi PDF |
 | Bank Mandiri — format **e-Statement** (Livin'/Mandiri Online) | ✅ Aktif — Tabungan, Tabungan Bisnis, Tabungan NOW & Giro; divalidasi 100% terhadap 14 periode dari 5 PDF riil |
@@ -210,3 +213,22 @@ Sepanjang pengembangan, sebagian besar waktu dihabiskan memperbaiki **akurasi ek
 - Modul `anomaly_detector.py` sendiri sempat punya bug serupa (klasifikasi tidak baca satu baris penuh, saldo berjalan tidak reset di batas bulan) yang menyebabkan false-positive besar — sudah diperbaiki dan divalidasi ulang.
 
 Prinsip yang dipegang konsisten: **setiap klaim perbaikan diverifikasi terhadap angka resmi di PDF** (total MUTASI CR/DB tercetak di footer setiap bulan), bukan sekadar "kelihatannya sudah benar".
+
+### 7.1 Catatan format BNI TRANSACTION INQUIRY
+
+Format kedua BNI ini (hasil query di BNI Direct, bukan e-statement bulanan) punya empat sifat yang menentukan cara membacanya — rinciannya ada di docstring `extractors/bni_inquiry.py`:
+
+1. **Tabelnya bergaris dan baris header-nya menyebut nama kolomnya.** Batas baris & kolom diambil dari kotak sel yang dicetak dokumen, dengan baris header sebagai jangkar letak tabel. Jangkar itu bukan hiasan: di atas tabel ada blok "Account Information" yang juga digambar sebagai kotak-kotak dengan lebar kolom yang berbeda, dan pada halaman yang transaksinya sedikit kotak blok itu lebih banyak daripada kotak tabelnya.
+2. **Kolom Amount dicetak bersih** (tidak seperti ACCOUNT STATEMENT yang nominalnya rusak karena efek tebal), jadi nominal diambil dari sana dan kolom Balance dipakai sebagai **pemeriksanya**. Rantai saldo itu diserahkan ke engine lewat `_provenance`, sehingga baris yang nominal dan saldonya tidak sejalan muncul sebagai temuan — bukan diam-diam diperbaiki extractor.
+3. **Satu PDF bisa memuat beberapa hasil inquiry, dan urutannya tidak kronologis** (satu PDF referensi memuat blok Desember 2024, lalu Februari 2025, baru Januari 2025 — wajar, tiap blok adalah query terpisah yang digabung). Karena itu sambungan antar periode diperiksa setelah blok **diurutkan kronologis**; kalau diperiksa menurut urutan cetak, tiap berkas seperti itu akan melaporkan "ada rentang tanggal yang tidak dicakup" yang sebenarnya tidak ada.
+4. **Penomoran baris ("No.") berurut dari 1 di tiap blok** — jaminan kelengkapan yang tidak dimiliki format BNI lain. Satu baris yang dihapus dari dokumen meninggalkan lubang di penomorannya, dan itu terlihat bahkan ketika seluruh angka ringkasannya ikut disesuaikan. Pemeriksaannya ada di `validate()`.
+
+Dokumen ini tidak mencetak nomor halaman dan tidak mencetak Ending Balance. Saldo akhir yang diharapkan karena itu dihitung dari tiga angka yang memang tercetak di kepala tiap blok (Beginning Balance − Total Debit + Total Credit) lalu dibandingkan dengan saldo baris terakhir — tetap angka dokumen, bukan angka kita sendiri.
+
+**Satu PDF referensi (`BNI_inquiry (1).pdf`) sengaja dibiarkan gagal checksum.** Dokumen itu memang tidak konsisten dengan dirinya sendiri: nominal biaya admin tercetak `25,0000.00` (bukan `25,000.00`), satu tanggal tercetak `05/01/206`, total debit resminya meleset Rp225.000 dari jumlah baris yang tercetak, dan saldo akhirnya meleset Rp1.000.000. Metadata PDF-nya menyebut *airSlate* — perangkat penyunting PDF, bukan pencetak rekening. Semua itu **muncul sebagai temuan di Sheet 9**, persis seperti yang diharapkan dari dokumen yang disunting. Baris yang tanggalnya tidak terbaca tidak ditebak tanggalnya: ia tidak masuk Detail Transaksi (tidak ada bulan yang bisa jadi tempatnya) tapi tetap ikut dihitung di checksum, sehingga selisihnya terlihat di dua tempat sekaligus.
+
+> Catatan untuk pengembangan berikutnya: `SOFTWARE_EDITOR_MENCURIGAKAN` di `engine/anomaly_detector.py` belum memuat "airSlate", sehingga PDF di atas hanya masuk kategori "Metadata PDF" (Rendah), bukan "Metadata PDF Mencurigakan" (Sedang). Temuan numeriknya sudah cukup untuk menandai dokumen itu, tapi daftar produsen PDF layak ditambah.
+
+**Pipeline nama lawan transaksi dipakai bersama.** Kolom Description format ini bertata bahasa sama dengan ACCOUNT STATEMENT (segmen dipisah `|`, klausa `PEMINDAHAN KE <rekening> <nama>`, kode cabang 3 digit di depan nama pengirim antarbank), jadi aturannya dipindahkan ke `extractors/bni_nama.py` dan dipakai kedua extractor — setara `mandiri_nama.py` untuk keluarga dokumen Mandiri. Pemindahan itu diverifikasi bebas-regresi terhadap snapshot 4 PDF ACCOUNT STATEMENT yang sudah ada.
+
+**Semua PDF referensi BNI Transaction Inquiry masuk tes regresi** (`tests/regresi.py`); awalan `BNI_` didaftarkan di `AWALAN_BANK` supaya berkasnya tidak dilewati diam-diam.
