@@ -2,7 +2,7 @@
 
 Ringkasan arsitektur, fitur, input/output, dan rencana pengembangan aplikasi ekstraktor rekening koran.
 
-> Dibuat: 2 September 2026 · Diperbarui: 9 September 2026 · Status: BCA, Mandiri (Kopra + e-Statement + Rekening Koran), dan BNI (Account Statement) aktif
+> Dibuat: 2 September 2026 · Diperbarui: 15 September 2026 · Status: BCA, Mandiri (Kopra + e-Statement + Rekening Koran), BNI (Account Statement), dan BRI (Laporan Transaksi Finansial) aktif
 
 ---
 
@@ -27,6 +27,8 @@ XR-APP/
 │   ├── bca.py                   #   Extractor BCA (Giro & Tahapan)
 │   ├── bni.py                   #   Dispatcher format BNI (auto-detect)
 │   ├── bni_statement.py         #   Sub-extractor BNI ACCOUNT STATEMENT (tabel bergaris)
+│   ├── bri.py                   #   Dispatcher format BRI (auto-detect)
+│   ├── bri_statement.py         #   Sub-extractor BRI LAPORAN TRANSAKSI FINANSIAL (tabel bergaris)
 │   ├── mandiri.py               #   Dispatcher format Mandiri (auto-detect)
 │   ├── mandiri_kopra.py         #   Sub-extractor Mandiri Kopra
 │   ├── mandiri_statement.py     #   Sub-extractor Mandiri e-Statement (Livin'/Mandiri Online)
@@ -92,7 +94,8 @@ app.py /upload
 | Bank Mandiri — format **e-Statement** (Livin'/Mandiri Online) | ✅ Aktif — Tabungan, Tabungan Bisnis, Tabungan NOW & Giro; divalidasi 100% terhadap 14 periode dari 5 PDF riil |
 | Bank Mandiri — format **Laporan Rekening Koran** (Account Statement Report) | ✅ Aktif — divalidasi 100% terhadap 13 periode laporan dari 9 PDF riil (jumlah & total mutasi, saldo akhir, plus rantai saldo berjalan per baris) |
 | Bank Mandiri — format **E-Banking** | ❌ Belum ada extractor — ditolak dengan pesan yang menyebut formatnya |
-| Bank BRI | 🔜 "Coming soon" di UI, belum ada extractor |
+| Bank BRI — format **Laporan Transaksi Finansial** (e-statement BRImo/Internet Banking) | ✅ Aktif — satu format untuk SEMUA jenis rekening (Giro Umum, BritAma, BritAma Bisnis/X, Simpedes, beserta varian SME-nya); divalidasi 100% terhadap 22 blok laporan (4.131 transaksi) dari 9 PDF riil (total mutasi Debet/Kredit & saldo akhir dicocokkan dengan kaki ringkasan tiap blok, plus rantai saldo berjalan per baris) |
+| Bank BRI — format lain (mis. cetakan teller cabang) | ❌ Belum ada extractor — ditolak dengan pesan yang menyebut format yang didukung |
 | OCR / ekstraksi PDF hasil scan | ❌ Belum diimplementasikan (lihat §6) |
 
 ---
@@ -156,11 +159,11 @@ Disusun sebagai dashboard ringkas (skor risiko + ringkasan per kategori) diikuti
 | 10 | Transaksi RTGS di Hari Libur | Keyword "RTGS" jatuh di hari Minggu/libur (sistem BI-RTGS tidak beroperasi di luar hari kerja) |
 | 11 | Nominal Bulat Berulang | Banyak transaksi bernilai sangat bulat (≥Rp50 juta, kelipatan Rp10 juta) |
 | 12 | Indikasi Structuring | Transaksi tunai berulang mendekati ambang pelaporan LTKT Rp500 juta |
-| 13 | Rasio Pajak Bunga Tidak Wajar | Pajak Bunga ÷ Bunga di luar rentang 0,195–0,205 (PPh Final 20%). Baris bunga & pajak dikenali lewat metadata `_bunga_pajak` (BCA lewat kolom Keterangan, Mandiri lewat kolom Nama) |
-| 14 | Jadwal Biaya Admin Tidak Wajar | Tanggal debet biaya admin tidak sesuai jadwal resmi bank ybs. Jadwalnya dikirim extractor lewat metadata `_biaya_admin` — BCA: GIRO akhir bulan / TAHAPAN Jumat ke-3, seragam tanggal 1 sejak Juni 2026; Mandiri: akhir bulan. Baris dicocokkan **persis** lewat kolom Nama, jadi "Biaya administrasi kartu debit" Mandiri (ikut tanggal ulang tahun kartu) tidak ikut diperiksa |
+| 13 | Rasio Pajak Bunga Tidak Wajar | Pajak Bunga ÷ Bunga di luar rentang 0,195–0,205 (PPh Final 20%). Baris bunga & pajak dikenali lewat metadata `_bunga_pajak` (BCA lewat kolom Keterangan, Mandiri & BRI lewat kolom Nama) |
+| 14 | Jadwal Biaya Admin Tidak Wajar | Tanggal debet biaya admin tidak sesuai jadwal resmi bank ybs. Jadwalnya dikirim extractor lewat metadata `_biaya_admin` — BCA: GIRO akhir bulan / TAHAPAN Jumat ke-3, seragam tanggal 1 sejak Juni 2026; Mandiri: akhir bulan; BNI: hari terakhir periode laporan; BRI: tanggal 20 untuk rekening BritAma — Giro & Simpedes sengaja TIDAK dikirim karena jadwalnya belum terbukti di data referensi, jadi pemeriksaannya dilewati, bukan ditebak. Baris dicocokkan **persis** lewat kolom Nama, jadi "Biaya administrasi kartu debit" Mandiri (ikut tanggal ulang tahun kartu) tidak ikut diperiksa |
 | 15 | Selisih dengan Ringkasan PDF | Jumlah transaksi & total nominal hasil ekstraksi ≠ angka ringkasan resmi yang tercetak di PDF itu sendiri. Dikirim extractor lewat metadata `_checksum` |
 | 16 | Urutan Tanggal Tidak Wajar | Tanggal transaksi mundur dari baris sebelumnya — rekening koran dicetak kronologis, jadi urutan 01, 02, 03, 01, 04 menandakan baris disisipkan atau dokumen disusun ulang |
-| 17 | Peringatan Pembacaan Dokumen | Kondisi dokumen yang hanya diketahui extractor saat membaca PDF: halaman yang bukan bagian rekening yang diperiksa (mis. PDF rekening lain ikut ter-merge), rentang tanggal yang tidak dicakup laporan mana pun, rantai saldo berjalan yang putus, periode tumpang tindih, baris bertanggal tidak terbaca. Dikirim extractor lewat metadata `_peringatan` — saat ini oleh ketiga extractor Mandiri; BCA belum, jadi untuk BCA bagian ini selalu kosong |
+| 17 | Peringatan Pembacaan Dokumen | Kondisi dokumen yang hanya diketahui extractor saat membaca PDF: halaman yang bukan bagian rekening yang diperiksa (mis. PDF rekening lain ikut ter-merge), rentang tanggal yang tidak dicakup laporan mana pun, rantai saldo berjalan yang putus, periode tumpang tindih, baris bertanggal tidak terbaca. Dikirim extractor lewat metadata `_peringatan` — saat ini oleh ketiga extractor Mandiri, BNI, dan BRI; BCA belum, jadi untuk BCA bagian ini selalu kosong |
 
 > Catatan jujur soal keterbatasan: daftar hari libur nasional baru mencakup 4 tanggal tetap (Tahun Baru, Buruh, Kemerdekaan, Natal) — **belum** mencakup libur lunar/hijriah (Lebaran, Nyepi, Imlek, dst). Deteksi RTGS bergantung PDF mencetak kata "RTGS" secara eksplisit.
 
@@ -178,7 +181,11 @@ Disusun berdasarkan diskusi sepanjang pengembangan, urut prioritas realistis (bu
 
   Gerbang itu dipasang setelah terbukti bukan sekadar "cakupan lebih sempit": pada PDF Mandiri yang ikut memuat halaman rekening BCA milik rekening lain, pemindai membaca ringkasan BCA itu lalu membandingkannya dengan data Mandiri, dan menghasilkan **empat temuan "RISIKO TINGGI" yang seluruhnya keliru**. Untuk bank selain BCA, pemeriksaan setara sudah dilakukan extractor-nya sendiri lewat checksum internal (`validate()` → metadata `_checksum`) plus nomor urut transaksi dan rantai saldo.
 
+  Extractor BRI ikut mengirim `_provenance`, jadi empat pemeriksaan itu tetap dilewati untuknya — pemeriksaan setara sudah dilakukan checksum internalnya (total mutasi & saldo akhir per blok) plus rantai saldo berjalan per baris.
+
   **Rencana (belum dikerjakan):** hapus parser kedua itu sepenuhnya. Extractor sudah tahu setiap fakta yang dibutuhkan saat parsing (baris ini di halaman berapa, saldo tercetak di sebelahnya, nomor halaman, ada tidaknya header kolom) lalu membuangnya; serahkan sebagai metadata `_provenance` — bentuknya *fakta*, bukan *pola regex per bank*, karena mengirim pola berarti melembagakan parser kedua yang justru jadi sumber temuan palsu tadi. Setelah itu keempat pemeriksaan bisa bank-agnostik, dan `_check_mutasi_hilang` bisa dihapus karena pekerjaannya sudah dilakukan `_checksum` dengan benar. Kuncinya **bank + format** (Kopra/Rekening Koran/e-Statement/BCA), bukan bank + jenis rekening — jenis rekening baru relevan untuk aturan berjadwal seperti `_biaya_admin`.
+- **Sisa nama lawan transaksi pada BRI (22 baris dari 4.131 = 0,53%).** Uraian BRI ditulis mesin dengan tata bahasa tetap, jadi 99,5% namanya terbaca dari strukturnya. Sisanya memang tidak memuat nama siapa pun — hanya nomor referensi kanal yang berganti tiap transaksi (`456022#818808360513#9360000212470040874`) — dan dibiarkan sebagai "Tidak Teridentifikasi", bukan diisi tebakan. Keterangan lengkapnya tetap ada di Sheet Detail Transaksi.
+- **Pajak bunga BRI yang didebet H+1.** Untuk sebagian bulan BRI mencetak pajaknya sebagai "PAJAK BUNGA SIMPANAN" satu hari SETELAH bunganya (bunga 20/11, pajak 21/11), sementara pemeriksaan rasio pajak bunga di engine memasangkan keduanya per TANGGAL. Akibatnya muncul dua temuan bertingkat **Rendah** ("bunga tanpa pasangan pajak" dan sebaliknya) pada bulan seperti itu — 2 kejadian dari 9 PDF referensi. Tanggalnya sengaja tidak digeser extractor supaya laporan tetap sama dengan dokumennya; pemasangan lintas-hari perlu diputuskan di engine, dan itu menyentuh semua bank.
 - **Perluas daftar hari libur nasional** (termasuk libur lunar/hijriah) — perlu referensi kalender resmi per tahun.
 - **OCR / Claude Vision untuk PDF hasil scan** — saat ini hanya terdeteksi & ditolak. Rekomendasi: langsung ke pendekatan vision model (Claude API) ketimbang OCR tradisional + regex, karena data finansial butuh akurasi tinggi dan OCR rentan salah baca digit pada tabel rapat. *(Belum digarap — dinilai jarang terjadi untuk saat ini.)*
 

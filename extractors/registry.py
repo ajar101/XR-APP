@@ -12,6 +12,7 @@ Tidak perlu mengubah file lain (app.py, engine, UI) sama sekali.
 from extractors.bca import BCAExtractor
 from extractors.mandiri import MandiriExtractor
 from extractors.bni import BNIExtractor
+from extractors.bri import BRIExtractor
 
 BANK_REGISTRY = {
     'bca': {
@@ -40,6 +41,15 @@ BANK_REGISTRY = {
         'logo_text':   'BNI',
         'description': 'Rekening Giro BNI (Account Statement)',
         'enabled':     True,   # ✓ Aktif — parser Account Statement sudah divalidasi checksum
+    },
+    'bri': {
+        'name':        'Bank Rakyat Indonesia (BRI)',
+        'short_name':  'BRI',
+        'extractor':   BRIExtractor,
+        'color':       '#00529C',   # biru BRI
+        'logo_text':   'BRI',
+        'description': 'Rekening Giro, BritAma & Simpedes BRI (Laporan Transaksi Finansial)',
+        'enabled':     True,   # ✓ Aktif — parser Laporan Transaksi Finansial sudah divalidasi checksum
     },
 }
 

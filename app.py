@@ -571,15 +571,12 @@ HTML_TEMPLATE = '''
 @app.route('/')
 def index():
     banks = get_enabled_banks()
-    # Tambahkan bank nonaktif (coming soon) untuk ditampilkan di UI
-    coming_soon = {
-        'bri': {
-            'name': 'Bank BRI', 'short_name': 'BRI',
-            'color': '#003DA5', 'logo_text': 'BRI',
-            'description': 'Segera hadir', 'enabled': False,
-        },
-    }
-    all_banks = {**banks, **coming_soon}
+    # Bank yang extractor-nya belum ada, ditampilkan di UI sebagai "segera
+    # hadir". Bank yang sudah aktif di registry ditaruh BELAKANGAN saat
+    # digabung, supaya entri placeholder di sini tidak bisa menutupi bank
+    # yang sebenarnya sudah jalan — persis yang sempat terjadi pada BRI.
+    coming_soon = {}
+    all_banks = {**coming_soon, **banks}
     return render_template_string(HTML_TEMPLATE, banks=all_banks)
 
 
