@@ -231,4 +231,48 @@ Dokumen ini tidak mencetak nomor halaman dan tidak mencetak Ending Balance. Sald
 
 **Pipeline nama lawan transaksi dipakai bersama.** Kolom Description format ini bertata bahasa sama dengan ACCOUNT STATEMENT (segmen dipisah `|`, klausa `PEMINDAHAN KE <rekening> <nama>`, kode cabang 3 digit di depan nama pengirim antarbank), jadi aturannya dipindahkan ke `extractors/bni_nama.py` dan dipakai kedua extractor — setara `mandiri_nama.py` untuk keluarga dokumen Mandiri. Pemindahan itu diverifikasi bebas-regresi terhadap snapshot 4 PDF ACCOUNT STATEMENT yang sudah ada.
 
+### 7.2 Nama lawan transaksi: segmen tengah didahulukan
+
+Setelah extractor TRANSACTION INQUIRY jalan, kolom nama diaudit menyeluruh (lihat §7.3). Hasilnya menemukan satu cacat pada aturan yang sudah lama ada di pipeline BNI — tidak pernah muncul di ACCOUNT STATEMENT, tapi terpicu oleh bentuk keterangan yang lazim di dokumen inquiry:
+
+```
+TRANSFER KE | PEMINDAHAN KE 760360200001004 | PT KINI TEKNOLOGI INDON SIA | PEMBAYARAN KINI
+                                               ^^^ nama pihak              ^^^ berita nasabah
+```
+
+Ketika klausa `PEMINDAHAN` hanya memuat nomor, pipeline langsung melompat ke segmen TERAKHIR — yang di bentuk ini berisi berita yang diketik nasabah. Akibatnya satu pihak pecah jadi beberapa nama mengikuti beritanya (`PEMBAYARAN KINI`, `PEMBAYARAN PT KINI`, `PEMBAYARAN KE PT KINI`) — persis yang mau disatukan sheet Rekap.
+
+Sekarang segmen **di antara** klausa pemindahan dan segmen terakhir diperiksa lebih dulu, dengan dua pagar:
+
+- **Segmen isian kosong (`0000000000000000`) dilewati, bukan menghentikan pencarian.** Pada transaksi masuk lewat e-channel, segmen tengahnya memang nol dan namanya justru ada di segmen terakhir — 225 baris ACCOUNT STATEMENT berbentuk begitu dan tidak boleh ikut berubah.
+- **Hanya segmen yang murni nama (tanpa satu angka pun) yang diterima.** Segmen yang mencampur nama dengan nomor/periode adalah field gabungan, bukan field nama (`TAFS PERIODE 22 - 10022025`, `DAIHATSU FINANCE PERIODE 4 - 30072026`). Tanpa pagar ini, memakainya memecah satu pihak jadi sebanyak periodenya — penyakit yang sama, cuma pindah tempat. Untuk bentuk itu nomor rekening tetap yang dipakai, dan pihaknya tetap terkumpul jadi satu.
+
+Sekalian diperketat: segmen terakhir yang dibuka **nomor referensi berdigit banyak** (`^0*\d{6,}`) tidak lagi ditambang namanya. Sebelumnya hanya nomor rekening lawan yang dikecualikan, sehingga nomor rekening SENDIRI diikuti berita masih lolos jadi "nama" (`0019692615 08 FEE RTGS PT AEROTRANS`).
+
+Dampaknya diperiksa baris per baris sebelum snapshot direkam ulang: **108 baris berubah, seluruhnya di TRANSACTION INQUIRY, 8 pola unik, semuanya perbaikan; ACCOUNT STATEMENT nol baris berubah.** Contoh nyata: 96 transaksi ke PT Kini Teknologi yang tadinya terpecah tiga kini terkumpul jadi satu baris Rekap.
+
+**Yang sengaja dibiarkan:** 4 baris (0,09% dari seluruh baris BNI) yang segmen terakhirnya berisi teks warkat (`CEK 1 BUKU 25 LBR CF 174226-174250`, `BY CEK NO CF351626-351650`). Mengenalinya butuh daftar kata kunci berita, dan daftar seperti itu berisiko memotong nama pihak yang kebetulan mirip — harga yang tidak sebanding untuk 4 baris. Keempatnya tetap terkumpul konsisten, hanya kurang informatif.
+
+### 7.3 Akurasi kolom nama (audit 12 September 2026)
+
+Audit sampel acak **proporsional** atas 120 baris dari seluruh 6 format, dinilai manual terhadap kolom keterangan. "Benar" = sama dengan yang akan dibaca pemeriksa manusia, ATAU label/nomor rekening yang tepat ketika dokumen memang tidak mencetak nama.
+
+| Format | Populasi | Sampel | Benar | Akurasi |
+|---|---:|---:|---:|---:|
+| BCA | 4.244 | 18 | 17 | 94,4% |
+| BNI Transaction Inquiry | 2.091 | 24 | 22 | 91,7% |
+| BNI Account Statement | 2.198 | 24 | 24 | 100% |
+| Mandiri e-Statement | 1.604 | 18 | 18 | 100% |
+| Mandiri Kopra | 2.964 | 18 | 18 | 100% |
+| Mandiri Rekening Koran | 2.324 | 18 | 18 | 100% |
+| **Gabungan** | **15.425** | **120** | **117** | **97,5%** (95% CI 92,9–99,1%) |
+
+Angka per-format JANGAN dipakai sendiri — sampel 18–24 baris terlalu kecil (CI-nya selebar 74–100%). Yang bisa dipertanggungjawabkan hanya angka gabungan, ~97% ±3. Dua dari tiga kesalahan pada sampel BNI inquiry adalah cacat yang sudah diperbaiki di §7.2, jadi angka sebenarnya kini lebih tinggi dari tabel ini — tabelnya sengaja tidak diperbarui tanpa audit ulang.
+
+Yang **eksak** (dihitung atas seluruh populasi, bukan sampel): nama kosong hanya **1 dari 15.425 baris (0,006%)**, dan itu pun di PDF yang memang rusak.
+
+**Penting jangan salah baca:** pada BNI, ~28–33% baris memakai nomor rekening sebagai nama dan ~26–31% memakai label bank. Itu **bukan kegagalan ekstraksi** — untuk transfer e-channel dokumennya memang tidak mencetak nama (teks setelah nomor rekening adalah berita nasabah: "PINBUK KE BCA OPS", "SEWA KENDARAAN BUGGY CAR"), dan untuk biaya admin/jasa giro/PPh memang tidak ada lawan transaksi. BCA & Mandiri mencapai 98–100% "nama betulan" karena formatnya mencetak nama di kolom tersendiri.
+
+**Batasan:** tidak ada label ground-truth independen; penilaian benar/salah adalah pembacaan atas kolom keterangan oleh satu penilai. Untuk angka yang lebih keras perlu sampel berlabel oleh tim.
+
 **Semua PDF referensi BNI Transaction Inquiry masuk tes regresi** (`tests/regresi.py`); awalan `BNI_` didaftarkan di `AWALAN_BANK` supaya berkasnya tidak dilewati diam-diam.

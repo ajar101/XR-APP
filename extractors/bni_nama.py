@@ -47,6 +47,15 @@ class NamaLawanBNI:
     RE_NAMA_BANK = re.compile(r'^(.*?)\s+-\s*(?:PT\s+)?BANK\b')
     # Label kanal, bukan nama pihak.
     LABEL_KANAL = {'BNI DIRECT', 'BNI DIRECT.', 'BNIDIRECT'}
+    # Segmen isian kosong ("0000000000000000"): tempat nama SEHARUSNYA
+    # dicetak, tapi dokumen mengisinya nol. Bukan nama, dan bukan pula
+    # penanda bahwa namanya tidak ada di segmen lain.
+    RE_SEGMEN_KOSONG = re.compile(r'^[0\s]+$')
+    # Nomor referensi yang membuka sebuah segmen: nomor rekening, nomor
+    # dokumen, atau nomor urut berjumlah banyak digit. Nama pihak tidak
+    # pernah dibuka angka sepanjang ini, jadi segmen yang diawali begini
+    # adalah referensi + berita — bukan tempat nama.
+    RE_AWALAN_REFERENSI = re.compile(r'^0*\d{6,}\b')
     # Sapaan yang lazim mendahului nama orang dan ikut dicetak bank.
     SAPAAN = {'BPK', 'BP', 'IBU', 'IBU.', 'BPK.', 'SDR', 'SDRI', 'TN', 'NY', 'HJ'}
     # Lebar kolom nama pada baris kredit antarbank: 15 karakter, sisanya
@@ -102,19 +111,56 @@ class NamaLawanBNI:
             nama = self._rapikan(self._potong_berita(ekor))
             if self._terbaca_sebagai_nama(nama):
                 return nama
-            # Nama tidak menempel di klausa pemindahan. Segmen terakhir masih
-            # bisa memuatnya: pada transaksi masuk lewat e-channel segmen itu
+
+            # Nama tidak menempel di klausa pemindahan. Sebelum melirik
+            # segmen TERAKHIR, segmen DI ANTARA keduanya diperiksa lebih
+            # dulu — di situlah dokumen mencetak nama pihak kalau klausa
+            # pemindahannya sendiri hanya memuat nomor:
+            #
+            #   "... | PEMINDAHAN KE 760360200001004 |
+            #         PT KINI TEKNOLOGI INDON SIA | PEMBAYARAN KINI"
+            #
+            # Segmen terakhir di bentuk itu adalah berita yang diketik
+            # nasabah. Kalau ia yang diambil, satu pihak yang sama pecah jadi
+            # beberapa nama sesuai beritanya ("PEMBAYARAN KINI", "PEMBAYARAN
+            # PT KINI", "PEMBAYARAN KE PT KINI") — persis yang mau disatukan
+            # sheet Rekap.
+            #
+            # Segmen isian kosong dilewati, bukan menghentikan pencarian:
+            # pada transaksi masuk lewat e-channel, segmen tengahnya memang
+            # "0000000000000000" dan namanya ada di segmen terakhir.
+            #
+            # Yang diterima HANYA segmen yang murni nama — tanpa satu angka
+            # pun. Segmen yang mencampur nama dengan nomor/periode adalah
+            # field gabungan, bukan field nama ("TAFS PERIODE 22 - 10022025",
+            # "DAIHATSU FINANCE PERIODE 4 - 30072026"): memakainya memecah
+            # satu pihak jadi sebanyak periodenya, yaitu penyakit yang sama
+            # dengan yang sedang diobati di sini. Untuk bentuk itu nomor
+            # rekening di bawah tetap yang dipakai, dan pihaknya tetap
+            # terkumpul jadi satu.
+            for tengah in segmen[i + 1:-1]:
+                if self.RE_SEGMEN_KOSONG.match(tengah):
+                    continue
+                if any(c.isdigit() for c in tengah):
+                    continue
+                nama = self._rapikan(self._potong_berita(tengah))
+                if self._terbaca_sebagai_nama(nama):
+                    return nama
+
+            # Segmen terakhir: pada transaksi masuk lewat e-channel segmen itu
             # berisi "<NAMA PENGIRIM> <berita>".
             #
-            # Kecuali kalau segmen itu dibuka nomor rekening lawan yang tadi
-            # juga: bentuk itu adalah nomor referensi diikuti berita
-            # ("3819622222 Pelunasan KIR mobil tangki"), tidak pernah memuat
-            # nama, dan menambangnya hanya menghasilkan potongan berita yang
-            # menyamar jadi nama pihak.
+            # Kecuali kalau segmen itu dibuka nomor referensi berdigit banyak
+            # (nomor rekening lawan yang tadi juga, nomor rekening sendiri,
+            # atau nomor dokumen): bentuk itu adalah referensi diikuti berita
+            # ("3819622222 Pelunasan KIR mobil tangki", "0019692615 08 FEE
+            # RTGS PT AEROTRANS"), tidak pernah memuat nama pihak, dan
+            # menambangnya hanya menghasilkan potongan berita yang menyamar
+            # jadi nama.
             akhir = segmen[-1]
             if (i != len(segmen) - 1
                     and akhir.upper() not in self.LABEL_KANAL
-                    and not re.match(r'^0*' + rekening + r'\b', akhir)):
+                    and not self.RE_AWALAN_REFERENSI.match(akhir)):
                 nama = self._rapikan(self._potong_berita(akhir))
                 if self._terbaca_sebagai_nama(nama):
                     return nama
