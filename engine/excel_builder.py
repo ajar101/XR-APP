@@ -167,7 +167,11 @@ def create_excel(saldo_per_bulan: dict, transaksi_per_bulan: dict,
                               upload beberapa PDF sekaligus, ini adalah hasil gabungan
                               dari engine/multi_pdf_merger.merge_extractions().
         transaksi_per_bulan: Output dari BaseExtractor.extract_transaksi() (idem, hasil gabungan).
-        output_path:         Path file .xlsx yang akan disimpan
+        output_path:         Tujuan penyimpanan — boleh path (str) ATAU objek
+                              file-like seperti io.BytesIO. app.py memakai
+                              BytesIO supaya laporan berisi data rekening tidak
+                              pernah tertinggal di disk server; tes dan skrip
+                              memakai path biasa.
         bank_name:           Nama bank untuk label (misal 'BCA', 'MANDIRI')
         pdf_path:            Path PDF sumber (str), ATAU list path kalau user upload
                               beberapa PDF sekaligus — dipakai Sheet 9 (Indikasi

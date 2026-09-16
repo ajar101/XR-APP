@@ -530,6 +530,17 @@ class BRIStatementExtractor(PencatatPeringatan, BaseExtractor):
     _RE_RTGS = re.compile(r'^RTGS#(.+?)#')
     # "PT BINA USAHA KELUAR ; ESB:INDS:0002800D:…" — nama sebelum titik koma.
     _RE_ESB = re.compile(r'^(.*?)\s*;\s*ESB:', re.IGNORECASE)
+    # "ATMSTRPRM 08888 000464106 6557026349 21:31:39 8888116" — transfer
+    # lewat kanal ATM. Uraiannya tidak memuat nama siapa pun, tapi segmen
+    # ketiga adalah NOMOR REKENING TUJUAN: enam di antaranya terbukti muncul
+    # juga sebagai rekening tujuan pada baris BI-Fast di berkas yang sama,
+    # lengkap dengan nama pemiliknya. Segmen kedua (9 digit) adalah nomor
+    # jejak mesin yang berganti tiap transaksi, jadi bukan itu yang dipakai.
+    # Dicocokkan terhadap URAIAN, yang berakhir tepat di nomor rekening —
+    # jam posting & teller ID baru ditempelkan belakangan di kolom
+    # Keterangan (lihat extract_transaksi), jadi jangan menuntut apa pun
+    # sesudah nomornya.
+    _RE_ATM_TRANSFER = re.compile(r'^ATMSTRPRM\s+\d+\s+\d+\s+(\d{6,})\s*$')
     # Pindah buku antar rekening: "FROM:<norek> TO:<norek>" dan
     # "FROM <norek> <norek>ATM0".
     _RE_FROM_TO = re.compile(r'^FROM:(\d+)\s+TO:(\d+)')
@@ -542,6 +553,42 @@ class BRIStatementExtractor(PencatatPeringatan, BaseExtractor):
     _RE_KODE_EKOR = re.compile(r'([A-Z]{3,})\s*$')
 
     def _nama_lawan(self, uraian: str, arah: str) -> str:
+        """
+        Nama lawan transaksi, dengan jaminan hasilnya selalu bisa dibaca.
+
+        Penguraiannya ada di _nama_lawan_mentah(); di sini hasilnya disaring
+        supaya tidak ada token sampah yang lolos jadi "nama". Penyaringan
+        ditaruh di satu tempat, bukan ditambal di tiap cabang, karena
+        uraian BRI punya banyak bentuk dan cabang baru akan lupa memeriksanya:
+        pernah lolos "0" (12 baris) dan ";" (7 baris) sebagai nama, yang lalu
+        muncul sebagai entri tersendiri di Rekap seolah lawan transaksi.
+        """
+        nama = self._nama_lawan_mentah(uraian, arah)
+        return nama if self._bermakna(nama) else 'Tidak Teridentifikasi'
+
+    # Nomor rekening terpendek yang masuk akal dipakai sebagai identitas.
+    # Di data referensi, nama yang isinya angka saja selalu >= 9 digit
+    # (nomor rekening) atau tepat 1 digit (token sampah "0") — tidak ada
+    # yang di antaranya, jadi ambangnya tidak memotong data yang sah.
+    PANJANG_REKENING_MIN = 6
+
+    @classmethod
+    def _bermakna(cls, nama: str) -> bool:
+        """
+        Benarkah teks ini bisa dibaca sebagai identitas lawan transaksi?
+
+        Ya bila memuat huruf (nama orang/lembaga atau label kanal), atau
+        cukup panjang untuk sebuah nomor rekening. Tanda baca dan angka
+        satu-dua digit bukan identitas apa pun.
+        """
+        n = ' '.join((nama or '').split())
+        if not n:
+            return False
+        if re.search(r'[A-Za-z]', n):
+            return True
+        return len(re.sub(r'\D', '', n)) >= cls.PANJANG_REKENING_MIN
+
+    def _nama_lawan_mentah(self, uraian: str, arah: str) -> str:
         """
         Nama lawan transaksi dari kolom Uraian Transaksi.
 
@@ -599,7 +646,16 @@ class BRIStatementExtractor(PencatatPeringatan, BaseExtractor):
         if m and self._rapikan(m.group(1)):
             return self._rapikan(m.group(1))
 
-        # 6. Pindah buku antar rekening: lawannya rekening yang BUKAN
+        # 6. Transfer lewat kanal ATM: yang tercetak hanya nomor rekening
+        #    tujuan. Nomor itulah identitas lawannya — sama seperti perlakuan
+        #    kode terminal pada BNI. Sebelum ini kode kanalnya ("ATMSTRPRM")
+        #    yang terpakai, sehingga transfer ke puluhan lawan berbeda
+        #    menggumpal jadi satu entri di Rekap.
+        m = self._RE_ATM_TRANSFER.match(teks)
+        if m:
+            return m.group(1)
+
+        # 7. Pindah buku antar rekening: lawannya rekening yang BUKAN
         #    rekening yang sedang diperiksa.
         m = self._RE_FROM_TO.match(teks) or self._RE_FROM_SPASI.match(teks)
         if m:
@@ -608,7 +664,7 @@ class BRIStatementExtractor(PencatatPeringatan, BaseExtractor):
         if teks.upper().startswith('PENARIKAN TUNAI'):
             return 'Penarikan Tunai'
 
-        # 7. Tidak ada nama sama sekali: pakai kode kanal/billernya.
+        # 8. Tidak ada nama sama sekali: pakai kode kanal/billernya.
         return self._label_kode(teks)
 
     def _lawan_rekening(self, a: str, b: str) -> str:
