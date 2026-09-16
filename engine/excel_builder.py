@@ -28,6 +28,7 @@ from engine.categorizer import (
     KATEGORI_KREDIT_KEYWORDS,
 )
 from engine.anomaly_detector import detect_anomalies
+from engine.penyatu_nama import satukan
 from engine.report_catalog import (
     SHEETS,
     JUDUL_SHEET,
@@ -203,6 +204,20 @@ def create_excel(saldo_per_bulan: dict, transaksi_per_bulan: dict,
         key=_urutan,
     )[:MAX_BULAN_TAMPIL]
 
+    # Varian penulisan lawan transaksi disatukan SEKALI di sini, lalu dipakai
+    # Rekap Kredit/Debit, Summary Rekap, dan perhitungan HHI. Kalau tiap sheet
+    # menyatukan sendiri-sendiri, keempatnya bisa mengelompokkan berbeda dan
+    # angka konsentrasi di Summary tidak lagi cocok dengan baris di Rekap.
+    #
+    # Label kategori dikecualikan: "Biaya Administrasi" dan sejenisnya bukan
+    # lawan transaksi, jadi tidak boleh ikut dilebur.
+    semua_nama = []
+    for _b in bulan_list:
+        _df = transaksi_per_bulan.get(_b)
+        if _df is not None and not _df.empty:
+            semua_nama.extend(_df['Nama Pengirim/Penerima'].astype(str).tolist())
+    penyatuan = satukan(semua_nama, abaikan=LABEL_KATEGORI | {LABEL_LAINNYA})
+
     # Urutan sheet ditentukan SHEETS di engine/report_catalog.py, bukan oleh
     # urutan pemanggilan di sini — daftar yang sama itulah yang dirender
     # halaman depan, jadi keduanya tidak bisa lagi berbeda diam-diam.
@@ -213,6 +228,7 @@ def create_excel(saldo_per_bulan: dict, transaksi_per_bulan: dict,
         'bulan_list': bulan_list,
         'bank_name':  bank_name,
         'pdf_path':   pdf_path,
+        'penyatuan':  penyatuan,
     }
     for kunci, _judul, _deskripsi in SHEETS:
         _BUILDER[kunci](ctx)
@@ -344,7 +360,8 @@ def _build_sheet2_transaksi(wb, transaksi_per_bulan, bulan_list):
 # ============================================================
 
 def _build_rekap_sheet(ws, transaksi_per_bulan, bulan_list,
-                       jenis_filter, label_total, show_concentration=False):
+                       jenis_filter, label_total, show_concentration=False,
+                       penyatuan=None):
     ws.sheet_view.showGridLines = False
 
     # bulan_list sudah urut kronologis (tahun lalu bulan); cukup disaring,
@@ -358,10 +375,18 @@ def _build_rekap_sheet(ws, transaksi_per_bulan, bulan_list,
 
     df_all = pd.concat(frames, ignore_index=True)
 
-    pivot_nom = df_all.groupby(['Nama Pengirim/Penerima', 'Bulan'])['Mutasi'].sum().unstack(fill_value=0)
+    # Varian penulisan pihak yang sama disatukan sebelum dikelompokkan —
+    # lihat engine/penyatu_nama.py. Tanpa ini satu pihak pecah jadi beberapa
+    # baris, dan HHI di sheet Summary ikut salah hitung.
+    df_all['_pihak'] = (
+        df_all['Nama Pengirim/Penerima'].astype(str).map(penyatuan.peta)
+        if penyatuan is not None else df_all['Nama Pengirim/Penerima']
+    ).fillna(df_all['Nama Pengirim/Penerima'])
+
+    pivot_nom = df_all.groupby(['_pihak', 'Bulan'])['Mutasi'].sum().unstack(fill_value=0)
     pivot_nom = pivot_nom.reindex(columns=bulan_ada, fill_value=0)
 
-    pivot_qty = df_all.groupby(['Nama Pengirim/Penerima', 'Bulan'])['Mutasi'].count().unstack(fill_value=0)
+    pivot_qty = df_all.groupby(['_pihak', 'Bulan'])['Mutasi'].count().unstack(fill_value=0)
     pivot_qty = pivot_qty.reindex(columns=bulan_ada, fill_value=0)
 
     pivot_nom['Total'] = pivot_nom.sum(axis=1)
@@ -419,6 +444,15 @@ def _build_rekap_sheet(ws, transaksi_per_bulan, bulan_list,
         kolom_kum = col
         ws.merge_cells(start_row=1, start_column=col, end_row=2, end_column=col)
         style_header(ws.cell(row=1, column=col, value='% Kumulatif'), bg_color='375623')
+        col += 1
+
+    # Kolom varian: penulisan LAIN yang ikut disatukan ke baris ini.
+    # Penggabungan tidak boleh terjadi diam-diam — pemeriksa harus bisa
+    # melihat apa saja yang dilebur tanpa membuka Detail Transaksi.
+    kolom_varian = col
+    ws.merge_cells(start_row=1, start_column=col, end_row=2, end_column=col)
+    style_header(ws.cell(row=1, column=col, value='Varian Nama Digabung'),
+                 bg_color='7D6608')
 
     ws.merge_cells(start_row=1, start_column=1, end_row=2, end_column=1)
 
@@ -474,6 +508,12 @@ def _build_rekap_sheet(ws, transaksi_per_bulan, bulan_list,
             c.number_format = '0.0%'
             style_data(c, align='right', bg_color=conc_bg)
 
+        varian = (penyatuan.varian.get(nama) or []) if penyatuan is not None else []
+        lain = [v for v in varian if v != nama]
+        c = ws.cell(row=r, column=kolom_varian,
+                    value=' · '.join(lain) if lain else None)
+        style_data(c, align='left', bg_color='FFF9E6' if lain else bg)
+
     # ---- Baris total ----
     total_row = len(pivot_nom) + 3
     c = ws.cell(row=total_row, column=1, value=label_total)
@@ -512,6 +552,46 @@ def _build_rekap_sheet(ws, transaksi_per_bulan, bulan_list,
     if show_concentration:
         ws.column_dimensions[get_column_letter(kolom_pct)].width = 15
         ws.column_dimensions[get_column_letter(kolom_kum)].width = 15
+    ws.column_dimensions[get_column_letter(kolom_varian)].width = 46
+
+    _tulis_kandidat_penyatuan(ws, total_row + 2, kolom_varian, penyatuan)
+
+
+def _tulis_kandidat_penyatuan(ws, baris_mulai, kolom_akhir, penyatuan):
+    """
+    Daftar nama yang MIRIP tapi sengaja TIDAK digabung.
+
+    Penggabungan yang keliru menyatukan dua pihak berbeda dan membuat HHI
+    salah ke arah sebaliknya — tanpa meninggalkan jejak di laporan. Jadi
+    yang tidak bisa dipastikan tidak digabung, tapi juga tidak disembunyikan:
+    ditampilkan di sini beserta alasannya supaya pemeriksa yang memutuskan.
+    """
+    if penyatuan is None or not penyatuan.kandidat:
+        return
+
+    r = baris_mulai
+    c = ws.cell(row=r, column=1,
+                value='KANDIDAT PENGGABUNGAN — diperiksa manual, TIDAK digabung otomatis')
+    style_header(c, bg_color='7D6608')
+    ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=kolom_akhir)
+    ws.row_dimensions[r].height = 22
+    r += 1
+
+    for i, judul in enumerate(('Nama pendek', 'Kemungkinan sama dengan',
+                               'Alasan tidak digabung otomatis')):
+        style_header(ws.cell(row=r, column=1 + i, value=judul), bg_color='2E75B6')
+    r += 1
+
+    for pendek, panjang, alasan in penyatuan.kandidat:
+        style_data(ws.cell(row=r, column=1, value=pendek), align='left',
+                   bg_color='FFF9E6')
+        style_data(ws.cell(row=r, column=2, value=panjang), align='left',
+                   bg_color='FFF9E6')
+        c = ws.cell(row=r, column=3, value=alasan)
+        style_data(c, align='left', bg_color='FFF9E6')
+        ws.merge_cells(start_row=r, start_column=3, end_row=r,
+                       end_column=max(3, kolom_akhir))
+        r += 1
 
 
 # ============================================================
@@ -558,7 +638,7 @@ def _nama_tidak_rapi(nama: str) -> bool:
 
 
 def _build_summary_rekap_sheet(ws, transaksi_per_bulan, bulan_list,
-                               jenis_filter, label_total):
+                               jenis_filter, label_total, penyatuan=None):
     """
     Rekap ringkas: hanya nominal (tanpa kolom qty), dan seluruh transaksi
     yang namanya tidak bisa dirapikan digabung ke satu baris.
@@ -575,7 +655,13 @@ def _build_summary_rekap_sheet(ws, transaksi_per_bulan, bulan_list,
         return
 
     df_all = pd.concat(frames, ignore_index=True)
-    df_all['_nama'] = df_all['Nama Pengirim/Penerima'].apply(
+    # Disatukan lebih dulu, baru disaring: kalau urutannya dibalik, potongan
+    # nama yang sama bisa jatuh ke keranjang "lainnya" sementara nama
+    # penuhnya tidak, sehingga satu pihak tetap pecah dua.
+    _pihak = (df_all['Nama Pengirim/Penerima'].astype(str).map(penyatuan.peta)
+              if penyatuan is not None else df_all['Nama Pengirim/Penerima'])
+    _pihak = _pihak.fillna(df_all['Nama Pengirim/Penerima'])
+    df_all['_nama'] = _pihak.apply(
         lambda n: LABEL_LAINNYA if _nama_tidak_rapi(n) else n
     )
 
@@ -634,16 +720,18 @@ def _build_summary_rekap_sheet(ws, transaksi_per_bulan, bulan_list,
         ws.column_dimensions[get_column_letter(2 + i)].width = 20
 
 
-def _build_sheet_summary_rekap_kredit(wb, transaksi_per_bulan, bulan_list):
+def _build_sheet_summary_rekap_kredit(wb, transaksi_per_bulan, bulan_list,
+                                      penyatuan=None):
     ws = wb.create_sheet(title='Summary Rekap Kredit')
     _build_summary_rekap_sheet(ws, transaksi_per_bulan, bulan_list,
-                               'Kredit', 'Total Mutasi Kredit')
+                               'Kredit', 'Total Mutasi Kredit', penyatuan)
 
 
-def _build_sheet_summary_rekap_debit(wb, transaksi_per_bulan, bulan_list):
+def _build_sheet_summary_rekap_debit(wb, transaksi_per_bulan, bulan_list,
+                                     penyatuan=None):
     ws = wb.create_sheet(title='Summary Rekap Debit')
     _build_summary_rekap_sheet(ws, transaksi_per_bulan, bulan_list,
-                               'Debit', 'Total Mutasi Debit')
+                               'Debit', 'Total Mutasi Debit', penyatuan)
 
 
 # ============================================================
@@ -703,16 +791,19 @@ def _build_sheet_daftar_indikator(wb):
         ws.column_dimensions[col].width = width
 
 
-def _build_sheet3_rekap_kredit(wb, transaksi_per_bulan, bulan_list):
+def _build_sheet3_rekap_kredit(wb, transaksi_per_bulan, bulan_list,
+                               penyatuan=None):
     ws = wb.create_sheet(title='Rekap Kredit')
     _build_rekap_sheet(ws, transaksi_per_bulan, bulan_list,
-                       'Kredit', 'Total Mutasi Kredit', show_concentration=True)
+                       'Kredit', 'Total Mutasi Kredit', show_concentration=True,
+                       penyatuan=penyatuan)
 
 
-def _build_sheet4_rekap_debit(wb, transaksi_per_bulan, bulan_list):
+def _build_sheet4_rekap_debit(wb, transaksi_per_bulan, bulan_list,
+                              penyatuan=None):
     ws = wb.create_sheet(title='Rekap Debit')
     _build_rekap_sheet(ws, transaksi_per_bulan, bulan_list,
-                       'Debit', 'Total Mutasi Debit')
+                       'Debit', 'Total Mutasi Debit', penyatuan=penyatuan)
 
 
 # ============================================================
@@ -1048,7 +1139,7 @@ def _build_sheet7_kategori_kredit(wb, transaksi_per_bulan, bulan_list, saldo_per
 # ============================================================
 
 def _build_sheet8_summary(wb, saldo_per_bulan, transaksi_per_bulan,
-                           bulan_list, bank_name):
+                           bulan_list, bank_name, penyatuan=None):
     ws = wb.create_sheet(title='Summary')
     ws.sheet_view.showGridLines = False
     ws.column_dimensions['A'].width = 28
@@ -1185,7 +1276,14 @@ def _build_sheet8_summary(wb, saldo_per_bulan, transaksi_per_bulan,
     frames_cr = [transaksi_per_bulan[b][transaksi_per_bulan[b]['Jenis Mutasi'] == 'Kredit'].copy()
                  for b in bulan_summary]
     df_cr    = pd.concat(frames_cr, ignore_index=True)
-    rekap_cr = df_cr.groupby('Nama Pengirim/Penerima')['Mutasi'].sum().sort_values(ascending=False)
+    # Dikelompokkan lewat nama yang SUDAH disatukan — sama persis dengan
+    # sheet Rekap. HHI dihitung dari pangsa tiap pihak, jadi kalau satu pihak
+    # pecah jadi beberapa baris, konsentrasinya terbaca lebih rendah daripada
+    # yang sebenarnya (lihat engine/penyatu_nama.py).
+    _pihak_cr = (df_cr['Nama Pengirim/Penerima'].astype(str).map(penyatuan.peta)
+                 if penyatuan is not None else df_cr['Nama Pengirim/Penerima'])
+    rekap_cr = (df_cr.assign(_pihak=_pihak_cr.fillna(df_cr['Nama Pengirim/Penerima']))
+                .groupby('_pihak')['Mutasi'].sum().sort_values(ascending=False))
     total_cr = rekap_cr.sum()
     n_aktif  = len(rekap_cr)
     pct_kum  = (rekap_cr.cumsum() / total_cr * 100)
@@ -1507,13 +1605,13 @@ _BUILDER = {
     'detail_transaksi':     lambda c: _build_sheet2_transaksi(
         c['wb'], c['transaksi'], c['bulan_list']),
     'rekap_kredit':         lambda c: _build_sheet3_rekap_kredit(
-        c['wb'], c['transaksi'], c['bulan_list']),
+        c['wb'], c['transaksi'], c['bulan_list'], c['penyatuan']),
     'rekap_debit':          lambda c: _build_sheet4_rekap_debit(
-        c['wb'], c['transaksi'], c['bulan_list']),
+        c['wb'], c['transaksi'], c['bulan_list'], c['penyatuan']),
     'summary_rekap_kredit': lambda c: _build_sheet_summary_rekap_kredit(
-        c['wb'], c['transaksi'], c['bulan_list']),
+        c['wb'], c['transaksi'], c['bulan_list'], c['penyatuan']),
     'summary_rekap_debit':  lambda c: _build_sheet_summary_rekap_debit(
-        c['wb'], c['transaksi'], c['bulan_list']),
+        c['wb'], c['transaksi'], c['bulan_list'], c['penyatuan']),
     'cashflow_harian':      lambda c: _build_sheet5_cashflow(
         c['wb'], c['saldo'], c['transaksi'], c['bulan_list']),
     'kategori_debit':       lambda c: _build_sheet6_kategori_debit(
@@ -1524,7 +1622,8 @@ _BUILDER = {
     'indikasi_kejanggalan': lambda c: _build_sheet9_indikasi(
         c['wb'], c['saldo'], c['transaksi'], c['pdf_path'], c['bank_name']),
     'summary':              lambda c: _build_sheet8_summary(
-        c['wb'], c['saldo'], c['transaksi'], c['bulan_list'], c['bank_name']),
+        c['wb'], c['saldo'], c['transaksi'], c['bulan_list'], c['bank_name'],
+        c['penyatuan']),
 }
 
 # Katalog dan pemetaan harus menutup satu sama lain. Diperiksa saat impor,
