@@ -7,15 +7,11 @@ standar yang dihasilkan oleh extractor manapun:
   saldo_per_bulan    → dict hasil BaseExtractor.extract_saldo()
   transaksi_per_bulan → dict hasil BaseExtractor.extract_transaksi()
 
-Sheet yang dihasilkan:
-  1. Saldo Harian
-  2. Detail Transaksi
-  3. Rekap Kredit
-  4. Rekap Debit
-  5. Cashflow Harian
-  6. Kategori Debit
-  7. Kategori Kredit
-  8. Summary (+ HHI Score)
+Sheet apa saja yang dihasilkan beserta urutannya TIDAK didaftar di sini,
+melainkan di engine/report_catalog.py (SHEETS) — supaya halaman depan
+aplikasi membaca daftar yang sama persis, bukan salinan yang ditulis ulang
+dengan tangan. Modul ini hanya menyediakan builder-nya dan memetakannya
+lewat _BUILDER di bawah.
 """
 
 import re
@@ -32,6 +28,12 @@ from engine.categorizer import (
     KATEGORI_KREDIT_KEYWORDS,
 )
 from engine.anomaly_detector import detect_anomalies
+from engine.report_catalog import (
+    SHEETS,
+    JUDUL_SHEET,
+    DAFTAR_INDIKATOR,
+    CATATAN_INDIKATOR,
+)
 
 # Batas jumlah bulan yang dirender per sheet. Disamakan dengan batas
 # penggabungan multi-PDF supaya 6 bulan hasil merge benar-benar tampil.
@@ -197,19 +199,30 @@ def create_excel(saldo_per_bulan: dict, transaksi_per_bulan: dict,
         key=_urutan,
     )[:MAX_BULAN_TAMPIL]
 
-    _build_sheet1_saldo(wb, saldo_per_bulan, bulan_list)
-    _build_sheet2_transaksi(wb, transaksi_per_bulan, bulan_list)
-    _build_sheet3_rekap_kredit(wb, transaksi_per_bulan, bulan_list)
-    _build_sheet4_rekap_debit(wb, transaksi_per_bulan, bulan_list)
-    _build_sheet_summary_rekap_kredit(wb, transaksi_per_bulan, bulan_list)
-    _build_sheet_summary_rekap_debit(wb, transaksi_per_bulan, bulan_list)
-    _build_sheet5_cashflow(wb, saldo_per_bulan, transaksi_per_bulan, bulan_list)
-    _build_sheet6_kategori_debit(wb, transaksi_per_bulan, bulan_list, saldo_per_bulan)
-    _build_sheet7_kategori_kredit(wb, transaksi_per_bulan, bulan_list, saldo_per_bulan)
-    _build_sheet_daftar_indikator(wb)
-    _build_sheet9_indikasi(wb, saldo_per_bulan, transaksi_per_bulan, pdf_path, bank_name)
-    # Summary sengaja dibuat paling akhir supaya jadi sheet terakhir di file.
-    _build_sheet8_summary(wb, saldo_per_bulan, transaksi_per_bulan, bulan_list, bank_name)
+    # Urutan sheet ditentukan SHEETS di engine/report_catalog.py, bukan oleh
+    # urutan pemanggilan di sini — daftar yang sama itulah yang dirender
+    # halaman depan, jadi keduanya tidak bisa lagi berbeda diam-diam.
+    ctx = {
+        'wb':         wb,
+        'saldo':      saldo_per_bulan,
+        'transaksi':  transaksi_per_bulan,
+        'bulan_list': bulan_list,
+        'bank_name':  bank_name,
+        'pdf_path':   pdf_path,
+    }
+    for kunci, _judul, _deskripsi in SHEETS:
+        _BUILDER[kunci](ctx)
+
+    # Pagar: judul sheet yang benar-benar tertulis harus sama persis dengan
+    # yang dijanjikan katalog. Tanpa ini, builder yang judulnya diubah akan
+    # membuat UI menyebut nama sheet yang tidak ada di berkasnya — persis
+    # jenis ketidaksesuaian yang katalog ini dibuat untuk mencegah.
+    if wb.sheetnames != JUDUL_SHEET:
+        raise RuntimeError(
+            'Judul sheet tidak cocok dengan engine/report_catalog.py.\n'
+            f'  katalog : {JUDUL_SHEET}\n'
+            f'  workbook: {wb.sheetnames}'
+        )
 
     wb.save(output_path)
 
@@ -633,158 +646,10 @@ def _build_sheet_summary_rekap_debit(wb, transaksi_per_bulan, bulan_list):
 # SHEET DAFTAR INDIKATOR — penjelasan pemeriksaan kejanggalan
 # ============================================================
 
-# Deskripsi tiap pemeriksaan di engine/anomaly_detector.py, supaya tim tahu
-# apa saja yang diperiksa dan bagaimana cara mendeteksinya — bukan cuma
-# melihat hasil temuannya. Urutannya mengikuti urutan pemanggilan di
-# detect_anomalies(). Kolom "Sumber" membedakan pemeriksaan atas data hasil
-# ekstraksi dari pemeriksaan yang membaca ulang PDF mentah.
-DAFTAR_INDIKATOR = [
-    ('Saldo Tidak Balance', 'Tinggi', 'Data ekstraksi',
-     'Saldo awal + total kredit − total debit tidak sama dengan saldo akhir bulan.',
-     'Dihitung per bulan dan dibandingkan dengan saldo akhir harian terakhir, '
-     'dengan toleransi pembulatan Rp100.'),
-
-    ('Duplikasi Transaksi', 'Sedang', 'Data ekstraksi',
-     'Beberapa baris transaksi identik dalam satu bulan.',
-     'Dikelompokkan atas tanggal, jenis mutasi, nominal, dan keterangan yang sama persis. '
-     'Jumlah pengulangan TIDAK menaikkan tingkat indikasi — transaksi rutin memang wajar '
-     'berulang identik (setoran per shift, pembayaran per unit), jadi temuan ini selalu '
-     'perlu dicek konteksnya, bukan langsung dianggap janggal.'),
-
-    ('Mutasi Hilang / Gap Tidak Wajar', 'Sedang', 'Data ekstraksi',
-     'Ada rentang hari tanpa transaksi sama sekali.',
-     'Minimal 5 hari beruntun kosong pada bulan yang punya ≥30 transaksi. Gap belum tentu '
-     'janggal: libur panjang, rekening musiman, atau pola bisnis tertentu bisa '
-     'menjelaskannya — bandingkan dengan pola bulan lain sebelum menyimpulkan.'),
-
-    ('Setoran Tunai di Hari Libur', 'Tinggi', 'Data ekstraksi',
-     'Setoran tunai bertanggal Minggu atau libur nasional.',
-     'Baris yang keterangannya memuat "SETORAN TUNAI" dicek terhadap hari Minggu '
-     'dan daftar libur nasional tanggal tetap.'),
-
-    ('Transaksi RTGS di Hari Libur', 'Tinggi', 'Data ekstraksi',
-     'Transaksi RTGS bertanggal Minggu atau libur nasional.',
-     'Indikasinya lebih kuat dari setoran tunai: sistem BI-RTGS tidak beroperasi di '
-     'luar hari kerja bank, sedangkan setoran tunai lewat CDM bisa 24/7. '
-     'Hanya baris yang keterangannya eksplisit memuat "RTGS".'),
-
-    ('Nominal Bulat Berulang', 'Rendah', 'Data ekstraksi',
-     'Banyak transaksi bernilai sangat bulat.',
-     'Minimal 5 transaksi ≥Rp50 juta yang merupakan kelipatan Rp10 juta dalam satu bulan.'),
-
-    ('Indikasi Structuring', 'Sedang', 'Data ekstraksi',
-     'Transaksi tunai yang nilainya mendekati batas pelaporan.',
-     'Transaksi berketerangan "TUNAI" bernilai Rp400 juta sampai di bawah Rp500 juta, '
-     'dikelompokkan per tanggal.'),
-
-    ('Rasio Pajak Bunga Tidak Wajar', 'Rendah / Sedang', 'Data ekstraksi',
-     'Pajak bunga tidak sebanding dengan bunga yang diterima.',
-     'PPh Final atas bunga tabungan/giro umumnya 20%, jadi rasio Pajak Bunga terhadap '
-     'Bunga seharusnya mendekati 0,20. Hanya baris berketerangan persis "BUNGA" / '
-     '"PAJAK BUNGA" yang dihitung.'),
-
-    ('Jadwal Biaya Admin Tidak Wajar', 'Sedang', 'Data ekstraksi',
-     'KHUSUS BCA — tanggal pendebetan biaya administrasi tidak sesuai jadwal.',
-     'Saat ini hanya jadwal BCA yang datanya tersedia, jadi pemeriksaan ini hanya '
-     'berlaku untuk rekening BCA dan tidak dijalankan sebagai aturan umum. Jadwal bank '
-     'lain akan ditambahkan setelah datanya dipastikan; sampai itu terjadi, ketiadaan '
-     'temuan di bank lain BUKAN berarti jadwalnya sudah benar.'),
-
-    ('Selisih dengan Ringkasan PDF', 'Tinggi', 'Data ekstraksi + PDF mentah',
-     'Jumlah transaksi atau total nominal hasil ekstraksi tidak sama dengan angka '
-     'ringkasan yang tercetak di PDF itu sendiri.',
-     'Dicocokkan terhadap angka resmi di footer/blok ringkasan bila PDF mencantumkannya: '
-     'jumlah transaksi debit & kredit, total nominal debit & kredit, dan saldo akhir. '
-     'Jumlah dan nominal dicek terpisah — baris yang hilang bisa terkompensasi jumlahnya '
-     'oleh baris ganda, sehingga hanya selisih nominal yang menangkapnya. '
-     'PDF yang tidak mencantumkan ringkasan tidak bisa diperiksa dengan cara ini.'),
-
-    ('Peringatan Pembacaan Dokumen', 'Tinggi / Sedang / Rendah', 'Data ekstraksi',
-     'Hal yang diketahui extractor saat membaca PDF dan perlu dilihat pemeriksa, '
-     'tapi bukan soal kecocokan angka.',
-     'Berbeda dari "Selisih dengan Ringkasan PDF" yang membandingkan ANGKA: '
-     'indikator ini soal KONDISI DOKUMEN — halaman yang bukan bagian rekening '
-     'yang diperiksa (mis. PDF rekening lain ikut ter-merge jadi satu berkas), '
-     'rentang tanggal yang tidak dicakup laporan mana pun, rantai saldo berjalan '
-     'yang putus, periode yang saling tumpang tindih, atau baris yang tanggalnya '
-     'tidak terbaca. Isinya datang dari extractor bank yang bersangkutan, jadi '
-     'bank yang extractor-nya belum mengirim peringatan tidak akan memunculkan '
-     'temuan di sini — ketiadaan temuan BUKAN berarti dokumennya bersih.'),
-
-    ('Urutan Tanggal Tidak Wajar', 'Tinggi', 'Data ekstraksi',
-     'Tanggal transaksi mundur dari baris sebelumnya.',
-     'Rekening koran dicetak kronologis, jadi urutan seperti 01, 02, 03, 01, 04 — atau '
-     'transaksi tanggal 15 muncul setelah tanggal 20 — bisa menandakan baris disisipkan '
-     'atau dokumen disusun ulang. Beberapa transaksi di tanggal yang sama tidak dihitung '
-     'sebagai pelanggaran urutan.'),
-
-    ('Running Balance Tidak Konsisten', 'Tinggi', 'Jejak cetak dokumen',
-     'Saldo berjalan antar baris di dokumen tidak menyambung.',
-     'Saldo tiap baris dihitung ulang dari saldo tercetak sebelumnya ditambah mutasi '
-     'di antaranya, dengan toleransi Rp5, dan di-reset tiap ganti blok laporan. '
-     'Angkanya diserahkan extractor lewat metadata _provenance — berlaku untuk semua '
-     'bank yang extractor-nya mengirimkannya (saat ini BCA dan seluruh format '
-     'Mandiri).'),
-
-    ('Halaman/Periode Tidak Berurutan', 'Sedang / Tinggi', 'Jejak cetak dokumen',
-     'Nomor halaman meloncat, atau total halaman berubah di tengah satu laporan.',
-     'Nomor halaman dalam satu blok laporan harus naik satu per satu. Hanya berlaku '
-     'untuk dokumen yang MENCETAK nomor halaman (BCA: "HALAMAN : 2 /42"; Kopra: '
-     '"Page 2 of 4"). Rekening Koran dan e-Statement Mandiri tidak mencetaknya sama '
-     'sekali, jadi untuk keduanya pemeriksaan ini dilewati — bukan berarti lolos.'),
-
-    ('Template Halaman Berbeda', 'Sedang', 'Jejak cetak dokumen',
-     'Halaman berisi transaksi tapi header kolom standar tidak ditemukan.',
-     'Bisa berarti halaman disisipkan dari sumber lain atau tata letaknya diubah. '
-     'Hanya berlaku untuk format yang memang mengulang header kolom di SETIAP '
-     'halaman (BCA, Kopra, e-Statement). Rekening Koran Mandiri mencetaknya sekali '
-     'di awal tiap laporan, jadi ketiadaannya di halaman lanjutan wajar dan tidak '
-     'diperiksa.'),
-
-    ('Format Nominal Tidak Konsisten', 'Sedang', 'Jejak cetak dokumen',
-     'Ada baris memakai format angka yang berbeda dari sisa dokumen.',
-     'Mendeteksi campuran format ribuan/desimal gaya Eropa di antara baris berformat '
-     'standar — pola yang lazim muncul pada dokumen yang diedit. Hanya diperiksa pada '
-     'baris yang extractor-nya nyatakan berisi teks CETAK MESIN. Keterangan yang '
-     'memuat berita bebas dari nasabah sengaja dikecualikan: nasabah lazim menulis '
-     'nominal gaya Indonesia di berita transfer ("19.655.050"), dan itu bukan artefak '
-     'dokumen. Saat ini yang memenuhi syarat baru BCA.'),
-
-    ('Metadata PDF', 'Rendah / Sedang', 'PDF mentah',
-     'Informasi pembuat, aplikasi, dan waktu pembuatan/modifikasi berkas.',
-     'Selalu ditampilkan apa adanya untuk direview manual. Ditandai mencurigakan bila '
-     'aplikasi pembuatnya bukan sistem perbankan, atau waktu modifikasi berbeda dari '
-     'waktu pembuatan.'),
-]
-
-CATATAN_INDIKATOR = [
-    'Sistem hanya menyatakan INDIKASI yang perlu diperiksa manusia — bukan kesimpulan '
-    'bahwa dokumen dipalsukan. Satu temuan tidak berarti dokumen bermasalah, dan tidak '
-    'adanya temuan tidak menjamin dokumen asli.',
-    'Daftar libur nasional yang dipakai baru mencakup 4 tanggal tetap '
-    '(1 Januari, 1 Mei, 17 Agustus, 25 Desember) ditambah hari Minggu. Libur yang '
-    'mengikuti kalender lunar/hijriah dan cuti bersama BELUM tercakup, sehingga '
-    'transaksi di hari-hari itu tidak akan tertandai.',
-    'Pemeriksaan "Jadwal Biaya Admin Tidak Wajar" mengikuti pola penjadwalan BCA. '
-    'Untuk bank lain pemeriksaan ini bisa tidak relevan — perlakukan temuannya '
-    'dengan hati-hati.',
-    'Pemeriksaan berbasis PDF mentah dijalankan per berkas. Pada upload beberapa PDF, '
-    'nama berkas dicantumkan di kolom halaman supaya temuan bisa dilacak.',
-    'Empat pemeriksaan bersumber "Jejak cetak dokumen" (Running Balance, '
-    'Halaman/Periode, Template Halaman, Format Nominal) memakai fakta yang '
-    'diserahkan extractor lewat metadata _provenance — bukan pembacaan ulang PDF. '
-    'Cakupannya karena itu mengikuti apa yang memang dicetak dokumennya: nomor '
-    'halaman, header kolom per halaman, dan saldo berjalan tidak selalu ada di semua '
-    'format. Bagian yang dilewati BUKAN berarti dokumennya bersih — kolom Sumber dan '
-    'penjelasan tiap indikator menyebutkan syaratnya.',
-    'Pemeriksaan "Urutan Tanggal Tidak Wajar" dan "Selisih dengan Ringkasan PDF" hanya '
-    'berjalan bila extractor bank tersebut mempertahankan urutan cetak dan membaca angka '
-    'ringkasan PDF. Saat ini keduanya tersedia untuk BCA dan seluruh format Mandiri '
-    '(Kopra, e-Statement, Rekening Koran).',
-    '"Peringatan Pembacaan Dokumen" saat ini dikirim oleh ketiga extractor Mandiri. '
-    'Extractor BCA belum mengirimnya, jadi untuk rekening BCA bagian ini akan selalu '
-    'kosong — itu keterbatasan cakupan, bukan pernyataan bahwa dokumennya bersih.',
-]
+# Isi sheet ini (DAFTAR_INDIKATOR & CATATAN_INDIKATOR) tinggal di
+# engine/report_catalog.py — lihat impor di bagian atas berkas. Ditaruh di
+# sana karena halaman depan aplikasi ikut membacanya untuk menyebut jumlah
+# indikator, dan daftar yang sama tidak boleh ditulis dua kali.
 
 
 def _build_sheet_daftar_indikator(wb):
@@ -1619,3 +1484,52 @@ def _build_sheet9_indikasi(wb, saldo_per_bulan, transaksi_per_bulan, pdf_path,
                 c.number_format = '#,##0'
             if col in (7, 8):
                 c.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+
+
+# ============================================================
+# PEMETAAN KATALOG → BUILDER
+# ============================================================
+
+# Menghubungkan tiap entri SHEETS (engine/report_catalog.py) dengan fungsi
+# yang membangunnya. Tanda tangan builder sengaja dibiarkan berbeda-beda —
+# masing-masing hanya menerima apa yang benar-benar dipakainya — dan lambda
+# di sini yang menjembatani ke konteks bersama.
+#
+# Sheet 'summary' ada di urutan TERAKHIR katalog. Itu disengaja: pembaca
+# laporan membuka ringkasannya lewat tab paling kanan.
+_BUILDER = {
+    'saldo_harian':         lambda c: _build_sheet1_saldo(
+        c['wb'], c['saldo'], c['bulan_list']),
+    'detail_transaksi':     lambda c: _build_sheet2_transaksi(
+        c['wb'], c['transaksi'], c['bulan_list']),
+    'rekap_kredit':         lambda c: _build_sheet3_rekap_kredit(
+        c['wb'], c['transaksi'], c['bulan_list']),
+    'rekap_debit':          lambda c: _build_sheet4_rekap_debit(
+        c['wb'], c['transaksi'], c['bulan_list']),
+    'summary_rekap_kredit': lambda c: _build_sheet_summary_rekap_kredit(
+        c['wb'], c['transaksi'], c['bulan_list']),
+    'summary_rekap_debit':  lambda c: _build_sheet_summary_rekap_debit(
+        c['wb'], c['transaksi'], c['bulan_list']),
+    'cashflow_harian':      lambda c: _build_sheet5_cashflow(
+        c['wb'], c['saldo'], c['transaksi'], c['bulan_list']),
+    'kategori_debit':       lambda c: _build_sheet6_kategori_debit(
+        c['wb'], c['transaksi'], c['bulan_list'], c['saldo']),
+    'kategori_kredit':      lambda c: _build_sheet7_kategori_kredit(
+        c['wb'], c['transaksi'], c['bulan_list'], c['saldo']),
+    'daftar_indikator':     lambda c: _build_sheet_daftar_indikator(c['wb']),
+    'indikasi_kejanggalan': lambda c: _build_sheet9_indikasi(
+        c['wb'], c['saldo'], c['transaksi'], c['pdf_path'], c['bank_name']),
+    'summary':              lambda c: _build_sheet8_summary(
+        c['wb'], c['saldo'], c['transaksi'], c['bulan_list'], c['bank_name']),
+}
+
+# Katalog dan pemetaan harus menutup satu sama lain. Diperiksa saat impor,
+# jadi entri yang lupa diberi builder gagal seketika — bukan nanti saat ada
+# yang membuat laporan.
+_kunci_katalog = {kunci for kunci, _, _ in SHEETS}
+if _kunci_katalog != set(_BUILDER):
+    raise RuntimeError(
+        'SHEETS dan _BUILDER tidak cocok. '
+        f'Tanpa builder: {sorted(_kunci_katalog - set(_BUILDER))}; '
+        f'tanpa entri katalog: {sorted(set(_BUILDER) - _kunci_katalog)}'
+    )
