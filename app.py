@@ -17,12 +17,18 @@ aslinya, tidak diketik ulang di dalam HTML.
 
 import io
 import os
-from flask import Flask, render_template, request, send_file
+import secrets
+import uuid
+from flask import Flask, abort, jsonify, render_template, request, send_file
+from flask_login import current_user, login_required
+from werkzeug.utils import secure_filename
 
-from extractors.registry import get_enabled_banks, get_extractor, get_formats
-from extractors.pdf_utils import is_probably_scanned
-from engine.excel_builder import create_excel
-from engine.multi_pdf_merger import merge_extractions, MergeValidationError, MAX_BULAN
+import antrean
+import auth
+import tugas
+
+from extractors.registry import get_enabled_banks, get_formats
+from engine.multi_pdf_merger import MAX_BULAN
 from engine.report_catalog import SHEETS, DAFTAR_INDIKATOR
 
 VERSI = '2.1'
@@ -36,6 +42,37 @@ for code, info in get_enabled_banks().items():
 print("="*60 + "\n")
 
 app = Flask(__name__)
+
+# Kunci penanda tangan cookie sesi. Tanpa kunci yang rahasia dan TETAP,
+# siapa pun bisa membuat cookie sesi palsu dan masuk sebagai pengguna mana
+# pun — jadi kuncinya tidak boleh punya nilai bawaan yang bisa ditebak.
+#
+# Kunci acak yang dibuat saat proses mulai juga tidak memadai di produksi:
+# tiap worker gunicorn akan punya kunci berbeda sehingga sesi pemakai putus
+# bergantian, dan semua orang ter-logout tiap kali aplikasi di-restart.
+# Karena itu di produksi ketiadaan XR_SECRET_KEY membuat aplikasi MENOLAK
+# jalan, bukan diam-diam memakai kunci sementara.
+_kunci = os.environ.get('XR_SECRET_KEY')
+if not _kunci:
+    if os.environ.get('XR_DEBUG') == '1':
+        _kunci = secrets.token_hex(32)
+        print('⚠️  XR_SECRET_KEY tidak disetel — memakai kunci sementara '
+              '(hanya boleh untuk pengembangan).')
+    else:
+        raise RuntimeError(
+            'XR_SECRET_KEY belum disetel. Buat sekali dengan:\n'
+            "    python -c \"import secrets; print(secrets.token_hex(32))\"\n"
+            'lalu simpan sebagai variabel lingkungan. Lihat DEPLOY.md.'
+        )
+app.secret_key = _kunci
+
+# Cookie sesi: tidak bisa dibaca JavaScript, tidak ikut terkirim ke situs
+# lain, dan hanya lewat HTTPS kecuali sedang dikembangkan di mesin sendiri.
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    SESSION_COOKIE_SECURE=os.environ.get('XR_DEBUG') != '1',
+)
 
 # PDF yang diunggah harus mendarat di disk karena extractor membacanya
 # lewat pdfplumber (butuh path), tapi selalu dihapus lagi di blok `finally`
@@ -52,7 +89,18 @@ app.config['MAX_CONTENT_LENGTH'] = 64 * 1024 * 1024  # dinaikkan dari 16MB — m
 # FLASK ROUTES
 # ============================================================
 
+auth.pasang(app)
+antrean.periksa_sambungan(app.logger)
+
+
+@app.context_processor
+def nilai_bersama():
+    """Nilai yang dipakai semua template (lihat templates/dasar.html)."""
+    return {'versi': VERSI}
+
+
 @app.route('/')
+@login_required
 def index():
     # Semua angka yang dijanjikan halaman depan dihitung di sini dari sumber
     # aslinya — katalog laporan, registry bank, dan konfigurasi app — bukan
@@ -73,10 +121,29 @@ def index():
 
 
 @app.route('/upload', methods=['POST'])
+@login_required
 def upload_file():
+    """
+    Terima berkas, lalu ekstrak — langsung atau lewat antrean.
+
+    Validasi yang MURAH tetap dikerjakan di sini supaya pemakai dapat jawaban
+    seketika (bank belum dipilih, bukan .pdf). Yang mahal — deteksi PDF hasil
+    scan dan ekstraksi itu sendiri — dikerjakan tugas.proses_ekstraksi(),
+    yang dipakai kedua mode supaya isinya tidak pernah berbeda.
+    """
     bank_code = request.form.get('bank_code', '').strip()
+
+    def tolak(pesan, kode=400, berkas=None):
+        """Tolak permintaan sambil mencatatnya di jejak audit."""
+        auth.catat_audit('ekstraksi', 'gagal', bank=bank_code or None,
+                         jumlah_berkas=len(berkas) if berkas else None,
+                         nama_berkas=', '.join(b.filename for b in berkas)
+                                     if berkas else None,
+                         keterangan=pesan[:300], app=app)
+        return pesan, kode
+
     if not bank_code:
-        return 'Pilih bank terlebih dahulu.', 400
+        return tolak('Pilih bank terlebih dahulu.')
 
     # Mendukung upload beberapa PDF sekaligus (mis. tiap file 1-3 bulan,
     # tidak perlu di-merge manual dulu jadi satu PDF) — lihat
@@ -84,170 +151,208 @@ def upload_file():
     # sama, bulan tidak boleh bentrok, total maks 6 bulan).
     files = [f for f in request.files.getlist('file') if f.filename]
     if not files:
-        return 'Tidak ada file yang dipilih.', 400
+        return tolak('Tidak ada file yang dipilih.')
     for f in files:
         if not f.filename.lower().endswith('.pdf'):
-            return f"File '{f.filename}' harus berformat PDF.", 400
+            return tolak(f"File '{f.filename}' harus berformat PDF.", berkas=files)
 
-    try:
-        ExtractorClass = get_extractor(bank_code)
-    except ValueError as e:
-        return str(e), 400
+    # Tiap permintaan dapat foldernya sendiri. Sebelumnya semua berkas
+    # menumpuk di satu folder dengan awalan indeks, yang cukup selama hanya
+    # ada satu proses; dengan worker terpisah dan beberapa permintaan
+    # bersamaan, dua unggahan bernama sama bisa saling menimpa.
+    id_job = uuid.uuid4().hex
+    folder_job = os.path.join(app.config['UPLOAD_FOLDER'], id_job)
+    os.makedirs(folder_job, exist_ok=True)
 
-    saved_paths = []
-    try:
-        per_file_results = []
-        first_extractor = None
-        laporan_checksum = []
+    berkas = []
+    for idx, f in enumerate(files):
+        # secure_filename membuang path traversal dan karakter yang
+        # menyusahkan; nama aslinya tetap dibawa terpisah untuk pesan
+        # kesalahan supaya pemakai mengenali berkas mana yang dimaksud.
+        aman = secure_filename(f.filename) or f'berkas_{idx}.pdf'
+        path = os.path.join(folder_job, f'{idx}_{aman}')
+        f.save(path)
+        berkas.append((path, f.filename))
 
-        for idx, f in enumerate(files):
-            # Prefix indeks supaya nama file yang sama dari beberapa upload
-            # tidak saling menimpa di UPLOAD_FOLDER.
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], f'{idx}_{f.filename}')
-            f.save(filepath)
-            saved_paths.append(filepath)
+    # ── Mode antrean ────────────────────────────────────────────────────
+    if antrean.mode_antrean():
+        # Sapu sisa job yang worker-nya mati di tengah jalan. Dilakukan di
+        # sini, bukan hanya saat worker start, supaya pemasangan dengan
+        # worker yang jarang di-restart tetap bersih.
+        tugas.sapu_yatim(app.config['UPLOAD_FOLDER'])
 
-            # Cek dulu sebelum ekstraksi (yang bisa makan puluhan detik untuk
-            # PDF ratusan halaman) — PDF hasil scan/foto tidak punya layer
-            # teks sama sekali, jadi extractor apa pun pasti gagal. Lebih
-            # baik gagal cepat dengan pesan jelas daripada nunggu extractor
-            # jalan penuh lalu gagal dengan pesan generik.
-            if is_probably_scanned(filepath):
-                return (
-                    f"File '{f.filename}' terdeteksi sebagai PDF hasil scan/foto (gambar), "
-                    f"bukan PDF teks asli dari sistem bank. Ekstraksi otomatis saat ini hanya "
-                    f"mendukung PDF rekening koran yang diunduh langsung dari internet "
-                    f"banking/e-statement resmi (bukan hasil scan atau foto kamera). Silakan "
-                    f"unduh ulang PDF aslinya, atau hubungi bank untuk mendapatkan e-statement."
-                ), 400
-
-            try:
-                extractor = ExtractorClass(filepath)
-            except NotImplementedError as e:
-                # Format terdeteksi tapi extractor-nya memang belum ada.
-                # Ini kondisi yang WAJAR, bukan kerusakan — sampaikan apa
-                # adanya (400), jangan jatuh ke handler 500 di bawah yang
-                # hanya menampilkan pesan teknis generik.
-                return f"File '{f.filename}': {e}", 400
-            if first_extractor is None:
-                first_extractor = extractor
-
-            # Checksum dikumpulkan per file — kalau hanya extractor terakhir
-            # yang diperiksa, file lain lolos tanpa validasi sama sekali.
-            if hasattr(extractor, 'validate'):
-                laporan_checksum.append((f.filename, extractor.validate()))
-
-            saldo = extractor.extract_saldo()
-            # Cek keberadaan data BULAN, bukan sekadar dict tidak kosong.
-            # Extractor mengembalikan metadata ('_nama_pemilik', dst) walau
-            # tidak satu pun transaksi terbaca, sehingga `if not saldo` selalu
-            # lolos dan kegagalan baru meledak jauh di hilir sebagai HTTP 500
-            # generik. Bank-agnostik: berlaku untuk semua extractor.
-            if not any(not k.startswith('_') for k in saldo):
-                return (
-                    f"Tidak ada satu pun periode transaksi yang bisa dibaca dari "
-                    f"'{f.filename}'. PDF-nya terbaca, tapi tata letaknya tidak "
-                    f"dikenali oleh extractor {bank_code.upper()} — kemungkinan "
-                    f"format/varian yang belum didukung. Pastikan file ini memang "
-                    f"rekening koran {bank_code.upper()} yang diunduh langsung dari "
-                    f"layanan resmi banknya."
-                ), 400
-            trans = extractor.extract_transaksi()
-            per_file_results.append((f.filename, saldo, trans))
-
-        try:
-            saldo_per_bulan, transaksi_per_bulan = merge_extractions(per_file_results)
-        except MergeValidationError as e:
-            return str(e), 400
-
-        no_rekening = saldo_per_bulan.get('_no_rekening') or 'unknown'
-        file_prefix = first_extractor.get_file_prefix()
-        nama_file   = f'{file_prefix}_{no_rekening}.xlsx'
-
-        # Checksum internal extractor: cocokkan hasil parsing dengan angka
-        # resmi yang tercetak di PDF. Hanya nama pemeriksaan & jumlah baris
-        # yang dicatat — nominal & isi transaksi sengaja tidak ikut di-log.
-        for nama_sumber, laporan in laporan_checksum:
-            if not laporan.get('ok', True):
-                gagal = sorted({
-                    k for per in laporan.get('periods', [])
-                    for k, v in per.get('checks', {}).items() if v is False
-                })
-                app.logger.warning(
-                    'Checksum %s / %s TIDAK COCOK dengan ringkasan resmi PDF '
-                    '(pemeriksaan gagal: %s). Angka pada laporan perlu diperiksa manual.',
-                    file_prefix, nama_sumber, ', '.join(gagal) or 'tidak diketahui',
-                )
-            # Periode yang tumpang tindih TIDAK menggagalkan checksum, jadi
-            # tanpa baris ini penggabungan duplikat terjadi tanpa diketahui
-            # siapa pun — persis yang harus dihindari pada data sumber.
-            digabung = laporan.get('duplikat_digabung') or 0
-            if digabung:
-                app.logger.warning(
-                    '%s / %s memuat periode yang tumpang tindih: %d transaksi ganda '
-                    'digabung menjadi satu. Total mutasi laporan lebih kecil dari '
-                    'penjumlahan mentah tiap periode — ini disengaja.',
-                    file_prefix, nama_sumber, digabung,
-                )
-
-        # Laporan dibangun di MEMORI, tidak ditulis ke disk.
-        #
-        # Sebelumnya tiap laporan disimpan ke folder exports/ dan tidak pernah
-        # dihapus — komentarnya menyebut itu disengaja karena send_file() masih
-        # perlu membacanya. Akibatnya folder itu menumpuk tanpa batas, dan tiap
-        # berkasnya memuat nama pemilik, nomor rekening, serta SELURUH mutasi
-        # rekening seseorang. Data sesensitif itu tidak boleh tertinggal di
-        # server tanpa jadwal hapus, dan tidak ada route mana pun yang
-        # menyajikan ulang isi exports/, jadi berkasnya memang tidak pernah
-        # dibutuhkan lagi setelah terunduh.
-        #
-        # Membangunnya di BytesIO menghapus persoalannya, bukan mengelolanya:
-        # tidak ada berkas yang perlu dijadwalkan hapus karena tidak ada
-        # berkas yang dibuat. Kalau kelak ekstraksi dipindah ke background job
-        # queue, hasilnya HARUS tersimpan di suatu tempat (worker dan
-        # pengunduh jadi proses berbeda) — dan saat itulah kebijakan retensi
-        # dengan TTL benar-benar diperlukan.
-        keluaran = io.BytesIO()
-        create_excel(
-            saldo_per_bulan,
-            transaksi_per_bulan,
-            keluaran,
-            bank_name=file_prefix,
-            pdf_path=saved_paths,
+        job = antrean.antrean().enqueue(
+            tugas.jalankan_job,
+            bank_code, berkas, folder_job,
+            {'id': current_user.id,
+             'nama_pengguna': current_user.nama_pengguna,
+             'cabang': current_user.cabang},
+            app.config['DB_PATH'],
+            job_id=id_job,
+            # TTL hasil INILAH kebijakan retensinya: Redis sendiri yang
+            # menghapus laporan setelah lewat batas, jadi tidak ada job
+            # pembersih yang bisa lupa dijalankan. Lihat tugas.py.
+            result_ttl=tugas.TTL_HASIL_DETIK,
+            failure_ttl=tugas.TTL_HASIL_DETIK,
         )
-        keluaran.seek(0)
+        # Pemiliknya disimpan di meta job, lalu dicocokkan saat mengunduh:
+        # tanpa itu, siapa pun yang sudah masuk bisa mengunduh laporan orang
+        # lain kalau id job-nya ketahuan.
+        job.meta['pemilik'] = current_user.id
+        job.meta['nama_file'] = None
+        job.save_meta()
 
-        return send_file(
-            keluaran,
-            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            as_attachment=True,
-            download_name=nama_file,
-        )
+        app.logger.info('Job %s diantre oleh %s (%s), bank=%s, %d berkas',
+                        job.id, current_user.nama_pengguna,
+                        current_user.cabang, bank_code, len(berkas))
+        return jsonify({'mode': 'antrean', 'job_id': job.id}), 202
 
+    # ── Mode langsung ───────────────────────────────────────────────────
+    try:
+        hasil = tugas.proses_ekstraksi(bank_code, berkas, folder_job)
+    except tugas.GagalEkstraksi as e:
+        return tolak(str(e), berkas=files)
     except Exception as e:
-        # Give some time for file handles to close (Windows fix)
-        import time
-        time.sleep(0.1)
-        return f'Error: {str(e)}', 500
-    finally:
-        # Bersihkan PDF yang diupload apa pun hasil akhirnya — sukses,
-        # exception, ATAU return dini karena validasi gagal (mis. terdeteksi
-        # scan, bulan bentrok). Berkas Excel hasilnya tidak perlu dibersihkan
-        # karena tidak pernah ditulis ke disk.
-        for p in saved_paths:
-            if os.path.exists(p):
-                try:
-                    os.remove(p)
-                except Exception:
-                    pass
+        app.logger.exception('Ekstraksi %s gagal', bank_code)
+        # Pesan teknisnya masuk jejak audit & log, TIDAK ke layar pemakai:
+        # isi exception bisa memuat potongan data dokumen.
+        return tolak(
+            'Terjadi kesalahan saat memproses berkas. Kejadian ini sudah '
+            'dicatat — hubungi admin bila berulang.', 500, berkas=files)
+
+    for pesan in hasil['peringatan']:
+        app.logger.warning(pesan)
+
+    auth.catat_audit('ekstraksi', 'berhasil', bank=bank_code,
+                     jumlah_berkas=len(files),
+                     nama_berkas=', '.join(f.filename for f in files),
+                     no_rekening=hasil['no_rekening'], app=app)
+
+    return send_file(
+        io.BytesIO(hasil['xlsx']),
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=hasil['nama_file'],
+    )
+
+
+def _ambil_job(id_job):
+    """
+    Ambil job milik pengguna yang sedang masuk.
+
+    Mengembalikan (job, respons_galat). Pemeriksaan pemilik dilakukan di sini
+    supaya tidak ada endpoint job yang lupa melakukannya.
+    """
+    from rq.job import Job
+    from rq.exceptions import NoSuchJobError
+    try:
+        job = Job.fetch(id_job, connection=antrean.koneksi_redis())
+    except NoSuchJobError:
+        # Hasil yang sudah lewat TTL juga jatuh ke sini — itu bukan
+        # kerusakan, melainkan kebijakan retensi yang bekerja.
+        return None, (jsonify({
+            'status': 'hilang',
+            'pesan': ('Pekerjaan tidak ditemukan atau hasilnya sudah '
+                      'kedaluwarsa. Silakan unggah ulang.')}), 404)
+    if job.meta.get('pemilik') != current_user.id:
+        app.logger.warning('%s mencoba mengakses job %s milik pengguna lain',
+                           current_user.nama_pengguna, id_job)
+        return None, (jsonify({'status': 'ditolak'}), 403)
+    return job, None
+
+
+@app.route('/job/<id_job>')
+@login_required
+def status_job(id_job):
+    """Status satu pekerjaan, dipanggil berkala oleh halaman depan."""
+    if not antrean.mode_antrean():
+        return jsonify({'status': 'hilang'}), 404
+
+    job, galat = _ambil_job(id_job)
+    if galat:
+        return galat
+
+    keadaan = job.get_status(refresh=True)
+    if keadaan in ('queued', 'deferred'):
+        return jsonify({'status': 'antre'})
+    if keadaan == 'started':
+        return jsonify({'status': 'jalan'})
+    if keadaan in ('failed', 'canceled', 'stopped'):
+        # Job yang meledak sampai RQ menandainya gagal berarti ada yang tidak
+        # tertangani di dalam tugas.jalankan_job — pesannya tetap tidak
+        # ditampilkan apa adanya ke pemakai.
+        app.logger.error('Job %s berakhir dengan status %s', id_job, keadaan)
+        return jsonify({'status': 'gagal',
+                        'pesan': ('Pekerjaan gagal diselesaikan. Kejadian ini '
+                                  'sudah dicatat — hubungi admin bila berulang.')})
+    if keadaan == 'finished':
+        hasil = job.return_value() or {}
+        if not hasil.get('ok'):
+            return jsonify({'status': 'gagal',
+                            'pesan': hasil.get('pesan', 'Ekstraksi gagal.')})
+        return jsonify({'status': 'selesai', 'nama_file': hasil['nama_file']})
+    return jsonify({'status': 'jalan'})
+
+
+@app.route('/job/<id_job>/unduh')
+@login_required
+def unduh_job(id_job):
+    """Kirim berkas hasil satu pekerjaan."""
+    if not antrean.mode_antrean():
+        abort(404)
+
+    job, galat = _ambil_job(id_job)
+    if galat:
+        return galat
+
+    if job.get_status(refresh=True) != 'finished':
+        return jsonify({'status': 'belum selesai'}), 409
+
+    hasil = job.return_value() or {}
+    if not hasil.get('ok'):
+        return jsonify({'status': 'gagal',
+                        'pesan': hasil.get('pesan', 'Ekstraksi gagal.')}), 400
+
+    return send_file(
+        io.BytesIO(hasil['xlsx']),
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=hasil['nama_file'],
+    )
 
 
 if __name__ == '__main__':
+    # Blok ini HANYA untuk menjalankan aplikasi di mesin sendiri saat
+    # mengembangkan. Untuk dipakai orang lain, jalankan lewat gunicorn —
+    # lihat wsgi.py dan DEPLOY.md. Server bawaan Werkzeug bukan server
+    # produksi, dan itu pernyataan pembuatnya sendiri, bukan pendapat.
+    #
+    # debug MATI secara bawaan. Sebelumnya di sini tertulis debug=True
+    # bersama host='0.0.0.0', dan itu berbahaya justru untuk aplikasi ini:
+    # begitu ada error, Werkzeug menampilkan halaman traceback berisi
+    # potongan kode sumber DAN isi variabel lokal di tiap bingkai. Pada
+    # aplikasi ini variabel lokal itu berisi nama pemilik rekening, nomor
+    # rekening, dan baris-baris mutasinya. Debugger-nya memang terkunci PIN
+    # pada Werkzeug versi sekarang, tapi halaman tracebacknya sendiri tidak.
+    #
+    # Dinyalakan hanya kalau diminta EKSPLISIT lewat XR_DEBUG=1, dan saat
+    # itu pun hanya mengikat ke localhost supaya tidak terjangkau dari
+    # jaringan.
+    debug = os.environ.get('XR_DEBUG') == '1'
+    host = '127.0.0.1' if debug else os.environ.get('XR_HOST', '127.0.0.1')
+    port = int(os.environ.get('XR_PORT', '5000'))
+
     print("\n" + "=" * 50)
     print(f"🚀 XR-App · eXtract-Report v{VERSI}")
     print("=" * 50)
-    print("\n📍 Akses aplikasi di: http://localhost:5000")
-    print("📍 Atau: http://127.0.0.1:5000")
+    print(f"\n📍 Akses aplikasi di: http://{host}:{port}")
     print(f"\n🏦 Bank tersedia: {', '.join(get_enabled_banks().keys())}")
+    if debug:
+        print("\n⚠️  MODE DEBUG AKTIF — halaman error akan menampilkan isi")
+        print("    variabel, termasuk data rekening. Jangan dipakai untuk")
+        print("    melayani orang lain. Hanya mengikat ke localhost.")
+    else:
+        print("\n💡 Untuk melayani pemakai lain, jangan pakai server ini —")
+        print("   jalankan lewat gunicorn (lihat DEPLOY.md).")
     print("\n⏹️  Tekan CTRL+C untuk stop server\n")
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=debug, host=host, port=port)

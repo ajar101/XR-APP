@@ -28,3 +28,16 @@ pdfplumber==0.11.10
 # karena pembersihan itu menangani gejalanya di sisi kita, bukan salah
 # dekripsi di sisi pdfminer — yang efek lainnya belum tentu ketahuan.
 pdfminer.six==20260107
+
+# Server WSGI produksi. app.run() bawaan Werkzeug hanya untuk pengembangan
+# di mesin sendiri — lihat wsgi.py & gunicorn.conf.py.
+gunicorn==26.2.0
+
+# Autentikasi & sesi. Penyimpanan penggunanya memakai sqlite3 dari pustaka
+# standar — lihat auth.py.
+Flask-Login==0.6.3
+
+# Antrean pekerjaan (opsional). Hanya dipakai kalau XR_REDIS_URL disetel —
+# tanpa itu aplikasi berjalan dalam mode langsung. Lihat antrean.py.
+rq==2.12.0
+redis==8.1.0

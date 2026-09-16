@@ -1,0 +1,76 @@
+{% extends "dasar.html" %}
+{% block judul %}Pengguna{% endblock %}
+{% block isi %}
+<div class="kartu-lebar">
+    <h1>Kelola Pengguna</h1>
+    <p class="kartu-sub">
+        Peran <strong>admin</strong> bisa mengelola pengguna dan melihat riwayat
+        seluruh cabang. Peran <strong>pemakai</strong> hanya bisa mengekstrak dan
+        melihat riwayat cabangnya sendiri.
+    </p>
+
+    <form method="post" class="borang-baris">
+        <input type="hidden" name="aksi" value="tambah">
+        <div>
+            <label for="nama_pengguna">Nama pengguna</label>
+            <input type="text" id="nama_pengguna" name="nama_pengguna" required>
+        </div>
+        <div>
+            <label for="nama_lengkap">Nama lengkap</label>
+            <input type="text" id="nama_lengkap" name="nama_lengkap" required>
+        </div>
+        <div>
+            <label for="cabang">Cabang</label>
+            <input type="text" id="cabang" name="cabang" required>
+        </div>
+        <div>
+            <label for="peran">Peran</label>
+            <select id="peran" name="peran">
+                {% for p in peran_tersedia %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
+            </select>
+        </div>
+        <div>
+            <label for="sandi">Kata sandi (min. 12)</label>
+            <input type="password" id="sandi" name="sandi" minlength="12"
+                   autocomplete="new-password" required>
+        </div>
+        <button type="submit" class="btn-primary">Tambah</button>
+    </form>
+
+    <div class="tabel-bungkus">
+    <table class="tabel">
+        <thead>
+            <tr><th>Nama pengguna</th><th>Nama lengkap</th><th>Cabang</th>
+                <th>Peran</th><th>Status</th><th>Dibuat</th><th></th></tr>
+        </thead>
+        <tbody>
+        {% for p in daftar %}
+            <tr>
+                <td class="mono">{{ p['nama_pengguna'] }}</td>
+                <td>{{ p['nama_lengkap'] }}</td>
+                <td>{{ p['cabang'] }}</td>
+                <td>{{ p['peran'] }}</td>
+                <td>
+                    <span class="status {{ 'oke' if p['aktif'] else 'galat' }}">
+                        {{ 'aktif' if p['aktif'] else 'nonaktif' }}
+                    </span>
+                </td>
+                <td class="mono">{{ p['dibuat']|replace('T', ' ') }}</td>
+                <td>
+                    <form method="post" class="sebaris">
+                        <input type="hidden" name="pengguna_id" value="{{ p['id'] }}">
+                        <input type="hidden" name="aksi"
+                               value="{{ 'nonaktifkan' if p['aktif'] else 'aktifkan' }}">
+                        <button type="submit" class="btn-kecil">
+                            {{ 'Nonaktifkan' if p['aktif'] else 'Aktifkan' }}
+                        </button>
+                    </form>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+{% endblock %}
+{% block kaki %}{{ daftar|length }} pengguna{% endblock %}

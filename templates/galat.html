@@ -1,0 +1,9 @@
+{% extends "dasar.html" %}
+{% block judul %}{{ kode }}{% endblock %}
+{% block isi %}
+<div class="kartu-tengah">
+    <h1>{{ kode }}</h1>
+    <p class="kartu-sub">{{ pesan }}</p>
+    <a class="btn-primary" href="{{ url_for('index') }}">Kembali</a>
+</div>
+{% endblock %}

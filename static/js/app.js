@@ -83,6 +83,83 @@ function showError(msg) {
     errorBox.style.display = 'block';
 }
 
+function namaDariHeader(response, bawaan) {
+    const cd = response.headers.get('Content-Disposition') || '';
+    const m = cd.match(/filename="?([^"]+)"?/);
+    return m ? m[1] : bawaan;
+}
+
+function simpanBerkas(blob, nama) {
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = nama;
+    document.body.appendChild(a); a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+}
+
+function selesai() {
+    loadingText.textContent = '✓ Selesai — file terunduh.';
+    setTimeout(() => {
+        loadingState.style.display = 'none';
+        fileInput.value = '';
+        fileName.textContent = '';
+        uploadLabel.textContent = LABEL_AWAL;
+        uploadHint.textContent  = HINT_AWAL;
+        uploadZone.classList.remove('has-file');
+        iconPdf.style.display   = 'block';
+        iconCheck.style.display = 'none';
+        checkReady();
+    }, 2500);
+}
+
+// Tanya status pekerjaan sampai selesai atau gagal.
+//
+// Jarak tanya dilonggarkan bertahap (2 detik lalu naik sampai 5): ekstraksi
+// PDF ratusan halaman makan puluhan detik, dan bertanya tiap detik selama
+// itu hanya membebani server tanpa membuat pemakai tahu lebih cepat.
+async function tungguJob(idJob) {
+    let jeda = 2000;
+    const batas = Date.now() + 15 * 60 * 1000;
+
+    while (Date.now() < batas) {
+        await new Promise(r => setTimeout(r, jeda));
+        jeda = Math.min(jeda + 500, 5000);
+
+        let data;
+        try {
+            const r = await fetch(`/job/${idJob}`);
+            data = await r.json();
+        } catch (e) {
+            continue;   // gangguan jaringan sesaat: coba lagi, jangan menyerah
+        }
+
+        if (data.status === 'antre' || data.status === 'jalan') continue;
+
+        clearInterval(stepTimer);
+        if (data.status === 'selesai') {
+            const unduhan = await fetch(`/job/${idJob}/unduh`);
+            if (!unduhan.ok) {
+                showError('Gagal mengunduh hasil. Silakan coba lagi.');
+                loadingState.style.display = 'none';
+                return;
+            }
+            simpanBerkas(await unduhan.blob(),
+                         namaDariHeader(unduhan, data.nama_file || 'XR_Report.xlsx'));
+            selesai();
+        } else {
+            showError(data.pesan || 'Pekerjaan gagal diselesaikan.');
+            loadingState.style.display = 'none';
+        }
+        return;
+    }
+
+    clearInterval(stepTimer);
+    showError('Pekerjaan belum selesai setelah 15 menit. Cek halaman Riwayat, '
+              + 'atau hubungi admin.');
+    loadingState.style.display = 'none';
+}
+
 const loadingSteps = [
     'Membaca PDF...', 'Mengekstrak transaksi...', 'Menyusun pivot table...',
     'Menghitung HHI score...', 'Menulis Excel...'
@@ -112,37 +189,32 @@ form.addEventListener('submit', async function(e) {
 
     try {
         const response = await fetch('/upload', { method: 'POST', body: formData });
-        clearInterval(stepTimer);
 
-        if (response.ok) {
-            const cd     = response.headers.get('Content-Disposition') || '';
-            const match  = cd.match(/filename="?([^"]+)"?/);
-            const dlName = match ? match[1] : 'XR_Report.xlsx';
-
-            const blob = await response.blob();
-            const url  = window.URL.createObjectURL(blob);
-            const a    = document.createElement('a');
-            a.href = url; a.download = dlName;
-            document.body.appendChild(a); a.click();
-            window.URL.revokeObjectURL(url);
-            document.body.removeChild(a);
-
-            loadingText.textContent = '✓ Selesai — file terunduh.';
-            setTimeout(() => {
-                loadingState.style.display = 'none';
-                fileInput.value = '';
-                fileName.textContent = '';
-                uploadLabel.textContent = LABEL_AWAL;
-                uploadHint.textContent  = HINT_AWAL;
-                uploadZone.classList.remove('has-file');
-                iconPdf.style.display   = 'block';
-                iconCheck.style.display = 'none';
-                checkReady();
-            }, 2500);
-        } else {
-            const err = await response.text();
-            showError('Error: ' + err);
+        if (!response.ok) {
+            clearInterval(stepTimer);
+            showError('Error: ' + await response.text());
             loadingState.style.display = 'none';
+            return;
+        }
+
+        // Server menjawab dengan salah satu dari dua bentuk, tergantung
+        // modenya (lihat antrean.py):
+        //
+        //   MODE LANGSUNG  berkas .xlsx langsung di badan respons
+        //   MODE ANTREAN   JSON {job_id} — pekerjaannya dititipkan ke worker
+        //
+        // Dibedakan dari Content-Type, bukan dari setelan yang ditanam ke
+        // halaman: dengan begitu berpindah mode di server tidak menuntut
+        // halamannya ikut diubah atau cache-nya dibersihkan.
+        const tipe = response.headers.get('Content-Type') || '';
+        if (tipe.includes('application/json')) {
+            const data = await response.json();
+            await tungguJob(data.job_id);
+        } else {
+            clearInterval(stepTimer);
+            simpanBerkas(await response.blob(),
+                         namaDariHeader(response, 'XR_Report.xlsx'));
+            selesai();
         }
     } catch (err) {
         clearInterval(stepTimer);

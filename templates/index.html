@@ -20,7 +20,13 @@
         </div>
         <span class="logo-text">XR<span>-App</span></span>
     </div>
-    <span class="version-badge">v{{ versi }} · {{ banks|length }} Bank · {{ jumlah_format }} Format</span>
+    <nav class="bilah-akun">
+        <span class="version-badge">v{{ versi }} · {{ banks|length }} Bank · {{ jumlah_format }} Format</span>
+        <a href="{{ url_for('riwayat') }}">Riwayat</a>
+        {% if current_user.admin %}<a href="{{ url_for('kelola_pengguna') }}">Pengguna</a>{% endif %}
+        <span class="akun-info">{{ current_user.nama_lengkap }} · {{ current_user.cabang }}</span>
+        <a class="keluar" href="{{ url_for('logout') }}">Keluar</a>
+    </nav>
 </header>
 
 <main class="main">
