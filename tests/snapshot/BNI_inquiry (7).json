@@ -1,0 +1,119 @@
+{
+ "berkas": "BNI_inquiry (7).pdf",
+ "bank": "bni",
+ "format": "inquiry",
+ "identitas": {
+  "no_rekening": "8008811117",
+  "nama_pemilik": "UDL INTERNATIONAL PT",
+  "jenis_rekening": "-"
+ },
+ "bulan": [
+  {
+   "bulan": "Februari",
+   "tahun": "2026",
+   "saldo_awal": 958025801.0,
+   "jumlah_hari": 28,
+   "jumlah_transaksi": 25,
+   "total_debit": 1045171142.0,
+   "total_kredit": 583313344.0
+  }
+ ],
+ "transaksi": [
+  ["Februari", 2, "Kredit", 917259.0, "PT UDL INTERNAS", "KREDIT LAIN-LAIN | 152 PT UDL INTERNAS Pembayaran Bunga : 70300137734"],
+  ["Februari", 3, "Kredit", 1834518.0, "PT UDL INTERNAS", "KREDIT LAIN-LAIN | 152 PT UDL INTERNAS Pembayaran Bunga : 70300139881"],
+  ["Februari", 3, "Kredit", 1834518.0, "PT UDL INTERNAS", "KREDIT LAIN-LAIN | 152 PT UDL INTERNAS Pembayaran Bunga : 70300139874"],
+  ["Februari", 5, "Kredit", 3397290.0, "PT UDL INTERNAS", "KREDIT LAIN-LAIN | 152 PT UDL INTERNAS Pembayaran Bunga : 70300169545"],
+  ["Februari", 6, "Kredit", 42623400.0, "BONGKAR EXPRESS SURABAY", "TRANSFER DARI | PEMINDAHAN DARI 2211660000 BONGKAR EXPRESS SURABAY | JL-2512000036, JL- 25120000035 TRF TO:000000008008"],
+  ["Februari", 6, "Debit", 140000000.0, "Tarik Cek", "TARIK CHQ CF141625"],
+  ["Februari", 6, "Kredit", 2666580.0, "NUSA TRANS SEGARA", "TRANSFER DARI | PEMINDAHAN DARI 1171688800 NUSA TRANS SEGARA | JL-2601000005 TRF TO:000000008008811117"],
+  ["Februari", 9, "Kredit", 1834518.0, "PT UDL INTERNAS", "KREDIT LAIN-LAIN | 152 PT UDL INTERNAS Pembayaran Bunga : 70300138074"],
+  ["Februari", 11, "Debit", 150000000.0, "UDL INTERNATIONAL", "TRANSFER KE | PEMINDAHAN KE 8002211116 UDL INTERNATIONAL | OPER BNI TAPLUS TRF TO:000000008002211116"],
+  ["Februari", 11, "Debit", 125000000.0, "Tarik Cek", "TARIK CHQ CH043751"],
+  ["Februari", 12, "Kredit", 806837.0, "PT UDL INTERNAS", "KREDIT LAIN-LAIN | 152 PT UDL INTERNAS Pembayaran Bunga : 70300140466"],
+  ["Februari", 13, "Kredit", 479028900.0, "ESA ZONA EKSPRES", "TRANSFER DARI | PEMINDAHAN DARI 1171688888 ESA ZONA EKSPRES | ONGKOS ANGKUT KE-III 2026 TRF TO:0000000080088111"],
+  ["Februari", 13, "Kredit", 1764000.0, "UDL INTERNATIONAL", "SETOR TUNAI | UDL INTERNATIONAL"],
+  ["Februari", 13, "Kredit", 1664638.0, "PT UDL INTERNAS", "KREDIT LAIN-LAIN | 152 PT UDL INTERNAS Pembayaran Bunga : 70300158732"],
+  ["Februari", 13, "Kredit", 3397259.0, "PT UDL INTERNAS", "KREDIT LAIN-LAIN | 152 PT UDL INTERNAS Pembayaran Bunga : 70300146913"],
+  ["Februari", 18, "Kredit", 917259.0, "PT UDL INTERNAS", "KREDIT LAIN-LAIN | 152 PT UDL INTERNAS Pembayaran Bunga : 70300138433"],
+  ["Februari", 20, "Kredit", 917259.0, "PT UDL INTERNAS", "KREDIT LAIN-LAIN | 152 PT UDL INTERNAS Pembayaran Bunga : 70300162953"],
+  ["Februari", 20, "Debit", 150000000.0, "UDL INTERNATIONAL", "TRANSFER KE | PEMINDAHAN KE 8002211116 UDL INTERNATIONAL | OPER BNI TAPLUS TRF TO:000000008002211116"],
+  ["Februari", 20, "Debit", 160000000.0, "Tarik Cek", "TARIK CHQ CH043752"],
+  ["Februari", 20, "Kredit", 38978400.0, "BONGKAR EXPRESS SURABAY", "TRANSFER DARI | PEMINDAHAN DARI 2211660000 BONGKAR EXPRESS SURABAY | TRF TO:000000008008811117"],
+  ["Februari", 26, "Debit", 220000000.0, "Tarik Cek", "TARIK CHQ CH043753"],
+  ["Februari", 27, "Debit", 100000000.0, "UDL INTERNATIONAL", "TRANSFER KE | PEMINDAHAN KE 8002211116 UDL INTERNATIONAL | OPER BNI TAPLUS TRF TO:000000008002211116"],
+  ["Februari", 28, "Kredit", 730709.0, "Jasa Giro/Bunga", "JASA GIRO/BUNGA"],
+  ["Februari", 28, "Debit", 146142.0, "PPh Jasa Giro", "PPH"],
+  ["Februari", 28, "Debit", 25000.0, "Biaya Admin", "BIAYA ADM REK"]
+ ],
+ "saldo_harian": [
+  ["Februari", 1, 958025801.0],
+  ["Februari", 2, 958943060.0],
+  ["Februari", 3, 962612096.0],
+  ["Februari", 4, 962612096.0],
+  ["Februari", 5, 966009386.0],
+  ["Februari", 6, 871299366.0],
+  ["Februari", 7, 871299366.0],
+  ["Februari", 8, 871299366.0],
+  ["Februari", 9, 873133884.0],
+  ["Februari", 10, 873133884.0],
+  ["Februari", 11, 598133884.0],
+  ["Februari", 12, 598940721.0],
+  ["Februari", 13, 1084795518.0],
+  ["Februari", 14, 1084795518.0],
+  ["Februari", 15, 1084795518.0],
+  ["Februari", 16, 1084795518.0],
+  ["Februari", 17, 1084795518.0],
+  ["Februari", 18, 1085712777.0],
+  ["Februari", 19, 1085712777.0],
+  ["Februari", 20, 815608436.0],
+  ["Februari", 21, 815608436.0],
+  ["Februari", 22, 815608436.0],
+  ["Februari", 23, 815608436.0],
+  ["Februari", 24, 815608436.0],
+  ["Februari", 25, 815608436.0],
+  ["Februari", 26, 595608436.0],
+  ["Februari", 27, 495608436.0],
+  ["Februari", 28, 496168003.0]
+ ],
+ "temuan": [
+  ["Metadata PDF", "Rendah", "-", "-", "-", "Info metadata PDF (untuk review manual)", "Producer: iText 1.4.5 (by lowagie.com) | Creator: JasperReports (transaction_history_c08) | Created: D:20260302080714+07'00' | Modified: D:20260302080714+07'00'", null],
+  ["Nominal Bulat Berulang", "Rendah", "Februari", "-", "-", "6 transaksi bernilai sangat bulat (kelipatan Rp10 juta, ≥Rp50,000,000)", "24.0% dari total 25 transaksi bulan Februari — pola umum di transaksi rekayasa", 920000000]
+ ],
+ "metadata": {
+  "biaya_admin": {
+   "label_nama": "Biaya Admin",
+   "jadwal": {
+    "Februari": {
+     "tanggal": 28,
+     "aturan": "akhir bulan (ketentuan BNI)"
+    }
+   }
+  },
+  "bunga_pajak": {
+   "kolom": "Keterangan Transaksi",
+   "bunga": [
+    "JASA GIRO/BUNGA"
+   ],
+   "pajak": [
+    "PPH"
+   ]
+  },
+  "peringatan": []
+ },
+ "checksum": {
+  "ok": true,
+  "duplikat_digabung": null,
+  "periode": [
+   {
+    "label": "01-Feb-2026 - 28-Feb-2026",
+    "bulan": "Februari",
+    "checks": {
+     "total_debit": true,
+     "total_credit": true,
+     "closing": true
+    }
+   }
+  ],
+  "peringatan": []
+ }
+}

@@ -1,0 +1,122 @@
+{
+ "berkas": "BNI_inquiry (8).pdf",
+ "bank": "bni",
+ "format": "inquiry",
+ "identitas": {
+  "no_rekening": "8008811117",
+  "nama_pemilik": "UDL INTERNATIONAL PT",
+  "jenis_rekening": "-"
+ },
+ "bulan": [
+  {
+   "bulan": "Maret",
+   "tahun": "2026",
+   "saldo_awal": 496168003.0,
+   "jumlah_hari": 31,
+   "jumlah_transaksi": 26,
+   "total_debit": 1135579349.0,
+   "total_kredit": 3489022133.0
+  }
+ ],
+ "transaksi": [
+  ["Maret", 2, "Kredit", 828492.0, "PT UDL INTERNAS", "KREDIT LAIN-LAIN | 152 PT UDL INTERNAS Pembayaran Bunga : 70300137734"],
+  ["Maret", 3, "Kredit", 1656984.0, "PT UDL INTERNAS", "KREDIT LAIN-LAIN | 152 PT UDL INTERNAS Pembayaran Bunga : 70300139881"],
+  ["Maret", 3, "Kredit", 1656984.0, "PT UDL INTERNAS", "KREDIT LAIN-LAIN | 152 PT UDL INTERNAS Pembayaran Bunga : 70300139874"],
+  ["Maret", 5, "Kredit", 3068520.0, "PT UDL INTERNAS", "KREDIT LAIN-LAIN | 152 PT UDL INTERNAS Pembayaran Bunga : 70300169545"],
+  ["Maret", 5, "Debit", 150000000.0, "UDL INTERNATIONAL", "TRANSFER KE | PEMINDAHAN KE 8002211116 UDL INTERNATIONAL | OPER BNI TAPLUS TRF TO:000000008002211116"],
+  ["Maret", 5, "Kredit", 999980000.0, "SHINHAN BANK IND. IR SOEKARNO (BRAN-PT BANK SHINHAN I", "TRANSFER DARI | SHINHAN BANK IND. IR SOEKARNO (BRAN-PT BANK SHINHAN I | RTGS KE BNI | RC531368263"],
+  ["Maret", 6, "Debit", 165000000.0, "Tarik Cek", "TARIK CHQ CH043754"],
+  ["Maret", 6, "Kredit", 25212380.0, "BONGKAR EXPRESS SURABAY", "TRANSFER DARI | PEMINDAHAN DARI 2211660000 BONGKAR EXPRESS SURABAY | JL-2601000029, JL- 2601000030 TRF TO:0000000080088"],
+  ["Maret", 9, "Kredit", 1656984.0, "PT UDL INTERNAS", "KREDIT LAIN-LAIN | 152 PT UDL INTERNAS Pembayaran Bunga : 70300138074"],
+  ["Maret", 12, "Kredit", 728756.0, "PT UDL INTERNAS", "KREDIT LAIN-LAIN | 152 PT UDL INTERNAS Pembayaran Bunga : 70300140466"],
+  ["Maret", 12, "Debit", 145000000.0, "Tarik Cek", "TARIK CHQ CH043755"],
+  ["Maret", 12, "Debit", 350000000.0, "UDL INTERNATIONAL", "TRANSFER KE | PEMINDAHAN KE 8002211116 UDL INTERNATIONAL | OPER BNI TAPLUS TRF TO:000000008002211116"],
+  ["Maret", 12, "Kredit", 249997100.0, "SHINHAN BANK IN", "KREDIT LAIN-LAIN | 152 SHINHAN BANK IN LLG KE BNI"],
+  ["Maret", 13, "Kredit", 3068492.0, "PT UDL INTERNAS", "KREDIT LAIN-LAIN | 152 PT UDL INTERNAS Pembayaran Bunga : 70300146913"],
+  ["Maret", 13, "Kredit", 1503544.0, "PT UDL INTERNAS", "KREDIT LAIN-LAIN | 152 PT UDL INTERNAS Pembayaran Bunga : 70300158732"],
+  ["Maret", 13, "Kredit", 499997100.0, "SHINHAN BANK IN", "KREDIT LAIN-LAIN | 152 SHINHAN BANK IN LLG KE BNI"],
+  ["Maret", 13, "Kredit", 999997100.0, "SHINHAN BANK IN", "KREDIT LAIN-LAIN | 152 SHINHAN BANK IN LLG KE BNI"],
+  ["Maret", 13, "Kredit", 445230170.0, "ESA ZONA EKSPRES", "TRANSFER DARI | PEMINDAHAN DARI 1171688888 ESA ZONA EKSPRES | ONGKOS ANGKUT KE-V 2026 TRF TO:000000008008811117"],
+  ["Maret", 16, "Kredit", 828492.0, "PT UDL INTERNAS", "KREDIT LAIN-LAIN | 152 PT UDL INTERNAS Pembayaran Bunga : 70300138433"],
+  ["Maret", 17, "Debit", 160000000.0, "Tarik Cek", "TARIK CHQ CH043756"],
+  ["Maret", 25, "Kredit", 828492.0, "PT UDL INTERNAS", "KREDIT LAIN-LAIN | 152 PT UDL INTERNAS Pembayaran Bunga : 70300162953"],
+  ["Maret", 25, "Kredit", 250010800.0, "SHINHAN BANK IN", "KREDIT LAIN-LAIN | 152 SHINHAN BANK IN LLG KE BNI"],
+  ["Maret", 27, "Debit", 165000000.0, "Tarik Cek", "TARIK CHQ CH043757"],
+  ["Maret", 31, "Kredit", 2771743.0, "Jasa Giro/Bunga", "JASA GIRO/BUNGA"],
+  ["Maret", 31, "Debit", 554349.0, "PPh Jasa Giro", "PPH"],
+  ["Maret", 31, "Debit", 25000.0, "Biaya Admin", "BIAYA ADM REK"]
+ ],
+ "saldo_harian": [
+  ["Maret", 1, 496168003.0],
+  ["Maret", 2, 496996495.0],
+  ["Maret", 3, 500310463.0],
+  ["Maret", 4, 500310463.0],
+  ["Maret", 5, 1353358983.0],
+  ["Maret", 6, 1213571363.0],
+  ["Maret", 7, 1213571363.0],
+  ["Maret", 8, 1213571363.0],
+  ["Maret", 9, 1215228347.0],
+  ["Maret", 10, 1215228347.0],
+  ["Maret", 11, 1215228347.0],
+  ["Maret", 12, 970954203.0],
+  ["Maret", 13, 2920750609.0],
+  ["Maret", 14, 2920750609.0],
+  ["Maret", 15, 2920750609.0],
+  ["Maret", 16, 2921579101.0],
+  ["Maret", 17, 2761579101.0],
+  ["Maret", 18, 2761579101.0],
+  ["Maret", 19, 2761579101.0],
+  ["Maret", 20, 2761579101.0],
+  ["Maret", 21, 2761579101.0],
+  ["Maret", 22, 2761579101.0],
+  ["Maret", 23, 2761579101.0],
+  ["Maret", 24, 2761579101.0],
+  ["Maret", 25, 3012418393.0],
+  ["Maret", 26, 3012418393.0],
+  ["Maret", 27, 2847418393.0],
+  ["Maret", 28, 2847418393.0],
+  ["Maret", 29, 2847418393.0],
+  ["Maret", 30, 2847418393.0],
+  ["Maret", 31, 2849610787.0]
+ ],
+ "temuan": [
+  ["Metadata PDF", "Rendah", "-", "-", "-", "Info metadata PDF (untuk review manual)", "Producer: iText 1.4.5 (by lowagie.com) | Creator: JasperReports (transaction_history_c08) | Created: D:20260506142136+07'00' | Modified: D:20260506142136+07'00'", null]
+ ],
+ "metadata": {
+  "biaya_admin": {
+   "label_nama": "Biaya Admin",
+   "jadwal": {
+    "Maret": {
+     "tanggal": 31,
+     "aturan": "akhir bulan (ketentuan BNI)"
+    }
+   }
+  },
+  "bunga_pajak": {
+   "kolom": "Keterangan Transaksi",
+   "bunga": [
+    "JASA GIRO/BUNGA"
+   ],
+   "pajak": [
+    "PPH"
+   ]
+  },
+  "peringatan": []
+ },
+ "checksum": {
+  "ok": true,
+  "duplikat_digabung": null,
+  "periode": [
+   {
+    "label": "01-Mar-2026 - 31-Mar-2026",
+    "bulan": "Maret",
+    "checks": {
+     "total_debit": true,
+     "total_credit": true,
+     "closing": true
+    }
+   }
+  ],
+  "peringatan": []
+ }
+}

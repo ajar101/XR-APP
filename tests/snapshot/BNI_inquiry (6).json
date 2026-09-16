@@ -1,0 +1,123 @@
+{
+ "berkas": "BNI_inquiry (6).pdf",
+ "bank": "bni",
+ "format": "inquiry",
+ "identitas": {
+  "no_rekening": "8008811117",
+  "nama_pemilik": "UDL INTERNATIONAL PT",
+  "jenis_rekening": "-"
+ },
+ "bulan": [
+  {
+   "bulan": "April",
+   "tahun": "2026",
+   "saldo_awal": 2849610787.0,
+   "jumlah_hari": 30,
+   "jumlah_transaksi": 26,
+   "total_debit": 1370847281.0,
+   "total_kredit": 1763744600.0
+  }
+ ],
+ "transaksi": [
+  ["April", 2, "Kredit", 58424000.0, "BONGKAR EXPRESS SURABAY", "TRANSFER DARI | PEMINDAHAN DARI 2211660000 BONGKAR EXPRESS SURABAY | JL-2602000006-A, JL- 2602000006-B TRF TO:000000008"],
+  ["April", 2, "Kredit", 917259.0, "PT UDL INTERNAS", "KREDIT LAIN-LAIN | 152 PT UDL INTERNAS Pembayaran Bunga : 70300137734"],
+  ["April", 2, "Debit", 145000000.0, "Tarik Cek", "TARIK CHQ CH043758"],
+  ["April", 2, "Debit", 100000000.0, "UDL INTERNATIONAL", "TRANSFER KE | PEMINDAHAN KE 8002211116 UDL INTERNATIONAL | OPER BNI TAPLUS TRF TO:000000008002211116"],
+  ["April", 2, "Kredit", 580874175.0, "ESA ZONA EKSPRES", "TRANSFER DARI | PEMINDAHAN DARI 1171688888 ESA ZONA EKSPRES | ONGKOS ANGKUT KE-VII 2026 TRF TO:0000000080088111"],
+  ["April", 6, "Kredit", 1834518.0, "PT UDL INTERNAS", "KREDIT LAIN-LAIN | 152 PT UDL INTERNAS PPU./T15H -0965 Pembayaran Bung"],
+  ["April", 6, "Kredit", 1834518.0, "PT UDL INTERNAS", "KREDIT LAIN-LAIN | 152 PT UDL INTERNAS PPU./T15H -0965 Pembayaran Bung"],
+  ["April", 7, "Kredit", 1553300.0, "UDL INTERNATIONAL", "SETOR TUNAI | UDL INTERNATIONAL"],
+  ["April", 8, "Kredit", 1834518.0, "PT UDL INTERNAS", "KREDIT LAIN-LAIN | 152 PT UDL INTERNAS Pembayaran Bunga : 70300138074"],
+  ["April", 9, "Debit", 140000000.0, "Tarik Cek", "TARIK CHQ CH043759"],
+  ["April", 10, "Kredit", 58951560.0, "BONGKAR EXPRESS SURABAY", "TRANSFER DARI | PEMINDAHAN DARI 2211660000 BONGKAR EXPRESS SURABAY | JL-2602000017, JL- 2602000018 TRF TO:0000000080088"],
+  ["April", 10, "Debit", 100000000.0, "UDL INTERNATIONAL", "TRANSFER KE | PEMINDAHAN KE 8002211116 UDL INTERNATIONAL | OPER BNI TAPLUS TRF TO:000000008002211116"],
+  ["April", 14, "Kredit", 917259.0, "PT UDL INTERNAS", "KREDIT LAIN-LAIN | 152 PT UDL INTERNAS Pembayaran Bunga : 70300138433"],
+  ["April", 15, "Debit", 180000000.0, "Tarik Cek", "TARIK CHQ CH043760"],
+  ["April", 16, "Debit", 200000000.0, "UDL INTERNATIONAL", "TRANSFER KE | PEMINDAHAN KE 8002211116 UDL INTERNATIONAL | OPER BNI TAPLUS TRF TO:000000008002211116"],
+  ["April", 17, "Kredit", 55167080.0, "BONGKAR EXPRESS SURABAY", "TRANSFER DARI | PEMINDAHAN DARI 2211660000 BONGKAR EXPRESS SURABAY | JL-2603000010, JL- 2603000011 TRF TO:0000000080088"],
+  ["April", 17, "Kredit", 414557640.0, "ESA ZONA EKSPRES", "TRANSFER DARI | PEMINDAHAN DARI 1171688888 ESA ZONA EKSPRES | ONGKOS ANGKUT KE-VIII 2026 TRF TO:000000008008811"],
+  ["April", 22, "Debit", 180000000.0, "Tarik Cek", "TARIK CHQ CH043761"],
+  ["April", 23, "Debit", 100000000.0, "UDL INTERNATIONAL", "TRANSFER KE | PEMINDAHAN KE 8002211116 UDL INTERNATIONAL | OPER BNI TAPLUS TRF TO:000000008002211116"],
+  ["April", 29, "Debit", 175000000.0, "Tarik Cek", "TARIK CHQ CH043762"],
+  ["April", 30, "Kredit", 42379200.0, "BONGKAR EXPRESS SURABAY", "TRANSFER DARI | PEMINDAHAN DARI 2211660000 BONGKAR EXPRESS SURABAY | JL-2603000016 TRF TO:000000008008811117"],
+  ["April", 30, "Kredit", 540388170.0, "ESA ZONA EKSPRES", "TRANSFER DARI | PEMINDAHAN DARI 1171688888 ESA ZONA EKSPRES | ONGKOS ANGKUT KE-IX 2026 TRF TO:00000000800881111"],
+  ["April", 30, "Debit", 50000000.0, "UDL INTERNATIONAL", "TRANSFER KE | PEMINDAHAN KE 8002211116 UDL INTERNATIONAL | OPER BNI TAPLUS TRF TO:000000008002211116"],
+  ["April", 30, "Kredit", 4111403.0, "Jasa Giro/Bunga", "JASA GIRO/BUNGA"],
+  ["April", 30, "Debit", 822281.0, "PPh Jasa Giro", "PPH"],
+  ["April", 30, "Debit", 25000.0, "Biaya Admin", "BIAYA ADM REK"]
+ ],
+ "saldo_harian": [
+  ["April", 1, 2849610787.0],
+  ["April", 2, 3244826221.0],
+  ["April", 3, 3244826221.0],
+  ["April", 4, 3244826221.0],
+  ["April", 5, 3244826221.0],
+  ["April", 6, 3248495257.0],
+  ["April", 7, 3250048557.0],
+  ["April", 8, 3251883075.0],
+  ["April", 9, 3111883075.0],
+  ["April", 10, 3070834635.0],
+  ["April", 11, 3070834635.0],
+  ["April", 12, 3070834635.0],
+  ["April", 13, 3070834635.0],
+  ["April", 14, 3071751894.0],
+  ["April", 15, 2891751894.0],
+  ["April", 16, 2691751894.0],
+  ["April", 17, 3161476614.0],
+  ["April", 18, 3161476614.0],
+  ["April", 19, 3161476614.0],
+  ["April", 20, 3161476614.0],
+  ["April", 21, 3161476614.0],
+  ["April", 22, 2981476614.0],
+  ["April", 23, 2881476614.0],
+  ["April", 24, 2881476614.0],
+  ["April", 25, 2881476614.0],
+  ["April", 26, 2881476614.0],
+  ["April", 27, 2881476614.0],
+  ["April", 28, 2881476614.0],
+  ["April", 29, 2706476614.0],
+  ["April", 30, 3242508106.0]
+ ],
+ "temuan": [
+  ["Duplikasi Transaksi", "Sedang", "April", "6", "-", "Transaksi identik berulang 2x pada tanggal 6", "Kredit Rp1,834,518.0 — \"KREDIT LAIN-LAIN | 152 PT UDL INTERNAS PPU./T15H -0965 Pembayaran Bung\" — cek apakah ini transaksi rutin yang wajar berulang", 3669036],
+  ["Metadata PDF", "Rendah", "-", "-", "-", "Info metadata PDF (untuk review manual)", "Producer: iText 1.4.5 (by lowagie.com) | Creator: JasperReports (transaction_history_c08) | Created: D:20260506141725+07'00' | Modified: D:20260506141725+07'00'", null],
+  ["Nominal Bulat Berulang", "Rendah", "April", "-", "-", "8 transaksi bernilai sangat bulat (kelipatan Rp10 juta, ≥Rp50,000,000)", "30.8% dari total 26 transaksi bulan April — pola umum di transaksi rekayasa", 1050000000]
+ ],
+ "metadata": {
+  "biaya_admin": {
+   "label_nama": "Biaya Admin",
+   "jadwal": {
+    "April": {
+     "tanggal": 30,
+     "aturan": "akhir bulan (ketentuan BNI)"
+    }
+   }
+  },
+  "bunga_pajak": {
+   "kolom": "Keterangan Transaksi",
+   "bunga": [
+    "JASA GIRO/BUNGA"
+   ],
+   "pajak": [
+    "PPH"
+   ]
+  },
+  "peringatan": []
+ },
+ "checksum": {
+  "ok": true,
+  "duplikat_digabung": null,
+  "periode": [
+   {
+    "label": "01-Apr-2026 - 30-Apr-2026",
+    "bulan": "April",
+    "checks": {
+     "total_debit": true,
+     "total_credit": true,
+     "closing": true
+    }
+   }
+  ],
+  "peringatan": []
+ }
+}

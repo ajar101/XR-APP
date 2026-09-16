@@ -1,0 +1,120 @@
+{
+ "berkas": "BNI_inquiry (1).pdf",
+ "bank": "bni",
+ "format": "inquiry",
+ "identitas": {
+  "no_rekening": "773392009",
+  "nama_pemilik": "MATARI JELAJAH INDONESIA PT",
+  "jenis_rekening": "-"
+ },
+ "bulan": [
+  {
+   "bulan": "Januari",
+   "tahun": "2026",
+   "saldo_awal": 4306363.0,
+   "jumlah_hari": 31,
+   "jumlah_transaksi": 7,
+   "total_debit": 4255000.0,
+   "total_kredit": 82962640.0
+  }
+ ],
+ "transaksi": [
+  ["Januari", 4, "Debit", 3000000.0, "8801326463", "TRF/PAY/TOP-UP ECHANNEL | PEMINDAHAN KE 8801326463 | 0000000000000000 | 8801326463 INTERNAL TRANSFER KE BCA MA"],
+  ["Januari", 4, "Debit", 2500.0, "Biaya Transaksi BI-FAST", "BY TRX BIFAST"],
+  ["Januari", 5, "Debit", 1000000.0, "5315767766", "TRF/PAY/TOP-UP ECHANNEL | PEMINDAHAN KE 5315767766| 0000000000000000 | 5315767766 PAYROLL GAJI DES 2025"],
+  ["Januari", 26, "Kredit", 2805000.0, "CITRA ABADI SEJATI", "TRANSFER DARI | PEMINDAHAN DARI 201277351 CITRA ABADI SEJATI | 001 INV GT S 2026 | SEWA DAN TOL | 0773392009 202601263665822100"],
+  ["Januari", 31, "Kredit", 80157640.0, "CITRA ABADI SEJATI", "TRANSFER DARI | PEMINDAHAN DARI 201277351 CITRA ABADI SEJATI | 009 010 INV GT S 2026 | VEHICLE RENT | 0773392009 202602070369727077"],
+  ["Januari", 31, "Debit", 2500.0, "", "BY TRX"],
+  ["Januari", 31, "Debit", 250000.0, "Biaya Admin", "BIAYA ADM REK"]
+ ],
+ "saldo_harian": [
+  ["Januari", 1, 4306363.0],
+  ["Januari", 2, 4306363.0],
+  ["Januari", 3, 4306363.0],
+  ["Januari", 4, 1303863.0],
+  ["Januari", 5, 303863.0],
+  ["Januari", 6, 303863.0],
+  ["Januari", 7, 303863.0],
+  ["Januari", 8, 303863.0],
+  ["Januari", 9, 303863.0],
+  ["Januari", 10, 303863.0],
+  ["Januari", 11, 303863.0],
+  ["Januari", 12, 303863.0],
+  ["Januari", 13, 303863.0],
+  ["Januari", 14, 303863.0],
+  ["Januari", 15, 303863.0],
+  ["Januari", 16, 303863.0],
+  ["Januari", 17, 303863.0],
+  ["Januari", 18, 303863.0],
+  ["Januari", 19, 303863.0],
+  ["Januari", 20, 303863.0],
+  ["Januari", 21, 303863.0],
+  ["Januari", 22, 303863.0],
+  ["Januari", 23, 303863.0],
+  ["Januari", 24, 303863.0],
+  ["Januari", 25, 303863.0],
+  ["Januari", 26, 3106363.0],
+  ["Januari", 27, 3106363.0],
+  ["Januari", 28, 3106363.0],
+  ["Januari", 29, 3106363.0],
+  ["Januari", 30, 3106363.0],
+  ["Januari", 31, 82236503.0]
+ ],
+ "temuan": [
+  ["Metadata PDF", "Rendah", "-", "-", "-", "Info metadata PDF (untuk review manual)", "Producer: airSlate inc. Mellivora 3.5.4 | Creator: JasperReports (transaction_history_c08) | Created: D:20260209044802Z00'00' | Modified: D:20260209044802Z00'00'", null],
+  ["Peringatan Pembacaan Dokumen", "Tinggi", "Januari", "-", "1", "Ada baris yang tanggalnya tidak terbaca", "1 baris pada blok 01-Jan-2026 - 31-Jan-2026, mis. baris nomor 4 (halaman 1) yang kolom Post Date-nya tercetak \"05/01/206 00.00.00\".", null],
+  ["Running Balance Tidak Konsisten", "Tinggi", "Januari", "26", "1", "Saldo berjalan tidak sesuai dengan mutasi tercatat", "Perkiraan saldo 3,108,863.00 vs tercetak 3,106,363.00 (selisih -2,500.00)", -2500],
+  ["Running Balance Tidak Konsisten", "Tinggi", "Januari", "31", "1", "Saldo berjalan tidak sesuai dengan mutasi tercatat", "Perkiraan saldo 82,011,503.00 vs tercetak 82,236,503.00 (selisih 225,000.00)", 225000],
+  ["Running Balance Tidak Konsisten", "Tinggi", "Januari", "31", "1", "Saldo berjalan tidak sesuai dengan mutasi tercatat", "Perkiraan saldo 83,261,503.00 vs tercetak 82,261,503.00 (selisih -1,000,000.00)", -1000000],
+  ["Saldo Tidak Balance", "Tinggi", "Januari", "-", "-", "Saldo Awal + Kredit − Debit tidak sama dengan Saldo Akhir di bulan Januari", "Saldo Awal 4,306,363.0 + Kredit 82,962,640 − Debit 4,255,000 = 83,014,003.0, tapi Saldo Akhir tercatat 82,236,503", 777500.0],
+  ["Selisih dengan Ringkasan PDF", "Tinggi", "Januari", "-", "01-Jan-2026 - 31-Jan-2026", "Saldo akhir hasil ekstraksi tidak sama dengan ringkasan resmi yang tercetak di PDF", "Ringkasan PDF: Rp83,236,503.00, hasil ekstraksi: Rp82,236,503.00 (selisih Rp1,000,000.00)", 1000000],
+  ["Selisih dengan Ringkasan PDF", "Tinggi", "Januari", "-", "01-Jan-2026 - 31-Jan-2026", "Total nominal debit hasil ekstraksi tidak sama dengan ringkasan resmi yang tercetak di PDF", "Ringkasan PDF: Rp4,032,500.00, hasil ekstraksi: Rp4,257,500.00 (selisih Rp-225,000.00)", 225000]
+ ],
+ "metadata": {
+  "biaya_admin": {
+   "label_nama": "Biaya Admin",
+   "jadwal": {
+    "Januari": {
+     "tanggal": 31,
+     "aturan": "akhir bulan (ketentuan BNI)"
+    }
+   }
+  },
+  "bunga_pajak": {
+   "kolom": "Keterangan Transaksi",
+   "bunga": [
+    "JASA GIRO/BUNGA"
+   ],
+   "pajak": [
+    "PPH"
+   ]
+  },
+  "peringatan": [
+   {
+    "tingkat": "Tinggi",
+    "ringkas": "Ada baris yang tanggalnya tidak terbaca",
+    "detail": "1 baris pada blok 01-Jan-2026 - 31-Jan-2026, mis. baris nomor 4 (halaman 1) yang kolom Post Date-nya tercetak \"05/01/206 00.00.00\".",
+    "bulan": "Januari",
+    "halaman": "1"
+   }
+  ]
+ },
+ "checksum": {
+  "ok": false,
+  "duplikat_digabung": null,
+  "periode": [
+   {
+    "label": "01-Jan-2026 - 31-Jan-2026",
+    "bulan": "Januari",
+    "checks": {
+     "total_debit": false,
+     "total_credit": true,
+     "closing": false
+    }
+   }
+  ],
+  "peringatan": [
+   "Ada baris yang tanggalnya tidak terbaca 1 baris pada blok 01-Jan-2026 - 31-Jan-2026, mis. baris nomor 4 (halaman 1) yang kolom Post Date-nya tercetak \"05/01/206 00.00.00\"."
+  ]
+ }
+}

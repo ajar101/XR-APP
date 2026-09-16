@@ -4,6 +4,8 @@ bni.py — Dispatcher untuk berbagai format rekening BNI.
 Auto-detect format PDF BNI dan delegate ke extractor yang sesuai:
   - 'statement' : ACCOUNT STATEMENT (rekening giro/CURRENT, tabel bergaris
                   Posting Date … Balance)                    → didukung
+  - 'inquiry'   : TRANSACTION INQUIRY (hasil query BNI Direct, tabel
+                  bergaris No. … Balance)                    → didukung
   - lainnya     : belum ada extractor-nya
 
 Format yang belum didukung ditolak di sini dengan pesan yang menyebut apa
@@ -16,6 +18,7 @@ dari sebabnya dan tidak memberi tahu apa pun ke pemakainya.
 import pdfplumber
 
 from extractors.base import BaseExtractor
+from extractors.bni_inquiry import BNIInquiryExtractor
 from extractors.bni_statement import BNIStatementExtractor
 
 
@@ -28,13 +31,18 @@ class BNIExtractor(BaseExtractor):
 
         if self.format_type == 'statement':
             self.extractor = BNIStatementExtractor(pdf_path)
+        elif self.format_type == 'inquiry':
+            self.extractor = BNIInquiryExtractor(pdf_path)
         else:
             raise NotImplementedError(
                 "PDF ini terbaca sebagai dokumen BNI, tapi tata letaknya bukan "
-                "format ACCOUNT STATEMENT yang didukung saat ini (tabel bergaris "
-                "dengan kolom Posting Date, Journal, Transaction Description, "
-                "Amount, DB/CR, Balance). Pastikan PDF-nya diunduh sebagai "
-                "Account Statement dari BNI Direct/BNI iBank."
+                "format yang didukung saat ini. Yang didukung: ACCOUNT STATEMENT "
+                "(tabel bergaris dengan kolom Posting Date, Journal, Transaction "
+                "Description, Amount, DB/CR, Balance) dan TRANSACTION INQUIRY "
+                "(tabel bergaris dengan kolom No., Post Date, Branch, Journal No., "
+                "Description, Amount, Db/Cr, Balance). Pastikan PDF-nya diunduh "
+                "sebagai Account Statement atau hasil Transaction Inquiry dari "
+                "BNI Direct/BNI iBank."
             )
 
     def _detect_format(self) -> str:
@@ -42,8 +50,10 @@ class BNIExtractor(BaseExtractor):
         Kenali format dari halaman-halaman awal.
 
         Yang dicari bukan judul laporannya, melainkan nama-nama kolom yang
-        hanya dipakai tata letak ini: "Effective Date" dan "DB/CR". Judulnya
-        saja tidak cukup — Laporan Rekening Koran Bank Mandiri pun bertajuk
+        hanya dipakai tata letak masing-masing: "Effective Date" + "DB/CR"
+        untuk ACCOUNT STATEMENT, "Post Date" + "Db/Cr" + "Beginning Balance"
+        untuk TRANSACTION INQUIRY. Judulnya saja tidak cukup — Laporan
+        Rekening Koran Bank Mandiri pun bertajuk
         "(Account Statement Report)" dan berkolom "Posting Date", sehingga
         dokumen bank lain ikut lolos dan diserahkan ke extractor yang tata
         letaknya sama sekali berbeda.
@@ -56,6 +66,11 @@ class BNIExtractor(BaseExtractor):
                             and 'EFFECTIVE DATE' in teks
                             and 'DB/CR' in teks):
                         return 'statement'
+                    if ('TRANSACTION INQUIRY' in teks
+                            and 'POST DATE' in teks
+                            and 'DB/CR' in teks
+                            and 'BEGINNING BALANCE' in teks):
+                        return 'inquiry'
         except Exception:
             # PDF-nya sendiri tidak bisa dibuka: biarkan alur ekstraksi
             # normal yang melaporkan errornya, jangan salah diagnosis di sini.

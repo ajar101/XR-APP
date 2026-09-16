@@ -38,8 +38,8 @@ BANK_REGISTRY = {
         'extractor':   BNIExtractor,
         'color':       '#F47920',   # oranye BNI
         'logo_text':   'BNI',
-        'description': 'Rekening Giro BNI (Account Statement)',
-        'enabled':     True,   # ✓ Aktif — parser Account Statement sudah divalidasi checksum
+        'description': 'Rekening Giro BNI (Auto-detect: Account Statement/Transaction Inquiry)',
+        'enabled':     True,   # ✓ Aktif — parser Account Statement & Transaction Inquiry sudah divalidasi checksum
     },
 }
 
