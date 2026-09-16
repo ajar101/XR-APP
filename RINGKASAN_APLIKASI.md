@@ -192,20 +192,18 @@ Satu tabel supaya tidak perlu membaca seluruh §6 untuk tahu apa yang belum bere
 
 | # | Yang menggantung | Dampak sekarang | Prioritas | Detail |
 |---|---|---|---|---|
-| 1 | Berkas Excel di `exports/` tidak pernah dihapus | PII finansial menumpuk di disk tanpa kedaluwarsa | **Tinggi** | §6.2 |
-| 2 | Tidak ada autentikasi sama sekali | Siapa pun yang menjangkau port bisa upload & unduh rekening koran | **Tinggi** | §6.2 |
-| 3 | Ekstraksi blocking di dalam request HTTP | PDF 296 halaman = 60–90 detik; rawan timeout proxy, pemakai kedua antre | Sedang | §6.2 |
-| 4 | Bunga & pajak bunga dipasangkan per tanggal persis | 2 temuan **palsu** tingkat Rendah pada BRI (dari 9 PDF referensi) | Sedang | §6.1 |
-| 5 | Kode kanal `ATMSTRPRM` dipakai sebagai nama (BRI) | 40 baris (0,97%) tidak menunjuk lawan transaksi; Rekap jadi bercampur | Sedang | §6.1 |
-| 6 | Token `0` dipakai sebagai nama (BRI) | 12 baris (0,29%) memunculkan entri "0" palsu di Rekap | Rendah | §6.1 |
-| 7 | Jadwal biaya admin BRI Giro & Simpedes belum ada | Pemeriksaannya **dilewati** untuk kedua produk itu — bukan salah, tapi juga bukan lolos | Rendah | §6.1 |
-| 8 | Daftar hari libur baru 4 tanggal tetap | Indikator hari libur hanya menangkap Minggu + 4 tanggal | Rendah | §6.1 |
-| 9 | Ekor nama lawan transaksi (Mandiri 32, BCA 18, BRI 22 baris) | <0,6% per format; keterangan lengkap tetap ada di Detail Transaksi | Rendah | §6.1 |
-| 10 | Pemisahan nama vs berita pada BNI e-channel | Berita ber-huruf besar semua masih ikut terbawa ke kolom Nama | Rendah | §6.1 |
-| 11 | OCR / vision untuk PDF hasil scan | Belum ada — PDF scan ditolak dengan pesan jelas, bukan salah baca | Rendah | §6.1 |
-| 12 | Format tanpa extractor (Mandiri E-Banking, BNI & BRI format lain) | Ditolak 400 dengan pesan yang menyebut format terdeteksi | Rendah | §3 |
+| 1 | Tidak ada autentikasi sama sekali | Siapa pun yang menjangkau port bisa upload & unduh rekening koran | **Tinggi** | §6.2 |
+| 2 | Ekstraksi blocking di dalam request HTTP | PDF 296 halaman = 60–90 detik; rawan timeout proxy, pemakai kedua antre | Sedang | §6.2 |
+| 3 | Bunga & pajak bunga dipasangkan per tanggal persis | 2 temuan **palsu** tingkat Rendah pada BRI (dari 9 PDF referensi) | Sedang | §6.1 |
+| 4 | Jadwal biaya admin BRI Giro & Simpedes belum ada | Pemeriksaannya **dilewati** untuk kedua produk itu — bukan salah, tapi juga bukan lolos | Rendah | §6.1 |
+| 5 | Daftar hari libur baru 4 tanggal tetap | Indikator hari libur hanya menangkap Minggu + 4 tanggal | Rendah | §6.1 |
+| 6 | Ekor nama lawan transaksi (Mandiri 32, BCA 18 baris) | <0,6% per format; keterangan lengkap tetap ada di Detail Transaksi | Rendah | §6.1 |
+| 7 | Pemisahan nama vs berita pada BNI e-channel | Berita ber-huruf besar semua masih ikut terbawa ke kolom Nama | Rendah | §6.1 |
+| 8 | Akurasi kolom nama BCA, Mandiri, BNI belum diaudit ulang | Angka §7.3 dari 12 Sep belum memakai metode dua lapis seperti §7.4 | Rendah | §6.1 |
+| 9 | OCR / vision untuk PDF hasil scan | Belum ada — PDF scan ditolak dengan pesan jelas, bukan salah baca | Rendah | §6.1 |
+| 10 | Format tanpa extractor (Mandiri E-Banking, BNI & BRI format lain) | Ditolak 400 dengan pesan yang menyebut format terdeteksi | Rendah | §3 |
 
-**Tidak ada butir terbuka yang membuat angka laporan salah tanpa diketahui.** Butir 4–6 memengaruhi kolom Nama dan temuan tingkat Rendah, bukan nominal; butir 1–3 soal operasional & keamanan, bukan kebenaran ekstraksi. Total mutasi dan saldo akhir seluruh format tetap dijaga checksum extractor terhadap angka resmi yang tercetak di PDF-nya sendiri.
+**Tidak ada butir terbuka yang membuat angka laporan salah tanpa diketahui.** Satu-satunya yang menghasilkan temuan keliru adalah butir 3, dan temuannya bertingkat Rendah. Butir 6–8 menyentuh kolom Nama, bukan nominal; butir 1–2 soal operasional & keamanan, bukan kebenaran ekstraksi. Total mutasi dan saldo akhir seluruh format tetap dijaga checksum extractor terhadap angka resmi yang tercetak di PDF-nya sendiri.
 
 ---
 
@@ -215,9 +213,7 @@ Urut dari yang paling berdampak:
 
 - **Pemasangan bunga & pajak bunga masih per tanggal persis.** `_check_rasio_pajak_bunga` (`engine/anomaly_detector.py`) mengelompokkan bunga dan pajaknya berdasarkan kolom `Tanggal` yang sama. BRI untuk sebagian bulan mendebet "PAJAK BUNGA SIMPANAN" H+1 dari bunganya (bunga 20/11, pajak 21/11), sehingga muncul **dua temuan palsu bertingkat Rendah** ("bunga tanpa pasangan pajak" dan sebaliknya) — 2 kejadian dari 9 PDF referensi BRI. Tanggalnya sengaja **tidak** digeser extractor supaya laporan tetap sama dengan dokumennya; pemasangan lintas-hari harus diputuskan di engine dan menyentuh semua bank. Ini satu-satunya butir terbuka yang menghasilkan temuan palsu, jadi paling layak dikerjakan duluan.
 
-- **Kode kanal `ATMSTRPRM` dipakai sebagai nama pada BRI (40 baris dari 4.131 = 0,97%).** Ditemukan pada audit §7.4. Keterangannya berbentuk `ATMSTRPRM 08888 000464106 6557026349 …` — tidak memuat nama siapa pun, tapi **seluruh 40 barisnya memuat nomor rekening tujuan** di segmen ketiga. Saat ini yang terpakai justru kode kanalnya, sehingga 40 transaksi ke lawan yang berbeda-beda menggumpal jadi satu entri "ATMSTRPRM" di Rekap. Perbaikannya sama dengan yang sudah dilakukan untuk kode terminal BNI (`S1ACIR9510 4095`): kenali kodenya, ganti dengan nomor rekening lawan. Pola nomornya sudah terverifikasi konsisten di seluruh 40 baris.
-
-- **Token `0` dipakai sebagai nama pada BRI (12 baris = 0,29%).** Keterangannya `0 ; ESB:INDS:0002800D:343fca4054e5 …`, seluruhnya mutasi Kredit. Tidak ada nama maupun nomor rekening di dalamnya, jadi yang benar adalah menandainya `Tidak Teridentifikasi` seperti 22 baris lain — bukan membiarkan "0" jadi entri tersendiri di Rekap.
+- **Audit ulang akurasi kolom nama BCA, Mandiri, dan BNI.** Angka §7.3 (12 September) memakai sampel 18–24 baris per format tanpa pemindaian populasi penuh. Audit BRI di §7.4 menunjukkan metode dua lapis — pemindaian seluruh populasi untuk cacat berpola, ditambah sampel manual untuk cacat yang tidak berpola — menemukan hal yang tidak tertangkap sampel saja: dua dari tiga kelas cacat BRI (`ATMSTRPRM`, `;`) luput dari sampel 40 baris. Ketiga bank lain belum diperiksa dengan cara itu, jadi kemungkinan ada kelas cacat serupa yang belum ketahuan. Skripnya sudah siap: `python tests/audit_nama.py <bank>`.
 
 - **Jadwal pendebetan biaya administrasi BRI Giro & Simpedes.** Satu-satunya jadwal yang belum ada; BCA, Mandiri, BNI, dan BRI BritAma sudah lengkap (lihat sheet **Daftar Indikator**). Sengaja tidak ditebak: tidak satu pun rekening Giro di referensi punya baris biaya administrasi rekening, dan Simpedes hanya punya satu contoh yang tanggalnya berbeda dari bunga/pajaknya (16 vs 15). Karena pemeriksaan ini **sepenuhnya digerakkan metadata `_biaya_admin`** — extractor yang tidak mengirimnya membuat pemeriksaan dilewati, bukan ditebak — menundanya tidak menimbulkan temuan palsu, dan menambahkannya nanti hanya berupa penambahan data di satu extractor tanpa perubahan engine. Butuh konfirmasi ketentuan resmi BRI.
 
@@ -238,17 +234,15 @@ Urut dari yang paling berdampak:
 
 Ini yang **lebih mendesak daripada migrasi framework**, karena aplikasi saat ini masih single-user tanpa histori. Urut dari yang paling mendesak:
 
-1. **Kebijakan retensi & keamanan berkas.** PDF yang diunggah **sudah** dibersihkan dengan benar — blok `finally` di `app.py` menghapusnya apa pun hasilnya, termasuk saat validasi gagal. Tapi **berkas Excel hasilnya tidak pernah dihapus**: komentarnya menyatakan itu disengaja karena `send_file()` masih perlu membacanya, sehingga `exports/` menumpuk selamanya. Tiap berkas memuat nama pemilik, nomor rekening, dan seluruh mutasinya — PII finansial yang tumbuh tanpa kedaluwarsa. Dua jalan, dan pilihannya bergantung poin 3:
-   - **Tanpa job queue:** jangan tulis ke disk sama sekali — bangun xlsx di `BytesIO` lalu kirim langsung. Tidak ada route yang menyajikan ulang `exports/`, jadi berkasnya memang tidak dibutuhkan lagi setelah terunduh. Ini **menghapus** masalahnya, bukan mengelolanya.
-   - **Dengan job queue:** berkasnya *harus* tersimpan karena worker dan pengunduh adalah proses berbeda — di sini perlu TTL sungguhan (mis. hapus setelah 24 jam) yang dijalankan job terjadwal.
+1. **Autentikasi & otorisasi.** Sekarang `app.run(host='0.0.0.0', port=5000)` tanpa login: siapa pun yang menjangkau port itu bisa mengunggah rekening koran dan mengunduh laporannya, dan tidak ada catatan siapa melakukan apa. Yang dibutuhkan dua hal yang sering dikira satu — **autentikasi** (membuktikan Anda siapa) dan **otorisasi** (apa yang boleh dilihat setelah login; cabang A tidak boleh melihat hasil cabang B). Wujud paling sederhana di Flask: `Flask-Login` + tabel user + `@login_required` pada route upload, dengan kolom cabang pada user. Bonusnya gratis: `app.logger.warning` untuk checksum gagal bisa menyebut siapa pengunggahnya — jadi audit trail, bukan sekadar log.
 
-2. **Autentikasi & otorisasi.** Sekarang `app.run(host='0.0.0.0', port=5000)` tanpa login: siapa pun yang menjangkau port itu bisa mengunggah rekening koran dan mengunduh laporannya, dan tidak ada catatan siapa melakukan apa. Yang dibutuhkan dua hal yang sering dikira satu — **autentikasi** (membuktikan Anda siapa) dan **otorisasi** (apa yang boleh dilihat setelah login; cabang A tidak boleh melihat hasil cabang B). Wujud paling sederhana di Flask: `Flask-Login` + tabel user + `@login_required` pada route upload, dengan kolom cabang pada user. Bonusnya gratis: `app.logger.warning` untuk checksum gagal bisa menyebut siapa pengunggahnya — jadi audit trail, bukan sekadar log.
+2. **Background job queue.** Ekstraksi kini jalan di dalam request HTTP: PDF 296 halaman menahan koneksi 60–90 detik. Tiga masalah nyata — (a) banyak proxy memutus di 30–60 detik sehingga ekstraksi yang berhasil tetap terlihat gagal; (b) server Flask bawaan memproses satu request pada satu waktu, jadi pemakai kedua antre; (c) tab tidak boleh ditutup. Dengan queue: upload → jawab "job #123 diproses" seketika → worker mengerjakan → pemakai memantau status → unduh saat selesai. **RQ** (Redis) paling masuk akal untuk skala ini; Celery lebih lengkap tapi jauh lebih berat.
 
-3. **Background job queue.** Ekstraksi kini jalan di dalam request HTTP: PDF 296 halaman menahan koneksi 60–90 detik. Tiga masalah nyata — (a) banyak proxy memutus di 30–60 detik sehingga ekstraksi yang berhasil tetap terlihat gagal; (b) server Flask bawaan memproses satu request pada satu waktu, jadi pemakai kedua antre; (c) tab tidak boleh ditutup. Dengan queue: upload → jawab "job #123 diproses" seketika → worker mengerjakan → pemakai memantau status → unduh saat selesai. **RQ** (Redis) paling masuk akal untuk skala ini; Celery lebih lengkap tapi jauh lebih berat.
+   > **Retensi berkas jadi relevan lagi di sini.** Saat ini laporan Excel dibangun di memori dan tidak pernah menyentuh disk (§6.4), jadi tidak ada yang perlu dijadwalkan hapus. Begitu ekstraksi pindah ke job queue, worker dan pengunduh menjadi proses berbeda sehingga hasilnya **harus** tersimpan di suatu tempat — dan saat itu kebijakan TTL (mis. hapus setelah 24 jam) wajib dirancang bersamaan, bukan menyusul.
 
-4. **Database + audit log** — riwayat upload, hasil ekstraksi, dan terutama histori temuan Indikasi Kejanggalan. Nilainya justru di riwayat (pola lintas waktu per nasabah), bukan di unduhan sekali pakai.
+3. **Database + audit log** — riwayat upload, hasil ekstraksi, dan terutama histori temuan Indikasi Kejanggalan. Nilainya justru di riwayat (pola lintas waktu per nasabah), bukan di unduhan sekali pakai.
 
-5. **Topologi deployment aman** — VPN atau HTTPS + auth kuat untuk akses cabang, bukan diekspos langsung ke internet.
+4. **Topologi deployment aman** — VPN atau HTTPS + auth kuat untuk akses cabang, bukan diekspos langsung ke internet.
 
 ---
 
@@ -271,6 +265,8 @@ Alasan menundanya bukan "nanti saja", melainkan karena **investasinya memang tid
 - **Katalog isi laporan jadi satu sumber kebenaran** (`engine/report_catalog.py`) — daftar sheet & indikator tidak lagi ditulis ulang di engine, UI, dan dokumen ini. Dijaga `tests/katalog.py`. Lihat §2.2.
 - **HTML/CSS/JS keluar dari `app.py`** (743 → 229 baris) ke `templates/` dan `static/`.
 - **Audit akurasi kolom nama BRI** — 4.131 baris, lihat §7.4. Skripnya (`tests/audit_nama.py`) bank-agnostik dan bisa dipakai untuk audit ulang format lain.
+- **Laporan Excel tidak lagi ditulis ke disk.** Dulu tiap laporan disimpan di `exports/` dan tidak pernah dihapus, sehingga nama pemilik, nomor rekening, dan seluruh mutasi menumpuk di server tanpa kedaluwarsa. Kini dibangun di `io.BytesIO` lalu dikirim langsung: tidak ada berkas yang perlu dijadwalkan hapus karena tidak ada berkas yang dibuat. Folder `exports/` tidak dibuat lagi. PDF yang diunggah tetap mendarat di disk (extractor membacanya lewat path) dan tetap dihapus di blok `finally`. Lihat catatan di §6.2 poin 2: begitu ada job queue, kebijakan retensi jadi perlu lagi.
+- **Tiga kelas cacat kolom nama BRI diperbaiki** (§7.4): kode kanal `ATMSTRPRM` kini digantikan nomor rekening tujuan yang tercetak di uraiannya — 40 baris yang tadinya menggumpal jadi satu entri Rekap kini terurai jadi 14 lawan transaksi berbeda; token `0` (12 baris) dan `;` (7 baris) kini ditandai `Tidak Teridentifikasi`. Penyaringan token sampah ditaruh di satu pagar (`_bermakna`) yang dilewati SEMUA cabang penguraian nama, bukan ditambal per cabang, supaya bentuk uraian baru tidak lolos lagi.
 
 ---
 
@@ -362,8 +358,11 @@ Diaudit dua lapis, karena keduanya menangkap hal berbeda:
 | Nama kosong | 0 | 0,00% |
 | Kode kanal dipakai sebagai nama (`ATMSTRPRM`) | 40 | 0,97% |
 | Token sampah dipakai sebagai nama (`0`) | 12 | 0,29% |
-| **Total cacat terpola** | **52** | **1,26%** |
-| **Baris yang membawa identitas terpakai** | **4.079** | **98,74%** |
+| Token sampah dipakai sebagai nama (`;`) | 7 | 0,17% |
+| **Total cacat terpola** | **59** | **1,43%** |
+| **Baris yang membawa identitas terpakai** | **4.072** | **98,57%** |
+
+> Kelas `;` baru ketahuan saat perbaikan dikerjakan, bukan pada audit awal — audit awal mencatat 52 baris (1,26%). Uraiannya `- ; ESB:INDS:…`: tanda hubung di depan dibuang perapian nama, menyisakan titik koma yang lolos jadi "nama". Angka di tabel ini sudah dikoreksi.
 
 Ditandai `Tidak Teridentifikasi` — 22 baris (0,53%) — **tidak** dihitung cacat: dokumennya memang tidak memuat nama siapa pun, hanya nomor referensi kanal yang berganti tiap transaksi, dan extractor sengaja tidak menebak.
 
@@ -375,9 +374,21 @@ Diperiksa juga arah pengambilan nama pada baris berpola `FROM … TO …` (47 ba
 |---:|---:|---|
 | 40 | 38 | **95,0%** (95% CI Wilson 83,5–98,6%) |
 
-Kedua kesalahannya adalah baris `ATMSTRPRM` yang sama — artinya **tidak ditemukan satu pun cacat di luar dua kelas yang sudah terdeteksi pemindaian (a)**. Tidak ada nama yang terbaca rapi tapi ternyata bukan lawan transaksinya.
+Kedua kesalahannya adalah baris `ATMSTRPRM` yang sama — artinya **tidak ditemukan satu pun cacat di luar kelas yang bisa dikenali pemindaian (a)**. Tidak ada nama yang terbaca rapi tapi ternyata bukan lawan transaksinya.
 
-**Cara membaca kedua angka ini.** `ATMSTRPRM` hanya 0,97% populasi, jadi harapan kemunculannya dalam 40 baris adalah ±0,4 baris — yang tertarik 2, sekitar 5× lipat. Sampelnya kebetulan melebihkan cacat itu, sehingga **95,0% understate**. Angka yang lebih bisa dipertanggungjawabkan adalah **98,74%** dari pemindaian populasi penuh, dengan syarat yang harus disebut jujur: angka itu hanya mencakup cacat yang berpola. Sampel (b) ada justru untuk menguji apakah ada cacat di luar pola — dan pada 38 baris sisanya, tidak ada.
+**Cara membaca kedua angka ini.** `ATMSTRPRM` hanya 0,97% populasi, jadi harapan kemunculannya dalam 40 baris adalah ±0,4 baris — yang tertarik 2, sekitar 5× lipat. Sampelnya kebetulan melebihkan cacat itu, sehingga **95,0% understate**. Angka yang lebih bisa dipertanggungjawabkan adalah **98,57%** dari pemindaian populasi penuh, dengan syarat yang harus disebut jujur: angka itu hanya mencakup cacat yang berpola.
+
+Dan justru di situ letak pelajarannya: **dua dari tiga kelas cacat tidak tertangkap sampel manual** — `;` sama sekali tidak muncul di 40 baris itu (0,17% populasi), dan `ATMSTRPRM` muncul hanya karena kebetulan. Pemindaian populasi penuh yang menemukan keduanya. Sebaliknya, sampel (b) yang membuktikan tidak ada cacat DI LUAR pola: pada 38 baris sisanya, setiap nama cocok dengan keterangannya. Keduanya saling menutupi lubang masing-masing, dan tidak satu pun cukup sendirian. Itulah alasan §6.1 mencantumkan audit ulang BCA/Mandiri/BNI dengan metode yang sama.
+
+**Ketiga kelas cacat di atas sudah diperbaiki** (lihat §6.4). Sesudah perbaikan, atas populasi yang sama:
+
+| | Sebelum | Sesudah |
+|---|---:|---:|
+| Cacat terpola | 59 (1,43%) | **0 (0,00%)** |
+| Ditandai `Tidak Teridentifikasi` | 22 (0,53%) | 41 (0,99%) |
+| Membawa identitas terpakai | 4.072 (98,57%) | **4.090 (99,01%)** |
+
+Yang berubah persis 59 baris, dan **hanya kolom Nama** — diperiksa terhadap snapshot regresi: dari 59 baris JSON yang berubah, satu-satunya indeks kolom yang berbeda adalah indeks 4 (Nama Pengirim/Penerima). Tanggal, jenis mutasi, nominal, dan keterangan tidak tersentuh, begitu pula seluruh temuan Indikasi Kejanggalan.
 
 Audit ini bisa diulang: `python tests/audit_nama.py bri` (seed tetap 20260916, jadi baris sampelnya sama persis). Skripnya bank-agnostik dan siap dipakai untuk audit ulang format lain.
 

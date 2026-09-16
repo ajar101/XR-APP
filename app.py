@@ -15,6 +15,7 @@ jumlah bank & format, batas upload) dihitung di route-nya dari sumber
 aslinya, tidak diketik ulang di dalam HTML.
 """
 
+import io
 import os
 from flask import Flask, render_template, request, send_file
 
@@ -36,13 +37,14 @@ print("="*60 + "\n")
 
 app = Flask(__name__)
 
+# PDF yang diunggah harus mendarat di disk karena extractor membacanya
+# lewat pdfplumber (butuh path), tapi selalu dihapus lagi di blok `finally`
+# di bawah. Berkas Excel hasilnya TIDAK pernah menyentuh disk sama sekali —
+# lihat catatan di dekat create_excel().
 UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
-EXPORT_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'exports')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(EXPORT_FOLDER, exist_ok=True)
 
 app.config['UPLOAD_FOLDER']      = UPLOAD_FOLDER
-app.config['EXPORT_FOLDER']      = EXPORT_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 64 * 1024 * 1024  # dinaikkan dari 16MB — mendukung upload multi-PDF sekaligus
 
 
@@ -188,17 +190,35 @@ def upload_file():
                     file_prefix, nama_sumber, digabung,
                 )
 
-        output_path = os.path.join(app.config['EXPORT_FOLDER'], nama_file)
+        # Laporan dibangun di MEMORI, tidak ditulis ke disk.
+        #
+        # Sebelumnya tiap laporan disimpan ke folder exports/ dan tidak pernah
+        # dihapus — komentarnya menyebut itu disengaja karena send_file() masih
+        # perlu membacanya. Akibatnya folder itu menumpuk tanpa batas, dan tiap
+        # berkasnya memuat nama pemilik, nomor rekening, serta SELURUH mutasi
+        # rekening seseorang. Data sesensitif itu tidak boleh tertinggal di
+        # server tanpa jadwal hapus, dan tidak ada route mana pun yang
+        # menyajikan ulang isi exports/, jadi berkasnya memang tidak pernah
+        # dibutuhkan lagi setelah terunduh.
+        #
+        # Membangunnya di BytesIO menghapus persoalannya, bukan mengelolanya:
+        # tidak ada berkas yang perlu dijadwalkan hapus karena tidak ada
+        # berkas yang dibuat. Kalau kelak ekstraksi dipindah ke background job
+        # queue, hasilnya HARUS tersimpan di suatu tempat (worker dan
+        # pengunduh jadi proses berbeda) — dan saat itulah kebijakan retensi
+        # dengan TTL benar-benar diperlukan.
+        keluaran = io.BytesIO()
         create_excel(
             saldo_per_bulan,
             transaksi_per_bulan,
-            output_path,
+            keluaran,
             bank_name=file_prefix,
             pdf_path=saved_paths,
         )
+        keluaran.seek(0)
 
         return send_file(
-            output_path,
+            keluaran,
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             as_attachment=True,
             download_name=nama_file,
@@ -212,8 +232,8 @@ def upload_file():
     finally:
         # Bersihkan PDF yang diupload apa pun hasil akhirnya — sukses,
         # exception, ATAU return dini karena validasi gagal (mis. terdeteksi
-        # scan, bulan bentrok). output_path (file xlsx hasil) sengaja tidak
-        # ikut dihapus di sini karena send_file() masih perlu membacanya.
+        # scan, bulan bentrok). Berkas Excel hasilnya tidak perlu dibersihkan
+        # karena tidak pernah ditulis ke disk.
         for p in saved_paths:
             if os.path.exists(p):
                 try:
