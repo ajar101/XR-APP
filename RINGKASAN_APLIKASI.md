@@ -2,7 +2,11 @@
 
 Ringkasan arsitektur, fitur, input/output, dan rencana pengembangan aplikasi ekstraktor rekening koran.
 
-> Dibuat: 2 September 2026 · Diperbarui: 16 September 2026 · Status: BCA, Mandiri (Kopra + e-Statement + Rekening Koran), BNI (Account Statement + Transaction Inquiry), dan BRI (Laporan Transaksi Finansial) aktif
+> Dibuat: 2 September 2026 · Diperbarui: 16 September 2026
+>
+> **Bank aktif:** BCA, Mandiri (Kopra + e-Statement + Rekening Koran), BNI (Account Statement + Transaction Inquiry), BRI (Laporan Transaksi Finansial) — 4 bank, 7 format
+>
+> **Tahap:** pilot di localhost dengan satu pengguna. Deployment untuk tim ditunda; fokus sementara di perbaikan akurasi (§6.1, §6.2)
 
 ---
 
@@ -10,7 +14,9 @@ Ringkasan arsitektur, fitur, input/output, dan rencana pengembangan aplikasi eks
 
 Aplikasi web (Flask) yang menerima upload PDF rekening koran, mengekstrak seluruh mutasi & saldo secara otomatis, lalu menghasilkan laporan Excel multi-sheet — lengkap dengan kategorisasi transaksi, analisis cashflow, konsentrasi nasabah (HHI Score), dan **deteksi otomatis indikasi kejanggalan rekening** (17 indikator, dari saldo tidak balance sampai jadwal biaya admin yang tidak sesuai ketentuan bank).
 
-Tujuan jangka panjang: dipakai oleh seluruh tim (pusat & cabang) untuk mempercepat review rekening koran nasabah.
+Aksesnya memerlukan login, dengan dua peran (admin/pemakai) dan jejak audit yang mencatat siapa memproses rekening apa — lihat `auth.py`. Ekstraksi bisa dijalankan langsung di dalam request, atau dititipkan ke worker terpisah bila `XR_REDIS_URL` disetel (§6.2).
+
+Tujuan jangka panjang: dipakai oleh seluruh tim (pusat & cabang) untuk mempercepat review rekening koran nasabah. Saat ini masih tahap pilot satu pengguna.
 
 ---
 
@@ -31,7 +37,12 @@ XR-APP/
 ├── antrean.py                   # Sambungan Redis/RQ & penentu mode kerja
 ├── worker.py                    # Proses pekerja mode antrean
 ├── templates/
-│   └── index.html               # Halaman depan (Jinja) — daftar sheet & bank dirender dari katalog
+│   ├── dasar.html               #   Kerangka halaman ber-login
+│   ├── index.html               #   Halaman depan — daftar sheet & bank dari katalog
+│   ├── login.html               #   Masuk
+│   ├── riwayat.html             #   Jejak audit, disaring per cabang
+│   ├── pengguna.html            #   Kelola pengguna (admin)
+│   └── galat.html               #   403 & sejenisnya
 ├── static/
 │   ├── css/app.css              #   Tampilan halaman depan
 │   └── js/app.js                #   Pilih bank, drop berkas, kirim & unduh hasil
@@ -59,7 +70,7 @@ XR-APP/
 │   ├── anomaly_detector.py      #   17 pemeriksaan indikasi kejanggalan
 │   └── multi_pdf_merger.py      #   Gabungkan hasil ekstraksi dari beberapa PDF
 ├── tests/                       # Tes regresi
-│   ├── regresi.py               #   Bandingkan hasil ekstraksi + temuan Sheet 9 dengan snapshot
+│   ├── regresi.py               #   Bandingkan hasil ekstraksi + temuan Indikasi Kejanggalan dgn snapshot
 │   ├── katalog.py               #   Katalog = judul sheet di berkas Excel = janji halaman depan
 │   ├── audit_nama.py            #   Bahan audit akurasi kolom Nama (sampel ber-seed tetap)
 │   └── snapshot/                #   Hasil yang direkam, satu JSON per PDF (1 transaksi/temuan = 1 baris)
@@ -67,7 +78,7 @@ XR-APP/
 └── parse_rekening.py            # Skrip CLI lama, tidak terhubung ke app.py (peninggalan awal)
 ```
 
-**Total kode inti: ±11.300 baris Python** (per 16 Sep 2026): `app.py` 229 baris, extractor BCA 816 baris, `anomaly_detector.py` 963 baris, `excel_builder.py` 1.535 baris, `report_catalog.py` 218 baris. Di luar itu, halaman depan: `templates/index.html` 147 baris, `static/css/app.css` 250 baris, `static/js/app.js` 154 baris.
+**Total kode inti: ±12.400 baris Python** (per 16 Sep 2026). Lapisan ekstraksi & laporan: extractor BCA 816 baris, `anomaly_detector.py` 963 baris, `excel_builder.py` 1.535 baris, `report_catalog.py` 218 baris. Lapisan aplikasi: `app.py` 358 baris, `auth.py` 400 baris, `tugas.py` 259 baris. Di luar itu halaman depan (`templates/` + `static/`) ±700 baris HTML/CSS/JS.
 
 ### 2.2 Prinsip desain kunci
 
@@ -81,19 +92,38 @@ XR-APP/
 ### 2.3 Alur request
 
 ```
-User upload 1-N PDF (bank + file)
+Pemakai masuk (auth.py) ─── tanpa login, semua route di bawah menolak
+        │
+        ▼
+Upload 1-N PDF (bank + berkas)
         │
         ▼
 app.py /upload
-  ├─ Validasi ekstensi .pdf & bank dipilih
-  ├─ pdf_utils.is_probably_scanned()  → tolak kalau PDF hasil scan/foto
-  ├─ Extractor per file → extract_saldo() + extract_transaksi()
-  ├─ multi_pdf_merger.merge_extractions()
-  │     → tolak kalau: rekening beda antar file / bulan bentrok / total > 6 bulan
-  ├─ excel_builder.create_excel()
-  │     ├─ Sheet 1-8: data keuangan (lihat §3)
-  │     └─ Sheet 9: anomaly_detector.detect_anomalies() (lihat §4)
-  └─ Kirim file .xlsx ke user, bersihkan file upload (finally-block)
+  ├─ Validasi MURAH, dijawab seketika:
+  │     ekstensi .pdf & bank dipilih  → 400 + dicatat di jejak audit
+  ├─ Simpan PDF ke uploads/<job_id>/
+  │
+  ├─ MODE LANGSUNG (bawaan)            MODE ANTREAN (XR_REDIS_URL disetel)
+  │   panggil tugas.proses_ekstraksi()   enqueue → jawab 202 {job_id}
+  │   di dalam request                   worker.py mengerjakan di proses lain
+  │        │                                  │
+  │        └──────────────┬───────────────────┘
+  │                       ▼
+  │        tugas.proses_ekstraksi()   ← SATU jalur, dipakai kedua mode
+  │          ├─ pdf_utils.is_probably_scanned() → tolak PDF hasil scan/foto
+  │          ├─ Extractor per berkas → extract_saldo() + extract_transaksi()
+  │          ├─ multi_pdf_merger.merge_extractions()
+  │          │     → tolak kalau rekening beda / bulan bentrok / > 6 bulan
+  │          ├─ excel_builder.create_excel() → menelusuri report_catalog.SHEETS
+  │          │     └─ termasuk anomaly_detector.detect_anomalies() (§5.1)
+  │          └─ hapus uploads/<job_id>/ di blok `finally`
+  │
+  └─ Kirim .xlsx dari MEMORI (mode langsung)
+     atau simpan di Redis dengan TTL, pemakai mengunduh lewat
+     /job/<id>/unduh (mode antrean)
+
+Setiap hasil — berhasil MAUPUN gagal — tercatat di jejak audit.
+Laporan Excel tidak pernah ditulis ke disk.
 ```
 
 ---
@@ -118,6 +148,12 @@ app.py /upload
 | Bank BRI — format **Laporan Transaksi Finansial** (e-statement BRImo/Internet Banking) | ✅ Aktif — satu format untuk SEMUA jenis rekening (Giro Umum, BritAma, BritAma Bisnis/X, Simpedes, beserta varian SME-nya); divalidasi 100% terhadap 22 blok laporan (4.131 transaksi) dari 9 PDF riil (total mutasi Debet/Kredit & saldo akhir dicocokkan dengan kaki ringkasan tiap blok, plus rantai saldo berjalan per baris) |
 | Bank BRI — format lain (mis. cetakan teller cabang) | ❌ Belum ada extractor — ditolak dengan pesan yang menyebut format yang didukung |
 | OCR / ekstraksi PDF hasil scan | ❌ Belum diimplementasikan (lihat §6) |
+| Autentikasi (login) & otorisasi dua peran (admin/pemakai) | ✅ Aktif — lihat `auth.py` |
+| Jejak audit: siapa memproses rekening apa, kapan, hasilnya | ✅ Aktif — mencatat keberhasilan MAUPUN seluruh kegagalan |
+| Isolasi per cabang pada halaman Riwayat | ✅ Aktif — disaring di kueri; admin melihat semua cabang |
+| Job queue (ekstraksi tidak menahan koneksi) | ✅ Aktif, opsional — hanya bila `XR_REDIS_URL` disetel (§6.2) |
+| Laporan Excel tidak pernah ditulis ke disk | ✅ Aktif — dibangun di memori, dikirim langsung |
+| Histori hasil ekstraksi (bukan sekadar jejak audit) | ❌ Belum ada (lihat §6.2) |
 
 ---
 
@@ -209,8 +245,24 @@ Satu tabel supaya tidak perlu membaca seluruh §6 untuk tahu apa yang belum bere
 | 6 | Akurasi kolom nama BCA, Mandiri, BNI belum diaudit ulang | Angka §7.3 dari 12 Sep belum memakai metode dua lapis seperti §7.4 | Rendah | §6.1 |
 | 7 | OCR / vision untuk PDF hasil scan | Belum ada — PDF scan ditolak dengan pesan jelas, bukan salah baca | Rendah | §6.1 |
 | 8 | Format tanpa extractor (Mandiri E-Banking, BNI & BRI format lain) | Ditolak 400 dengan pesan yang menyebut format terdeteksi | Rendah | §3 |
+| 9 | `XR_UPLOAD_DIR` dibaca `worker.py` tapi diabaikan `app.py` | Belum merusak apa pun (keduanya kebetulan sama), tapi menyetel variabel itu akan membuat worker menyapu folder yang salah | Sedang | §6.1 |
+| 10 | Mode antrean menuntut `uploads/` dibagi antara web & worker | Belum jadi masalah karena keduanya masih satu proses/mesin; akan menggagalkan **seluruh** ekstraksi kalau dipisah container tanpa volume bersama | Sedang | §6.2 |
 
-**Tidak ada butir terbuka yang membuat angka laporan salah tanpa diketahui.** Satu-satunya yang menghasilkan temuan keliru adalah butir 1, dan temuannya bertingkat Rendah. Butir 4–6 menyentuh kolom Nama, bukan nominal. Total mutasi dan saldo akhir seluruh format tetap dijaga checksum extractor terhadap angka resmi yang tercetak di PDF-nya sendiri.
+Butir 9 dan 10 baru ketahuan saat merancang Docker Compose, bukan dari pemakaian — keduanya laten dan tidak mempengaruhi hasil hari ini.
+
+**Urutan yang disarankan** (per 16 September 2026, selaras dengan keputusan
+pilot di §6.2):
+
+| Tahap | Kerjakan | Kenapa sekarang |
+|---|---|---|
+| **Sedang berjalan** | Pilot di localhost, satu pengguna | Yang diuji akurasi ekstraksi, bukan ketahanan layanan |
+| **Berikutnya** | Butir 1 — pemasangan bunga & pajak lintas hari | Satu-satunya butir terbuka yang menghasilkan temuan **palsu** |
+| | Butir 6 — audit ulang nama BCA/Mandiri/BNI dua lapis | Audit BRI membuktikan sampel saja melewatkan 2 dari 3 kelas cacat |
+| | Butir 2, 3 — jadwal biaya admin BRI & hari libur | Menunggu data dari luar (ketentuan BRI, kalender resmi) |
+| **Saat pilot naik ke tim** | Butir 9, 10 + Docker Compose, lalu §6.2 | Butir 10 akan menggagalkan seluruh ekstraksi kalau terlewat |
+| **Nanti, kalau perlu** | §6.3 migrasi | Prasyaratnya sudah terpenuhi; yang menahan tinggal nilainya |
+
+**Tidak ada butir terbuka yang membuat angka laporan salah tanpa diketahui.** Satu-satunya yang menghasilkan temuan keliru adalah butir 1, dan temuannya bertingkat Rendah. Butir 4–6 menyentuh kolom Nama, bukan nominal; butir 9–10 laten dan baru berdampak pada susunan deployment tertentu. Total mutasi dan saldo akhir seluruh format tetap dijaga checksum extractor terhadap angka resmi yang tercetak di PDF-nya sendiri.
 
 Butir keamanan & operasional yang dulu ada di sini (debug mode menyala, tidak ada autentikasi, ekstraksi menahan koneksi, laporan menumpuk di disk) **sudah selesai** — lihat §6.4 dan `DEPLOY.md`.
 
@@ -226,6 +278,8 @@ Urut dari yang paling berdampak:
 
 - **Jadwal pendebetan biaya administrasi BRI Giro & Simpedes.** Satu-satunya jadwal yang belum ada; BCA, Mandiri, BNI, dan BRI BritAma sudah lengkap (lihat sheet **Daftar Indikator**). Sengaja tidak ditebak: tidak satu pun rekening Giro di referensi punya baris biaya administrasi rekening, dan Simpedes hanya punya satu contoh yang tanggalnya berbeda dari bunga/pajaknya (16 vs 15). Karena pemeriksaan ini **sepenuhnya digerakkan metadata `_biaya_admin`** — extractor yang tidak mengirimnya membuat pemeriksaan dilewati, bukan ditebak — menundanya tidak menimbulkan temuan palsu, dan menambahkannya nanti hanya berupa penambahan data di satu extractor tanpa perubahan engine. Butuh konfirmasi ketentuan resmi BRI.
 
+- **Seragamkan sumber folder unggahan.** `worker.py` membaca `XR_UPLOAD_DIR`, sedangkan `app.py` memakunya ke direktori aplikasi. Pada tata letak bawaan keduanya menunjuk tempat yang sama sehingga tidak ada yang rusak sekarang — tapi begitu variabel itu disetel, web menulis ke satu folder sementara worker menyapu folder lain, dan folder yatim tidak pernah terbersihkan. Perbaikannya kecil (satu sumber nilai yang dibaca keduanya) dan sebaiknya dikerjakan bersamaan dengan Docker Compose, karena di sanalah variabel itu mulai dipakai.
+
 - **Perluas daftar hari libur nasional** (termasuk libur lunar/hijriah dan cuti bersama) — perlu referensi kalender resmi per tahun. Selama belum ada, indikator "Setoran Tunai di Hari Libur" dan "Transaksi RTGS di Hari Libur" hanya menangkap hari Minggu + 4 tanggal tetap (1 Januari, 1 Mei, 17 Agustus, 25 Desember).
 
 - **Nama lawan transaksi pada BNI e-channel.** Untuk transfer keluar lewat e-channel, dokumen BNI memang tidak mencetak nama penerima sama sekali — yang ada hanya nomor rekening tujuan, dan nomor itulah yang dipakai sebagai identitas di kolom Nama. Untuk transfer masuk, nama pengirim dicetak menyatu dengan berita transaksi tanpa pemisah apa pun (tidak ada gap kolom — sudah diperiksa sampai ke koordinat glif), jadi pemisahannya bertumpu pada bentuk huruf: nama dicetak sistem dalam huruf besar, berita diketik nasabah. Berita yang kebetulan ditulis huruf besar semua masih ikut terbawa. Sebagian baris e-channel juga tidak memuat nama sama sekali, hanya kode terminal/agen yang berganti tiap transaksi (`S1ACIR9510 4095`) — kode semacam itu dikenali dan digantikan nomor rekening lawan, supaya satu pengirim tidak pecah jadi puluhan baris di Rekap. Label kanal yang ikut tercetak di ekor nama ("… BI FAST") dibuang, dari daftar label yang benar-benar terlihat di PDF referensi saja. Butuh lebih banyak sampel sebelum aturannya diperketat.
@@ -239,10 +293,73 @@ Urut dari yang paling berdampak:
 
 ---
 
-### 6.2 Jangka menengah — untuk pemakaian tim (pusat & cabang)
+### 6.2 Jangka menengah — deployment & pemakaian tim
 
 Tiga dari lima butir di bagian ini **sudah dikerjakan** (lihat §6.4): retensi
-berkas, autentikasi & otorisasi, dan job queue. Yang tersisa:
+berkas, autentikasi & otorisasi, dan job queue.
+
+#### Status sekarang: pilot di localhost, satu pengguna
+
+Keputusan per 16 September 2026: **piloting dijalankan di localhost dengan satu
+pengguna saja** (pemilik mesin), bukan di server bersama. Deployment untuk tim
+ditunda; fokus sementara kembali ke perbaikan akurasi di §6.1.
+
+Ini pilihan yang tepat untuk tahap sekarang, dan alasannya bukan sekadar
+"lebih gampang":
+
+- Trafiknya tidak pernah meninggalkan mesin, jadi ketiadaan TLS tidak menjadi
+  paparan. Begitu ada pengguna kedua lewat jaringan, kredensial dan berkas
+  `.xlsx` mulai melintas terbuka dan TLS jadi wajib.
+- Tidak ada pertanyaan "siapa boleh melihat data cabang siapa" yang perlu
+  dijawab dulu, karena penggunanya satu.
+- Yang sedang diuji pada tahap pilot adalah **akurasi ekstraksi**, bukan
+  ketahanan layanan. Menunda deployment berarti menunda hal yang memang belum
+  perlu dibuktikan.
+
+Menjalankannya (mode langsung, tanpa Redis):
+
+```bash
+XR_SECRET_KEY=... XR_BIND=127.0.0.1:5000 gunicorn -c gunicorn.conf.py wsgi:app
+```
+
+Satu hal yang tetap berlaku walau penggunanya sendiri: kalau pilot memakai
+rekening koran nasabah **sungguhan**, folder `data/` dan `uploads/` sebaiknya
+dikecualikan dari sinkronisasi backup mesin (iCloud, OneDrive, Time Machine).
+Sinkronisasi semacam itu menyalin data nasabah keluar mesin tanpa pernah ada
+yang memutuskannya — dan itu jenis kebocoran yang paling senyap.
+
+#### Rencana deployment: Docker Compose
+
+Belum dikerjakan. Saat dilanjutkan, **Docker Compose lebih tepat daripada
+`docker run`** yang sekarang ada di `DEPLOY.md`: mode antrean butuh tiga bagian
+yang harus saling kenal (web, worker, Redis), dan itu persis yang Compose
+tangani.
+
+Yang harus benar di berkas compose-nya:
+
+1. **Volume `uploads/` DIBAGI antara web dan worker.** Ini butir 10 di §6.0 dan
+   satu-satunya yang bisa menggagalkan seluruh ekstraksi. Di mode antrean, web
+   menyimpan PDF ke `uploads/<job_id>/` lalu mengirim **path absolutnya** ke
+   worker (`app.py`). Kalau keduanya container terpisah tanpa volume bersama,
+   worker mendapat `FileNotFoundError` — dan itu tidak akan terlihat sampai
+   unggahan pertama.
+2. **Volume `data/` juga dibagi** — worker menulis jejak audit ke basis data
+   yang sama dengan web.
+3. **Redis tanpa persistensi dan tanpa port terekspos.** Laporan berisi data
+   rekening singgah di sana, jadi ia perlu perlakuan yang sama dengan basis
+   data: tidak terjangkau dari luar mesin, dan tidak menulis dump ke disk.
+4. **Dua profil dalam satu berkas** (`profiles` Compose): mode langsung (hanya
+   `web`) untuk memulai, mode antrean (`web` + `worker` + `redis`) saat sudah
+   terasa perlu. Satu berkas, bukan dua, supaya keduanya tidak berbeda diam-diam
+   — prinsip yang sama dengan `tugas.py` yang dipakai bersama kedua mode.
+
+Catatan khusus **Docker Desktop di Mac/Windows**: ia menjalankan VM dengan
+batas memori sendiri, terpisah dari RAM mesin. Kalau batas VM-nya lebih kecil
+dari `XR_WORKERS` × ~1 GB, container akan dimatikan di tengah ekstraksi PDF
+besar dan gejalanya terlihat seperti aplikasi yang rusak, bukan seperti
+kehabisan memori.
+
+#### Sisa butir untuk pemakaian tim
 
 1. **Histori hasil ekstraksi.** Jejak audit sudah mencatat *bahwa* sebuah
    rekening diproses — siapa, kapan, bank apa, nomor rekening, dan hasilnya —
@@ -252,24 +369,59 @@ berkas, autentikasi & otorisasi, dan job queue. Yang tersisa:
    cabang yang sekarang hanya berlaku untuk jejak audit tinggal dipakai ulang
    untuk data hasilnya — batasnya sudah ada di `auth.py`.
 
-2. **Topologi deployment aman** — VPN atau HTTPS + auth kuat untuk akses
-   cabang, bukan diekspos langsung ke internet. Sudah diuraikan lengkap di
-   `DEPLOY.md` (topologi, sizing terukur, konfigurasi nginx, daftar periksa),
-   tinggal dijalankan. Yang harus dituntaskan lebih dulu di luar kode:
-   konfirmasi tim kepatuhan soal penempatan data — lihat `DEPLOY.md` §1.
+2. **Topologi deployment aman untuk cabang** — VPN atau HTTPS + auth kuat,
+   bukan diekspos langsung ke internet. Sudah diuraikan lengkap di `DEPLOY.md`
+   (topologi, sizing terukur, konfigurasi nginx, daftar periksa), tinggal
+   dijalankan saat pilot naik ke tahap tim. Yang harus dituntaskan lebih dulu
+   **di luar kode**: konfirmasi tim kepatuhan soal penempatan data — lihat
+   `DEPLOY.md` §1. Itu menentukan pilihan deployment, jadi sebaiknya jalan
+   duluan dan tidak menunggu kodenya siap.
 
 ---
 
 ### 6.3 Jangka panjang — migrasi arsitektur (opsional, bertahap)
 
-**Rekomendasi: FastAPI (backend) + Vue 3/TypeScript (frontend)** — tapi *setelah* §6.2 tuntas, dan bukan sebagai gerbang untuk apa pun.
+**Rekomendasi: FastAPI (backend) + Vue 3/TypeScript (frontend)** — tetap
+opsional, dan tetap bukan gerbang untuk apa pun.
 
-Alasan menundanya bukan "nanti saja", melainkan karena **investasinya memang tidak sedang terancam**: `engine/` dan `extractors/` tidak mengimpor Flask sama sekali (nol kecocokan pada pencarian) — ±10.000 baris logika parsing & analisis yang portable apa adanya. Yang benar-benar perlu ditulis ulang saat migrasi hanya `app.py` (229 baris) dan `templates/`. Jadi migrasi tidak jadi lebih mahal kalau ditunda, sementara butir §6.2 adalah risiko yang berjalan **hari ini**.
+**Prasyaratnya kini sudah terpenuhi.** Dokumen ini dulu menulis "auth & queue
+dulu di Flask, baru migrasi" — keduanya sudah selesai (§6.4), jadi urutan itu
+tidak lagi menghalangi. Yang menahan sekarang tinggal pertimbangan nilai:
+migrasi tidak menambah satu pun kemampuan yang belum ada, sementara §6.1 masih
+memuat cacat yang mempengaruhi isi laporan.
 
-- FastAPI native mendukung async/background task + validasi request/response (Pydantic) — lebih rapi untuk auth & job queue dibanding Flask + banyak extension.
-- Vue 3 SPA membuka peluang: render Indikasi Kejanggalan langsung di browser (bukan cuma Excel) untuk triase cepat, histori per cabang, role-based access.
-- **Urutan yang benar: auth & queue dulu di Flask, baru migrasi** — bukan sebaliknya. Memindahkan aplikasi *sambil* menambahkan auth berarti dua perubahan besar bercampur; kalau ada yang rusak, penyebabnya tidak bisa dipisahkan.
-- **Fase realistis**: (1) bungkus engine yang ada dengan FastAPI + job queue + auth dasar → (2) bangun SPA Vue 3 dengan histori & tampilan indikasi kejanggalan interaktif → (3) role-based access pusat/cabang, kemungkinan integrasi SSO korporat.
+Alasan menundanya juga tetap sama, dan sekarang bisa diukur: **investasinya
+tidak sedang terancam**. `engine/` dan `extractors/` tidak mengimpor Flask sama
+sekali (nol kecocokan pada pencarian) — ±10.000 baris logika parsing & analisis
+yang portable apa adanya. Yang benar-benar perlu ditulis ulang saat migrasi
+hanya `app.py` (358 baris), `auth.py` (400 baris), dan `templates/`. Pemisahan
+`tugas.py` dari lapisan web pada pekerjaan job queue justru memperkecil lagi
+bagian yang terikat Flask: jalur ekstraksinya sudah tidak menyentuh `request`
+maupun `current_user` sama sekali.
+
+Kapan migrasi jadi masuk akal — salah satu dari ini, bukan karena jadwal:
+
+- **Histori hasil ekstraksi (§6.2) mulai dibangun.** Menampilkan riwayat
+  temuan secara interaktif adalah pekerjaan frontend sungguhan, dan di situlah
+  SPA mulai membayar dirinya sendiri. Membangunnya dengan Jinja lalu
+  memindahkannya ke Vue berarti mengerjakannya dua kali.
+- **Pemakainya tumbuh melewati satu tim** sehingga role-based access dan SSO
+  korporat jadi kebutuhan, bukan tambahan.
+
+Kalau salah satunya tiba:
+
+- FastAPI native mendukung async/background task + validasi request/response
+  (Pydantic) — lebih rapi untuk auth & job queue dibanding Flask + banyak
+  extension.
+- Vue 3 SPA membuka peluang: render Indikasi Kejanggalan langsung di browser
+  (bukan cuma Excel) untuk triase cepat, histori per cabang, role-based access.
+- **Fase realistis**: (1) bungkus `engine/`, `extractors/`, dan `tugas.py` yang
+  ada dengan FastAPI, pindahkan auth & queue → (2) bangun SPA Vue 3 dengan
+  histori & tampilan indikasi kejanggalan interaktif → (3) role-based access
+  pusat/cabang, kemungkinan integrasi SSO korporat.
+- **Jangan mencampur migrasi dengan perubahan besar lain.** Nasihat lama
+  ("jangan migrasi sambil menambah auth") tetap berlaku bentuknya: satu
+  perubahan besar pada satu waktu, supaya penyebab kerusakan bisa dipisahkan.
 
 ---
 
@@ -324,7 +476,7 @@ Format kedua BNI ini (hasil query di BNI Direct, bukan e-statement bulanan) puny
 
 Dokumen ini tidak mencetak nomor halaman dan tidak mencetak Ending Balance. Saldo akhir yang diharapkan karena itu dihitung dari tiga angka yang memang tercetak di kepala tiap blok (Beginning Balance − Total Debit + Total Credit) lalu dibandingkan dengan saldo baris terakhir — tetap angka dokumen, bukan angka kita sendiri.
 
-**Satu PDF referensi (`BNI_inquiry (1).pdf`) sengaja dibiarkan gagal checksum.** Dokumen itu memang tidak konsisten dengan dirinya sendiri: nominal biaya admin tercetak `25,0000.00` (bukan `25,000.00`), satu tanggal tercetak `05/01/206`, total debit resminya meleset Rp225.000 dari jumlah baris yang tercetak, dan saldo akhirnya meleset Rp1.000.000. Metadata PDF-nya menyebut *airSlate* — perangkat penyunting PDF, bukan pencetak rekening. Semua itu **muncul sebagai temuan di Sheet 9**, persis seperti yang diharapkan dari dokumen yang disunting. Baris yang tanggalnya tidak terbaca tidak ditebak tanggalnya: ia tidak masuk Detail Transaksi (tidak ada bulan yang bisa jadi tempatnya) tapi tetap ikut dihitung di checksum, sehingga selisihnya terlihat di dua tempat sekaligus.
+**Satu PDF referensi (`BNI_inquiry (1).pdf`) sengaja dibiarkan gagal checksum.** Dokumen itu memang tidak konsisten dengan dirinya sendiri: nominal biaya admin tercetak `25,0000.00` (bukan `25,000.00`), satu tanggal tercetak `05/01/206`, total debit resminya meleset Rp225.000 dari jumlah baris yang tercetak, dan saldo akhirnya meleset Rp1.000.000. Metadata PDF-nya menyebut *airSlate* — perangkat penyunting PDF, bukan pencetak rekening. Semua itu **muncul sebagai temuan di sheet Indikasi Kejanggalan**, persis seperti yang diharapkan dari dokumen yang disunting. Baris yang tanggalnya tidak terbaca tidak ditebak tanggalnya: ia tidak masuk Detail Transaksi (tidak ada bulan yang bisa jadi tempatnya) tapi tetap ikut dihitung di checksum, sehingga selisihnya terlihat di dua tempat sekaligus.
 
 > Catatan untuk pengembangan berikutnya: `SOFTWARE_EDITOR_MENCURIGAKAN` di `engine/anomaly_detector.py` belum memuat "airSlate", sehingga PDF di atas hanya masuk kategori "Metadata PDF" (Rendah), bukan "Metadata PDF Mencurigakan" (Sedang). Temuan numeriknya sudah cukup untuk menandai dokumen itu, tapi daftar produsen PDF layak ditambah.
 
