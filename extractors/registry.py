@@ -4,9 +4,14 @@ registry.py — Daftar bank yang tersedia di aplikasi.
 Untuk menambah bank baru:
   1. Buat file extractor baru di extractors/<nama_bank>.py
   2. Import kelasnya di sini
-  3. Tambahkan entry di BANK_REGISTRY
+  3. Tambahkan entry di BANK_REGISTRY (termasuk 'formats')
 
 Tidak perlu mengubah file lain (app.py, engine, UI) sama sekali.
+
+'formats' mendaftar varian tata letak yang benar-benar punya extractor untuk
+bank tersebut. Halaman depan menghitungnya untuk menyebut berapa format yang
+didukung; dipakai juga sebagai daftar tertulis supaya "format apa saja yang
+jalan" tidak cuma tersimpan di dispatcher masing-masing bank.
 """
 
 from extractors.bca import BCAExtractor
@@ -22,6 +27,7 @@ BANK_REGISTRY = {
         'color':       '#005BAA',   # biru BCA — untuk UI
         'logo_text':   'BCA',       # placeholder sebelum ada asset logo
         'description': 'Rekening Giro & Tabungan BCA',
+        'formats':     ['e-Statement / Rekening Koran'],
         'enabled':     True,
     },
     'mandiri': {
@@ -31,6 +37,7 @@ BANK_REGISTRY = {
         'color':       '#003D7C',   # biru Mandiri
         'logo_text':   'MDR',       # logo placeholder
         'description': 'Rekening Giro & Tabungan Mandiri (Auto-detect: Kopra/e-Statement/Rekening Koran)',
+        'formats':     ['Kopra by Mandiri', 'e-Statement', 'Laporan Rekening Koran'],
         'enabled':     True,   # ✓ Aktif — parser Kopra sudah divalidasi checksum
     },
     'bni': {
@@ -40,6 +47,7 @@ BANK_REGISTRY = {
         'color':       '#F47920',   # oranye BNI
         'logo_text':   'BNI',
         'description': 'Rekening Giro BNI (Auto-detect: Account Statement/Transaction Inquiry)',
+        'formats':     ['ACCOUNT STATEMENT', 'TRANSACTION INQUIRY'],
         'enabled':     True,   # ✓ Aktif — parser Account Statement & Transaction Inquiry sudah divalidasi checksum
     },
     'bri': {
@@ -49,6 +57,7 @@ BANK_REGISTRY = {
         'color':       '#00529C',   # biru BRI
         'logo_text':   'BRI',
         'description': 'Rekening Giro, BritAma & Simpedes BRI (Laporan Transaksi Finansial)',
+        'formats':     ['Laporan Transaksi Finansial'],
         'enabled':     True,   # ✓ Aktif — parser Laporan Transaksi Finansial sudah divalidasi checksum
     },
 }
@@ -57,6 +66,15 @@ BANK_REGISTRY = {
 def get_enabled_banks() -> dict:
     """Kembalikan hanya bank yang enabled=True."""
     return {k: v for k, v in BANK_REGISTRY.items() if v.get('enabled', False)}
+
+
+def get_formats() -> list:
+    """Seluruh format yang punya extractor, dari bank yang aktif."""
+    return [
+        (info['short_name'], fmt)
+        for info in get_enabled_banks().values()
+        for fmt in info.get('formats', [])
+    ]
 
 
 def get_extractor(bank_code: str):

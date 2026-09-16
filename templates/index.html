@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XR-App · eXtract-Report</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+</head>
+<body data-maks-mb="{{ maks_mb }}" data-maks-bulan="{{ maks_bulan }}">
+
+<header class="topbar">
+    <div class="logo">
+        <div class="logo-mark">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <rect x="2" y="10" width="3" height="4" rx="0.5" fill="#1A6BFF"/>
+                <rect x="6.5" y="6" width="3" height="8" rx="0.5" fill="#00C896"/>
+                <rect x="11" y="2" width="3" height="12" rx="0.5" fill="white"/>
+            </svg>
+        </div>
+        <span class="logo-text">XR<span>-App</span></span>
+    </div>
+    <span class="version-badge">v{{ versi }} · {{ banks|length }} Bank · {{ jumlah_format }} Format</span>
+</header>
+
+<main class="main">
+
+    <!-- Left panel -->
+    <section class="left-panel">
+        <h2>Analisis Rekening Koran <em>Otomatis</em></h2>
+        <p>Upload PDF rekening koran, pilih bank, dan dapatkan laporan Excel
+           {{ sheets|length }} sheet lengkap dalam hitungan detik.</p>
+        <ul class="feature-list">
+            <li>Ekstraksi saldo harian &amp; seluruh mutasi</li>
+            <li>Upload beberapa PDF sekaligus (maks {{ maks_bulan }} bulan)</li>
+            <li>Rekap &amp; kategorisasi kredit/debit otomatis</li>
+            <li>Cashflow harian dan analisis konsentrasi (HHI)</li>
+            <li>{{ jumlah_indikator }} indikator deteksi kejanggalan</li>
+            <li>Checksum hasil ekstraksi vs ringkasan resmi PDF</li>
+        </ul>
+        <p class="left-note">
+            PDF hasil scan/foto ditolak dengan pesan jelas — ekstraksi hanya
+            menerima e-statement asli yang punya layer teks.
+        </p>
+    </section>
+
+    <!-- Center panel — form -->
+    <section class="center-panel">
+        <div class="form-header">
+            <h3>Ekstrak Rekening Koran</h3>
+            <p>Pilih bank, lalu upload file PDF rekening koran.</p>
+        </div>
+
+        <!-- Pilih Bank -->
+        <div class="section-label">1. Pilih Bank</div>
+        <div class="bank-grid" id="bankGrid">
+            {% for code, bank in banks.items() %}
+            <div class="bank-card {% if not bank.enabled %}disabled{% endif %}"
+                 data-code="{{ code }}"
+                 data-name="{{ bank.name }}"
+                 {% if bank.enabled %}onclick="selectBank(this)"{% endif %}
+                 title="{{ bank.description }}">
+                <div class="bank-logo" style="background: {{ bank.color }}">{{ bank.logo_text }}</div>
+                <div class="bank-card-name">{{ bank.short_name }}</div>
+                <div class="bank-card-desc">{{ bank.description }}</div>
+                {% if not bank.enabled %}
+                <span class="coming-badge">Soon</span>
+                {% endif %}
+                <span class="selected-badge"></span>
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- Upload PDF -->
+        <div class="section-label">2. Upload PDF Rekening Koran</div>
+        <form id="uploadForm" action="/upload" method="post" enctype="multipart/form-data">
+            <input type="hidden" name="bank_code" id="bankCodeInput" value="">
+
+            <div class="upload-zone" id="uploadZone"
+                 onclick="document.getElementById('fileInput').click()"
+                 ondragover="handleDragOver(event)"
+                 ondragleave="handleDragLeave(event)"
+                 ondrop="handleDrop(event)">
+                <div class="upload-icon-wrap">
+                    <!-- PDF icon -->
+                    <svg id="iconPdf" width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <rect x="3" y="1" width="11" height="15" rx="1.5" stroke="#656D76" stroke-width="1.5"/>
+                        <path d="M11 1v5h5" stroke="#656D76" stroke-width="1.5" stroke-linecap="round"/>
+                        <path d="M6 10h8M6 13h5" stroke="#656D76" stroke-width="1.2" stroke-linecap="round"/>
+                    </svg>
+                    <!-- Check icon -->
+                    <svg id="iconCheck" width="20" height="20" viewBox="0 0 20 20" fill="none" style="display:none">
+                        <circle cx="10" cy="10" r="8" stroke="#00C896" stroke-width="1.5"/>
+                        <path d="M6.5 10l2.5 2.5 4.5-4.5" stroke="#00C896" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </div>
+                <div class="upload-label" id="uploadLabel">Klik atau drop file di sini</div>
+                <div class="upload-hint"  id="uploadHint">Bisa pilih lebih dari 1 PDF · Maks {{ maks_bulan }} bulan mutasi total · Maks {{ maks_mb }} MB</div>
+                <div class="file-selected" id="fileName"></div>
+            </div>
+
+            <input type="file" id="fileInput" name="file" accept=".pdf" multiple>
+
+            <div id="loadingState" class="loading-state">
+                <div class="progress-bar"><div class="progress-fill"></div></div>
+                <div class="loading-text" id="loadingText">Memproses...</div>
+            </div>
+
+            <div id="errorBox" class="error-box"></div>
+
+            <button type="submit" class="btn-primary" id="submitBtn" disabled>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <path d="M8 2v9M4 7l4 4 4-4" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M2 13h12" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+                Ekstrak &amp; Unduh Excel
+            </button>
+        </form>
+    </section>
+
+    <!-- Right panel -->
+    <section class="right-panel">
+        <div class="output-label">Output · {{ sheets|length }} Sheet Excel</div>
+        <div class="sheet-list">
+            {% for judul, deskripsi in sheets %}
+            <div class="sheet-item">
+                <span class="sheet-num">{{ '%02d'|format(loop.index) }}</span>
+                <span class="sheet-name">{{ judul }}</span>
+                <span class="sheet-desc">{{ deskripsi }}</span>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="footer-note">
+            <strong>Catatan:</strong> Hasil analisis otomatis. Selalu lakukan cross-check dengan dokumen asli sebelum digunakan untuk keputusan penting.
+        </div>
+    </section>
+
+</main>
+
+<footer class="bottombar">
+    <span class="bottombar-left">XR-App · eXtract-Report v{{ versi }} · © 2026 Ajar D Ashaq</span>
+    <span class="bottombar-right" id="footerBankInfo">Pilih bank untuk memulai</span>
+</footer>
+
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

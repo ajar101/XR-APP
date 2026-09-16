@@ -20,7 +20,12 @@ Tujuan jangka panjang: dipakai oleh seluruh tim (pusat & cabang) untuk mempercep
 
 ```
 XR-APP/
-├── app.py                       # Flask entrypoint — UI, routing upload, orkestrasi
+├── app.py                       # Flask entrypoint — routing upload & orkestrasi (tanpa HTML)
+├── templates/
+│   └── index.html               # Halaman depan (Jinja) — daftar sheet & bank dirender dari katalog
+├── static/
+│   ├── css/app.css              #   Tampilan halaman depan
+│   └── js/app.js                #   Pilih bank, drop berkas, kirim & unduh hasil
 ├── extractors/                  # Lapisan parsing PDF (spesifik per bank)
 │   ├── base.py                  #   Kontrak abstrak BaseExtractor
 │   ├── registry.py              #   Daftar bank & status aktif/nonaktif
@@ -39,25 +44,29 @@ XR-APP/
 │   ├── peringatan.py            #   Pencatatan peringatan pembacaan dokumen (bank-agnostic)
 │   └── pdf_utils.py             #   Deteksi PDF hasil scan/foto (bank-agnostic)
 ├── engine/                      # Lapisan pemrosesan (bank-agnostic)
-│   ├── excel_builder.py         #   Generator Excel 9-sheet
+│   ├── report_catalog.py        #   KATALOG: daftar sheet & indikator — dibaca engine DAN halaman depan
+│   ├── excel_builder.py         #   Generator Excel, satu builder per entri katalog
 │   ├── categorizer.py           #   Kategorisasi transaksi berbasis keyword
 │   ├── anomaly_detector.py      #   17 pemeriksaan indikasi kejanggalan
 │   └── multi_pdf_merger.py      #   Gabungkan hasil ekstraksi dari beberapa PDF
-├── tests/                       # Tes regresi ekstraksi
+├── tests/                       # Tes regresi
 │   ├── regresi.py               #   Bandingkan hasil ekstraksi + temuan Sheet 9 dengan snapshot
+│   ├── katalog.py               #   Katalog = judul sheet di berkas Excel = janji halaman depan
+│   ├── audit_nama.py            #   Bahan audit akurasi kolom Nama (sampel ber-seed tetap)
 │   └── snapshot/                #   Hasil yang direkam, satu JSON per PDF (1 transaksi/temuan = 1 baris)
 ├── references/                  # PDF contoh + hasil Excel untuk validasi manual
 └── parse_rekening.py            # Skrip CLI lama, tidak terhubung ke app.py (peninggalan awal)
 ```
 
-**Total kode inti: ±4.900 baris Python** (per 2 Sep 2026): `app.py` 695 baris, extractor BCA 565 baris, `anomaly_detector.py` 825 baris, `excel_builder.py` 1.193 baris.
+**Total kode inti: ±11.300 baris Python** (per 16 Sep 2026): `app.py` 229 baris, extractor BCA 816 baris, `anomaly_detector.py` 963 baris, `excel_builder.py` 1.535 baris, `report_catalog.py` 218 baris. Di luar itu, halaman depan: `templates/index.html` 147 baris, `static/css/app.css` 250 baris, `static/js/app.js` 154 baris.
 
 ### 2.2 Prinsip desain kunci
 
 - **Kontrak `BaseExtractor` yang ketat** (`extractors/base.py`): setiap extractor bank baru wajib mengimplementasikan `extract_saldo()` dan `extract_transaksi()` dengan struktur output yang sama persis, supaya `engine/` (Excel builder, kategorisasi, deteksi anomali) bisa bekerja **tanpa modifikasi apa pun**, apa pun bank-nya. Menambah bank baru = buat 1 file extractor + daftarkan di `registry.py`.
 - **Pemisahan tegas parsing vs presentasi**: `extractors/` tidak tahu soal Excel/styling; `engine/` tidak tahu soal bank tertentu.
 - **Ketentuan bank dimiliki extractor-nya, bukan engine.** Aturan yang berbeda antar bank (jadwal pendebetan biaya admin, cara mengenali baris bunga/pajak) dikirim extractor sebagai *metadata* lewat `extract_saldo()` — lihat kontraknya di `extractors/base.py`. Engine hanya membaca strukturnya. Extractor yang tidak mengirim metadata itu membuat pemeriksaan terkait **dilewati**, bukan ditebak dengan aturan bank lain.
-- **`app.py` cuma orkestrasi** — terima upload, panggil extractor yang sesuai, panggil `excel_builder`, kirim file. Tidak ada logika parsing/styling di sana.
+- **`app.py` cuma orkestrasi** — terima upload, panggil extractor yang sesuai, panggil `excel_builder`, kirim file. Tidak ada logika parsing/styling di sana. HTML/CSS/JS tinggal di `templates/` dan `static/`; sebelumnya 525 dari 743 baris `app.py` adalah string HTML, sehingga berkas yang docstring-nya menjanjikan hal ini justru sebagian besar isinya styling.
+- **Isi laporan didaftar sekali saja** (`engine/report_catalog.py`). Daftar sheet dan daftar indikator dibaca DUA pihak: `excel_builder` membangun sheet dengan menelusuri `SHEETS`, dan halaman depan merender daftar yang sama. Selama daftar itu ditulis dua kali, keduanya pasti berbeda cepat atau lambat — dan memang terjadi: engine sudah menghasilkan 12 sheet sementara halaman depan masih menjanjikan 8 dan tidak menyebut sheet "Indikasi Kejanggalan" sama sekali. Ketidakcocokan kini gagal saat itu juga: `create_excel()` membandingkan judul sheet yang benar-benar tertulis dengan katalog sebelum menyimpan berkas, dan `tests/katalog.py` memeriksa ketiganya (katalog, berkas Excel, halaman depan).
 - **Semua keputusan besar divalidasi terhadap data riil**, bukan asumsi — setiap perbaikan bug/fitur baru diverifikasi ulang terhadap total MUTASI CR/DB yang tercetak resmi di footer PDF, sebelum dianggap selesai.
 
 ### 2.3 Alur request
@@ -107,7 +116,7 @@ app.py /upload
 
 ### 4.1 Yang diterima
 
-- **Format**: PDF rekening koran BCA (Giro & Tabungan/Tahapan), dengan **layer teks** (bukan hasil scan/foto kamera).
+- **Format**: PDF rekening koran dari **4 bank / 7 format** — BCA, Mandiri (Kopra, e-Statement, Rekening Koran), BNI (Account Statement, Transaction Inquiry), BRI (Laporan Transaksi Finansial) — dengan **layer teks** (bukan hasil scan/foto kamera). Daftar format yang aktif ada di `extractors/registry.py` (kunci `formats`), dan jumlahnya ikut ditampilkan di halaman depan.
 - **Jumlah file**: 1 atau lebih PDF sekaligus dalam satu upload.
 - **Total periode**: maksimum **6 bulan mutasi gabungan** dari seluruh file yang diupload.
 - **Ukuran**: maks 64 MB per request.
@@ -130,7 +139,7 @@ Semua file yang sempat diupload ke server **selalu dibersihkan** setelah request
 
 ## 5. Output
 
-Satu file **Excel (.xlsx)** dengan **9 sheet**:
+Satu file **Excel (.xlsx)** dengan **12 sheet**. Daftar & urutannya didefinisikan di `engine/report_catalog.py` (`SHEETS`) — tabel di bawah mengikutinya, bukan sebaliknya:
 
 | # | Sheet | Isi |
 |---|---|---|
@@ -138,13 +147,16 @@ Satu file **Excel (.xlsx)** dengan **9 sheet**:
 | 2 | Detail Transaksi | Seluruh mutasi: tanggal, jenis, nominal, nama pengirim/penerima, keterangan |
 | 3 | Rekap Kredit | Rekap kredit per pengirim |
 | 4 | Rekap Debit | Rekap debit per penerima |
-| 5 | Cashflow Harian | Net cashflow per hari per bulan |
-| 6 | Kategori Debit | Auto-klasifikasi pengeluaran (gaji, operasional, angsuran, dll) |
-| 7 | Kategori Kredit | Auto-klasifikasi pemasukan |
-| 8 | Summary | Identitas rekening, ringkasan keuangan per bulan, konsentrasi kredit, **HHI Score** + interpretasi |
-| 9 | **Indikasi Kejanggalan** | 17 pemeriksaan otomatis kewajaran rekening — dashboard skor risiko + tabel detail temuan (filterable) |
+| 5 | Summary Rekap Kredit | Versi ringkas Rekap Kredit — untuk dibaca cepat, tanpa rincian per bulan |
+| 6 | Summary Rekap Debit | Versi ringkas Rekap Debit |
+| 7 | Cashflow Harian | Net cashflow per hari per bulan |
+| 8 | Kategori Debit | Auto-klasifikasi pengeluaran (gaji, operasional, angsuran, dll) |
+| 9 | Kategori Kredit | Auto-klasifikasi pemasukan |
+| 10 | **Daftar Indikator** | Penjelasan tiap indikator kejanggalan & cara deteksinya — supaya pemeriksa tahu apa yang diperiksa, bukan cuma melihat hasilnya |
+| 11 | **Indikasi Kejanggalan** | 17 pemeriksaan otomatis kewajaran rekening — dashboard skor risiko + tabel detail temuan (filterable) |
+| 12 | Summary | Identitas rekening, ringkasan keuangan per bulan, konsentrasi kredit, **HHI Score** + interpretasi |
 
-### 5.1 Sheet 9 — 17 indikator kejanggalan
+### 5.1 Sheet Indikasi Kejanggalan — 17 indikator
 
 Disusun sebagai dashboard ringkas (skor risiko + ringkasan per kategori) diikuti tabel detail temuan (bisa di-filter/sort di Excel), tiap temuan diberi tingkat **Tinggi / Sedang / Rendah**.
 
@@ -172,41 +184,93 @@ Disusun sebagai dashboard ringkas (skor risiko + ringkasan per kategori) diikuti
 
 ---
 
-## 6. Rencana implementasi ke depan
+## 6. Status pekerjaan & rencana ke depan
 
-Disusun berdasarkan diskusi sepanjang pengembangan, urut prioritas realistis (bukan urut "keren"):
+### 6.0 Yang masih menggantung — ringkasan (per 16 September 2026)
+
+Satu tabel supaya tidak perlu membaca seluruh §6 untuk tahu apa yang belum beres. Kolom "Dampak sekarang" sengaja diisi apa adanya: sebagian butir di bawah **tidak** mengganggu hasil laporan sama sekali, dan itu perlu kelihatan supaya prioritasnya tidak salah.
+
+| # | Yang menggantung | Dampak sekarang | Prioritas | Detail |
+|---|---|---|---|---|
+| 1 | Berkas Excel di `exports/` tidak pernah dihapus | PII finansial menumpuk di disk tanpa kedaluwarsa | **Tinggi** | §6.2 |
+| 2 | Tidak ada autentikasi sama sekali | Siapa pun yang menjangkau port bisa upload & unduh rekening koran | **Tinggi** | §6.2 |
+| 3 | Ekstraksi blocking di dalam request HTTP | PDF 296 halaman = 60–90 detik; rawan timeout proxy, pemakai kedua antre | Sedang | §6.2 |
+| 4 | Bunga & pajak bunga dipasangkan per tanggal persis | 2 temuan **palsu** tingkat Rendah pada BRI (dari 9 PDF referensi) | Sedang | §6.1 |
+| 5 | Kode kanal `ATMSTRPRM` dipakai sebagai nama (BRI) | 40 baris (0,97%) tidak menunjuk lawan transaksi; Rekap jadi bercampur | Sedang | §6.1 |
+| 6 | Token `0` dipakai sebagai nama (BRI) | 12 baris (0,29%) memunculkan entri "0" palsu di Rekap | Rendah | §6.1 |
+| 7 | Jadwal biaya admin BRI Giro & Simpedes belum ada | Pemeriksaannya **dilewati** untuk kedua produk itu — bukan salah, tapi juga bukan lolos | Rendah | §6.1 |
+| 8 | Daftar hari libur baru 4 tanggal tetap | Indikator hari libur hanya menangkap Minggu + 4 tanggal | Rendah | §6.1 |
+| 9 | Ekor nama lawan transaksi (Mandiri 32, BCA 18, BRI 22 baris) | <0,6% per format; keterangan lengkap tetap ada di Detail Transaksi | Rendah | §6.1 |
+| 10 | Pemisahan nama vs berita pada BNI e-channel | Berita ber-huruf besar semua masih ikut terbawa ke kolom Nama | Rendah | §6.1 |
+| 11 | OCR / vision untuk PDF hasil scan | Belum ada — PDF scan ditolak dengan pesan jelas, bukan salah baca | Rendah | §6.1 |
+| 12 | Format tanpa extractor (Mandiri E-Banking, BNI & BRI format lain) | Ditolak 400 dengan pesan yang menyebut format terdeteksi | Rendah | §3 |
+
+**Tidak ada butir terbuka yang membuat angka laporan salah tanpa diketahui.** Butir 4–6 memengaruhi kolom Nama dan temuan tingkat Rendah, bukan nominal; butir 1–3 soal operasional & keamanan, bukan kebenaran ekstraksi. Total mutasi dan saldo akhir seluruh format tetap dijaga checksum extractor terhadap angka resmi yang tercetak di PDF-nya sendiri.
+
+---
 
 ### 6.1 Jangka pendek — masih di arsitektur Flask saat ini
+
+Urut dari yang paling berdampak:
+
+- **Pemasangan bunga & pajak bunga masih per tanggal persis.** `_check_rasio_pajak_bunga` (`engine/anomaly_detector.py`) mengelompokkan bunga dan pajaknya berdasarkan kolom `Tanggal` yang sama. BRI untuk sebagian bulan mendebet "PAJAK BUNGA SIMPANAN" H+1 dari bunganya (bunga 20/11, pajak 21/11), sehingga muncul **dua temuan palsu bertingkat Rendah** ("bunga tanpa pasangan pajak" dan sebaliknya) — 2 kejadian dari 9 PDF referensi BRI. Tanggalnya sengaja **tidak** digeser extractor supaya laporan tetap sama dengan dokumennya; pemasangan lintas-hari harus diputuskan di engine dan menyentuh semua bank. Ini satu-satunya butir terbuka yang menghasilkan temuan palsu, jadi paling layak dikerjakan duluan.
+
+- **Kode kanal `ATMSTRPRM` dipakai sebagai nama pada BRI (40 baris dari 4.131 = 0,97%).** Ditemukan pada audit §7.4. Keterangannya berbentuk `ATMSTRPRM 08888 000464106 6557026349 …` — tidak memuat nama siapa pun, tapi **seluruh 40 barisnya memuat nomor rekening tujuan** di segmen ketiga. Saat ini yang terpakai justru kode kanalnya, sehingga 40 transaksi ke lawan yang berbeda-beda menggumpal jadi satu entri "ATMSTRPRM" di Rekap. Perbaikannya sama dengan yang sudah dilakukan untuk kode terminal BNI (`S1ACIR9510 4095`): kenali kodenya, ganti dengan nomor rekening lawan. Pola nomornya sudah terverifikasi konsisten di seluruh 40 baris.
+
+- **Token `0` dipakai sebagai nama pada BRI (12 baris = 0,29%).** Keterangannya `0 ; ESB:INDS:0002800D:343fca4054e5 …`, seluruhnya mutasi Kredit. Tidak ada nama maupun nomor rekening di dalamnya, jadi yang benar adalah menandainya `Tidak Teridentifikasi` seperti 22 baris lain — bukan membiarkan "0" jadi entri tersendiri di Rekap.
+
+- **Jadwal pendebetan biaya administrasi BRI Giro & Simpedes.** Satu-satunya jadwal yang belum ada; BCA, Mandiri, BNI, dan BRI BritAma sudah lengkap (lihat sheet **Daftar Indikator**). Sengaja tidak ditebak: tidak satu pun rekening Giro di referensi punya baris biaya administrasi rekening, dan Simpedes hanya punya satu contoh yang tanggalnya berbeda dari bunga/pajaknya (16 vs 15). Karena pemeriksaan ini **sepenuhnya digerakkan metadata `_biaya_admin`** — extractor yang tidak mengirimnya membuat pemeriksaan dilewati, bukan ditebak — menundanya tidak menimbulkan temuan palsu, dan menambahkannya nanti hanya berupa penambahan data di satu extractor tanpa perubahan engine. Butuh konfirmasi ketentuan resmi BRI.
+
+- **Perluas daftar hari libur nasional** (termasuk libur lunar/hijriah dan cuti bersama) — perlu referensi kalender resmi per tahun. Selama belum ada, indikator "Setoran Tunai di Hari Libur" dan "Transaksi RTGS di Hari Libur" hanya menangkap hari Minggu + 4 tanggal tetap (1 Januari, 1 Mei, 17 Agustus, 25 Desember).
+
 - **Nama lawan transaksi pada BNI e-channel.** Untuk transfer keluar lewat e-channel, dokumen BNI memang tidak mencetak nama penerima sama sekali — yang ada hanya nomor rekening tujuan, dan nomor itulah yang dipakai sebagai identitas di kolom Nama. Untuk transfer masuk, nama pengirim dicetak menyatu dengan berita transaksi tanpa pemisah apa pun (tidak ada gap kolom — sudah diperiksa sampai ke koordinat glif), jadi pemisahannya bertumpu pada bentuk huruf: nama dicetak sistem dalam huruf besar, berita diketik nasabah. Berita yang kebetulan ditulis huruf besar semua masih ikut terbawa. Sebagian baris e-channel juga tidak memuat nama sama sekali, hanya kode terminal/agen yang berganti tiap transaksi (`S1ACIR9510 4095`) — kode semacam itu dikenali dan digantikan nomor rekening lawan, supaya satu pengirim tidak pecah jadi puluhan baris di Rekap. Label kanal yang ikut tercetak di ekor nama ("… BI FAST") dibuang, dari daftar label yang benar-benar terlihat di PDF referensi saja. Butuh lebih banyak sampel sebelum aturannya diperketat.
-- **Sisa nama lawan transaksi (Mandiri: 32 baris dari 6.892 = 0,46%)** — ekor panjang yang tiap polanya hanya muncul 1–2 kali, jadi aturan untuknya akan lahir dari terlalu sedikit contoh. Dibiarkan apa adanya sampai ada lebih banyak sampel. Keterangan lengkapnya tetap ada di Sheet Detail Transaksi.
-- **Nama pada PDF BCA (18 baris)** — pipeline namanya terpisah (`extractors/bca.py`, bukan `mandiri_nama.py`). Kelompok terbesarnya top-up Flazz (16 baris) yang namanya masih berupa nomor kartu. Belum digarap.
-- **Pemeriksaan Sheet 9 yang masih spesifik pola teks BCA** — empat indikator yang membaca ulang PDF mentah (running balance, nomor halaman, template halaman, format nominal) plus pencocokan "mutasi hilang" mencocokkan tata letak khas BCA (`HALAMAN :`, baris `dd/mm`, `MUTASI CR :`). Sejak dipasang gerbang `BANK_POLA_MENTAH`, kelimanya **hanya dijalankan untuk rekening BCA**.
 
-  Gerbang itu dipasang setelah terbukti bukan sekadar "cakupan lebih sempit": pada PDF Mandiri yang ikut memuat halaman rekening BCA milik rekening lain, pemindai membaca ringkasan BCA itu lalu membandingkannya dengan data Mandiri, dan menghasilkan **empat temuan "RISIKO TINGGI" yang seluruhnya keliru**. Untuk bank selain BCA, pemeriksaan setara sudah dilakukan extractor-nya sendiri lewat checksum internal (`validate()` → metadata `_checksum`) plus nomor urut transaksi dan rantai saldo.
+- **Sisa ekor nama lawan transaksi** — tiap polanya hanya muncul 1–2 kali, jadi aturan untuknya akan lahir dari terlalu sedikit contoh. Dibiarkan apa adanya sampai ada lebih banyak sampel; keterangan lengkapnya tetap ada di Sheet Detail Transaksi.
+  - **Mandiri: 32 baris dari 6.892 (0,46%).**
+  - **BCA: 18 baris.** Pipeline namanya terpisah (`extractors/bca.py`, bukan `mandiri_nama.py`). Kelompok terbesarnya top-up Flazz (16 baris) yang namanya masih berupa nomor kartu. Belum digarap.
+  - **BRI: 22 baris dari 4.131 (0,53%).** Ini yang sudah ditandai `Tidak Teridentifikasi` — uraiannya memang tidak memuat nama siapa pun, hanya nomor referensi kanal yang berganti tiap transaksi (`456022#818808360513#9360000212470040874`). Dibiarkan sebagai tidak teridentifikasi, bukan diisi tebakan. **Bukan cacat** — lihat §7.4.
 
-  Extractor BRI ikut mengirim `_provenance`, jadi empat pemeriksaan itu tetap dilewati untuknya — pemeriksaan setara sudah dilakukan checksum internalnya (total mutasi & saldo akhir per blok) plus rantai saldo berjalan per baris.
+- **OCR / Claude Vision untuk PDF hasil scan** — saat ini hanya terdeteksi & ditolak. Rekomendasi: langsung ke pendekatan vision model ketimbang OCR tradisional + regex, karena data finansial butuh akurasi tinggi dan OCR rentan salah baca digit pada tabel rapat. *(Belum digarap — dinilai jarang terjadi untuk saat ini.)*
 
-  **Rencana (belum dikerjakan):** hapus parser kedua itu sepenuhnya. Extractor sudah tahu setiap fakta yang dibutuhkan saat parsing (baris ini di halaman berapa, saldo tercetak di sebelahnya, nomor halaman, ada tidaknya header kolom) lalu membuangnya; serahkan sebagai metadata `_provenance` — bentuknya *fakta*, bukan *pola regex per bank*, karena mengirim pola berarti melembagakan parser kedua yang justru jadi sumber temuan palsu tadi. Setelah itu keempat pemeriksaan bisa bank-agnostik, dan `_check_mutasi_hilang` bisa dihapus karena pekerjaannya sudah dilakukan `_checksum` dengan benar. Kuncinya **bank + format** (Kopra/Rekening Koran/e-Statement/BCA), bukan bank + jenis rekening — jenis rekening baru relevan untuk aturan berjadwal seperti `_biaya_admin`.
-- **Sisa nama lawan transaksi pada BRI (22 baris dari 4.131 = 0,53%).** Uraian BRI ditulis mesin dengan tata bahasa tetap, jadi 99,5% namanya terbaca dari strukturnya. Sisanya memang tidak memuat nama siapa pun — hanya nomor referensi kanal yang berganti tiap transaksi (`456022#818808360513#9360000212470040874`) — dan dibiarkan sebagai "Tidak Teridentifikasi", bukan diisi tebakan. Keterangan lengkapnya tetap ada di Sheet Detail Transaksi.
-- **Pajak bunga BRI yang didebet H+1.** Untuk sebagian bulan BRI mencetak pajaknya sebagai "PAJAK BUNGA SIMPANAN" satu hari SETELAH bunganya (bunga 20/11, pajak 21/11), sementara pemeriksaan rasio pajak bunga di engine memasangkan keduanya per TANGGAL. Akibatnya muncul dua temuan bertingkat **Rendah** ("bunga tanpa pasangan pajak" dan sebaliknya) pada bulan seperti itu — 2 kejadian dari 9 PDF referensi. Tanggalnya sengaja tidak digeser extractor supaya laporan tetap sama dengan dokumennya; pemasangan lintas-hari perlu diputuskan di engine, dan itu menyentuh semua bank.
-- **Perluas daftar hari libur nasional** (termasuk libur lunar/hijriah) — perlu referensi kalender resmi per tahun.
-- **OCR / Claude Vision untuk PDF hasil scan** — saat ini hanya terdeteksi & ditolak. Rekomendasi: langsung ke pendekatan vision model (Claude API) ketimbang OCR tradisional + regex, karena data finansial butuh akurasi tinggi dan OCR rentan salah baca digit pada tabel rapat. *(Belum digarap — dinilai jarang terjadi untuk saat ini.)*
+---
 
 ### 6.2 Jangka menengah — untuk pemakaian tim (pusat & cabang)
-Ini yang **lebih mendesak daripada migrasi framework**, karena aplikasi saat ini masih single-user/single-page tanpa histori:
 
-1. **Autentikasi & otorisasi** — siapa boleh upload, isolasi data antar cabang.
-2. **Background job queue** (Celery/RQ/arq) — ekstraksi PDF besar (296 halaman ⇒ 60–90 detik) saat ini blocking request; tidak scalable untuk banyak user bersamaan.
-3. **Database + audit log** — riwayat upload, hasil ekstraksi, dan terutama histori temuan Sheet 9 (nilainya justru di riwayat, bukan cuma unduhan sekali pakai).
-4. **Kebijakan retensi & keamanan file** — PDF/Excel yang diupload harus punya jadwal hapus otomatis (data rekening koran = PII finansial sensitif).
-5. **Topologi deployment aman** — VPN atau HTTPS+auth kuat untuk akses cabang, bukan exposed langsung ke internet.
+Ini yang **lebih mendesak daripada migrasi framework**, karena aplikasi saat ini masih single-user tanpa histori. Urut dari yang paling mendesak:
+
+1. **Kebijakan retensi & keamanan berkas.** PDF yang diunggah **sudah** dibersihkan dengan benar — blok `finally` di `app.py` menghapusnya apa pun hasilnya, termasuk saat validasi gagal. Tapi **berkas Excel hasilnya tidak pernah dihapus**: komentarnya menyatakan itu disengaja karena `send_file()` masih perlu membacanya, sehingga `exports/` menumpuk selamanya. Tiap berkas memuat nama pemilik, nomor rekening, dan seluruh mutasinya — PII finansial yang tumbuh tanpa kedaluwarsa. Dua jalan, dan pilihannya bergantung poin 3:
+   - **Tanpa job queue:** jangan tulis ke disk sama sekali — bangun xlsx di `BytesIO` lalu kirim langsung. Tidak ada route yang menyajikan ulang `exports/`, jadi berkasnya memang tidak dibutuhkan lagi setelah terunduh. Ini **menghapus** masalahnya, bukan mengelolanya.
+   - **Dengan job queue:** berkasnya *harus* tersimpan karena worker dan pengunduh adalah proses berbeda — di sini perlu TTL sungguhan (mis. hapus setelah 24 jam) yang dijalankan job terjadwal.
+
+2. **Autentikasi & otorisasi.** Sekarang `app.run(host='0.0.0.0', port=5000)` tanpa login: siapa pun yang menjangkau port itu bisa mengunggah rekening koran dan mengunduh laporannya, dan tidak ada catatan siapa melakukan apa. Yang dibutuhkan dua hal yang sering dikira satu — **autentikasi** (membuktikan Anda siapa) dan **otorisasi** (apa yang boleh dilihat setelah login; cabang A tidak boleh melihat hasil cabang B). Wujud paling sederhana di Flask: `Flask-Login` + tabel user + `@login_required` pada route upload, dengan kolom cabang pada user. Bonusnya gratis: `app.logger.warning` untuk checksum gagal bisa menyebut siapa pengunggahnya — jadi audit trail, bukan sekadar log.
+
+3. **Background job queue.** Ekstraksi kini jalan di dalam request HTTP: PDF 296 halaman menahan koneksi 60–90 detik. Tiga masalah nyata — (a) banyak proxy memutus di 30–60 detik sehingga ekstraksi yang berhasil tetap terlihat gagal; (b) server Flask bawaan memproses satu request pada satu waktu, jadi pemakai kedua antre; (c) tab tidak boleh ditutup. Dengan queue: upload → jawab "job #123 diproses" seketika → worker mengerjakan → pemakai memantau status → unduh saat selesai. **RQ** (Redis) paling masuk akal untuk skala ini; Celery lebih lengkap tapi jauh lebih berat.
+
+4. **Database + audit log** — riwayat upload, hasil ekstraksi, dan terutama histori temuan Indikasi Kejanggalan. Nilainya justru di riwayat (pola lintas waktu per nasabah), bukan di unduhan sekali pakai.
+
+5. **Topologi deployment aman** — VPN atau HTTPS + auth kuat untuk akses cabang, bukan diekspos langsung ke internet.
+
+---
 
 ### 6.3 Jangka panjang — migrasi arsitektur (opsional, bertahap)
-**Rekomendasi: FastAPI (backend) + Vue 3/TypeScript (frontend)**, tapi *setelah* poin 6.2 tuntas secara konsep, bukan sebagai gerbang:
-- `extractors/` dan `engine/` **portable tanpa perubahan** — sudah 100% terpisah dari Flask, jadi investasi parsing tidak hangal saat migrasi.
+
+**Rekomendasi: FastAPI (backend) + Vue 3/TypeScript (frontend)** — tapi *setelah* §6.2 tuntas, dan bukan sebagai gerbang untuk apa pun.
+
+Alasan menundanya bukan "nanti saja", melainkan karena **investasinya memang tidak sedang terancam**: `engine/` dan `extractors/` tidak mengimpor Flask sama sekali (nol kecocokan pada pencarian) — ±10.000 baris logika parsing & analisis yang portable apa adanya. Yang benar-benar perlu ditulis ulang saat migrasi hanya `app.py` (229 baris) dan `templates/`. Jadi migrasi tidak jadi lebih mahal kalau ditunda, sementara butir §6.2 adalah risiko yang berjalan **hari ini**.
+
 - FastAPI native mendukung async/background task + validasi request/response (Pydantic) — lebih rapi untuk auth & job queue dibanding Flask + banyak extension.
-- Vue 3 SPA membuka peluang: render Sheet 9 langsung di browser (bukan cuma Excel) untuk triase cepat, histori per cabang, role-based access.
+- Vue 3 SPA membuka peluang: render Indikasi Kejanggalan langsung di browser (bukan cuma Excel) untuk triase cepat, histori per cabang, role-based access.
+- **Urutan yang benar: auth & queue dulu di Flask, baru migrasi** — bukan sebaliknya. Memindahkan aplikasi *sambil* menambahkan auth berarti dua perubahan besar bercampur; kalau ada yang rusak, penyebabnya tidak bisa dipisahkan.
 - **Fase realistis**: (1) bungkus engine yang ada dengan FastAPI + job queue + auth dasar → (2) bangun SPA Vue 3 dengan histori & tampilan indikasi kejanggalan interaktif → (3) role-based access pusat/cabang, kemungkinan integrasi SSO korporat.
+
+---
+
+### 6.4 Baru selesai — supaya tidak dikerjakan dua kali
+
+- **Pemeriksaan jejak cetak jadi bank-agnostik** (sebelumnya tercatat di §6.1 sebagai "belum dikerjakan"). Gerbang `BANK_POLA_MENTAH` dan `_check_mutasi_hilang` sudah tidak ada di kode. Keempat pemeriksaan berbasis jejak cetak (running balance, nomor halaman, template halaman, format nominal) kini digerakkan metadata `_provenance` berupa *fakta*, bukan pola regex per bank. **Ketujuh extractor** mengirim `_provenance` dan `_checksum`; enam di antaranya (semua kecuali BCA) juga mengirim `_peringatan`. Cakupan tiap pemeriksaan kini mengikuti apa yang memang dicetak dokumennya: nomor halaman hanya ada di BCA, Mandiri Kopra, BNI Account Statement, dan BRI; header kolom per halaman ada di semua kecuali Mandiri Rekening Koran; `teks_mentah` hanya dikirim BCA. Penjelasan per indikator ada di sheet **Daftar Indikator** di dalam laporan Excel-nya sendiri.
+- **Katalog isi laporan jadi satu sumber kebenaran** (`engine/report_catalog.py`) — daftar sheet & indikator tidak lagi ditulis ulang di engine, UI, dan dokumen ini. Dijaga `tests/katalog.py`. Lihat §2.2.
+- **HTML/CSS/JS keluar dari `app.py`** (743 → 229 baris) ke `templates/` dan `static/`.
+- **Audit akurasi kolom nama BRI** — 4.131 baris, lihat §7.4. Skripnya (`tests/audit_nama.py`) bank-agnostik dan bisa dipakai untuk audit ulang format lain.
 
 ---
 
@@ -274,12 +338,49 @@ Audit sampel acak **proporsional** atas 120 baris dari seluruh 6 format, dinilai
 | Mandiri Rekening Koran | 2.324 | 18 | 18 | 100% |
 | **Gabungan** | **15.425** | **120** | **117** | **97,5%** (95% CI 92,9–99,1%) |
 
+Tabel di atas disusun sebelum extractor BRI ada. **BRI diaudit terpisah pada 16 September 2026** — lihat §7.4.
+
 Angka per-format JANGAN dipakai sendiri — sampel 18–24 baris terlalu kecil (CI-nya selebar 74–100%). Yang bisa dipertanggungjawabkan hanya angka gabungan, ~97% ±3. Dua dari tiga kesalahan pada sampel BNI inquiry adalah cacat yang sudah diperbaiki di §7.2, jadi angka sebenarnya kini lebih tinggi dari tabel ini — tabelnya sengaja tidak diperbarui tanpa audit ulang.
 
 Yang **eksak** (dihitung atas seluruh populasi, bukan sampel): nama kosong hanya **1 dari 15.425 baris (0,006%)**, dan itu pun di PDF yang memang rusak.
 
 **Penting jangan salah baca:** pada BNI, ~28–33% baris memakai nomor rekening sebagai nama dan ~26–31% memakai label bank. Itu **bukan kegagalan ekstraksi** — untuk transfer e-channel dokumennya memang tidak mencetak nama (teks setelah nomor rekening adalah berita nasabah: "PINBUK KE BCA OPS", "SEWA KENDARAAN BUGGY CAR"), dan untuk biaya admin/jasa giro/PPh memang tidak ada lawan transaksi. BCA & Mandiri mencapai 98–100% "nama betulan" karena formatnya mencetak nama di kolom tersendiri.
 
-**Batasan:** tidak ada label ground-truth independen; penilaian benar/salah adalah pembacaan atas kolom keterangan oleh satu penilai. Untuk angka yang lebih keras perlu sampel berlabel oleh tim.
+**Batasan:** tidak ada label ground-truth independen; penilaian benar/salah adalah pembacaan atas kolom keterangan oleh satu penilai. Untuk angka yang lebih keras perlu sampel berlabel oleh tim. Audit ulang keenam format ini bisa dijalankan dengan `python tests/audit_nama.py <bank>` — skrip yang sama yang dipakai untuk §7.4.
+
+
+### 7.4 Akurasi kolom nama — BRI (audit 16 September 2026)
+
+Dilakukan terpisah karena extractor BRI baru ada setelah audit §7.3. Populasi: **4.131 baris dari 9 PDF referensi, 9 rekening, 7 jenis produk** (Giro Umum SME, Giro Umum, BritAma Bisnis, BritAma Bisnis SME, BritAma X SME, Britama Digital, Simpedes Umum).
+
+Diaudit dua lapis, karena keduanya menangkap hal berbeda:
+
+**(a) Pemindaian seluruh populasi** — eksak, bukan sampel. Hanya menangkap cacat yang bisa dikenali dari *bentuknya*:
+
+| Temuan | Baris | % populasi |
+|---|---:|---:|
+| Nama kosong | 0 | 0,00% |
+| Kode kanal dipakai sebagai nama (`ATMSTRPRM`) | 40 | 0,97% |
+| Token sampah dipakai sebagai nama (`0`) | 12 | 0,29% |
+| **Total cacat terpola** | **52** | **1,26%** |
+| **Baris yang membawa identitas terpakai** | **4.079** | **98,74%** |
+
+Ditandai `Tidak Teridentifikasi` — 22 baris (0,53%) — **tidak** dihitung cacat: dokumennya memang tidak memuat nama siapa pun, hanya nomor referensi kanal yang berganti tiap transaksi, dan extractor sengaja tidak menebak.
+
+Diperiksa juga arah pengambilan nama pada baris berpola `FROM … TO …` (47 baris): untuk mutasi Kredit harus mengambil sisi `FROM`, untuk Debit sisi `TO`. **0 kesalahan arah.**
+
+**(b) Sampel acak 40 baris, dinilai manual** terhadap kolom keterangan — menangkap cacat yang bentuknya wajar tapi isinya keliru, yang tidak mungkin ditemukan pemindaian pola:
+
+| Sampel | Benar | Akurasi |
+|---:|---:|---|
+| 40 | 38 | **95,0%** (95% CI Wilson 83,5–98,6%) |
+
+Kedua kesalahannya adalah baris `ATMSTRPRM` yang sama — artinya **tidak ditemukan satu pun cacat di luar dua kelas yang sudah terdeteksi pemindaian (a)**. Tidak ada nama yang terbaca rapi tapi ternyata bukan lawan transaksinya.
+
+**Cara membaca kedua angka ini.** `ATMSTRPRM` hanya 0,97% populasi, jadi harapan kemunculannya dalam 40 baris adalah ±0,4 baris — yang tertarik 2, sekitar 5× lipat. Sampelnya kebetulan melebihkan cacat itu, sehingga **95,0% understate**. Angka yang lebih bisa dipertanggungjawabkan adalah **98,74%** dari pemindaian populasi penuh, dengan syarat yang harus disebut jujur: angka itu hanya mencakup cacat yang berpola. Sampel (b) ada justru untuk menguji apakah ada cacat di luar pola — dan pada 38 baris sisanya, tidak ada.
+
+Audit ini bisa diulang: `python tests/audit_nama.py bri` (seed tetap 20260916, jadi baris sampelnya sama persis). Skripnya bank-agnostik dan siap dipakai untuk audit ulang format lain.
+
+**Batasan yang sama dengan §7.3:** tidak ada label ground-truth independen; penilaian benar/salah adalah pembacaan kolom keterangan oleh satu penilai.
 
 **Semua PDF referensi BNI Transaction Inquiry masuk tes regresi** (`tests/regresi.py`); awalan `BNI_` didaftarkan di `AWALAN_BANK` supaya berkasnya tidak dilewati diam-diam.
