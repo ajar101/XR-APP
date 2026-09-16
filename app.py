@@ -243,11 +243,37 @@ def upload_file():
 
 
 if __name__ == '__main__':
+    # Blok ini HANYA untuk menjalankan aplikasi di mesin sendiri saat
+    # mengembangkan. Untuk dipakai orang lain, jalankan lewat gunicorn —
+    # lihat wsgi.py dan DEPLOY.md. Server bawaan Werkzeug bukan server
+    # produksi, dan itu pernyataan pembuatnya sendiri, bukan pendapat.
+    #
+    # debug MATI secara bawaan. Sebelumnya di sini tertulis debug=True
+    # bersama host='0.0.0.0', dan itu berbahaya justru untuk aplikasi ini:
+    # begitu ada error, Werkzeug menampilkan halaman traceback berisi
+    # potongan kode sumber DAN isi variabel lokal di tiap bingkai. Pada
+    # aplikasi ini variabel lokal itu berisi nama pemilik rekening, nomor
+    # rekening, dan baris-baris mutasinya. Debugger-nya memang terkunci PIN
+    # pada Werkzeug versi sekarang, tapi halaman tracebacknya sendiri tidak.
+    #
+    # Dinyalakan hanya kalau diminta EKSPLISIT lewat XR_DEBUG=1, dan saat
+    # itu pun hanya mengikat ke localhost supaya tidak terjangkau dari
+    # jaringan.
+    debug = os.environ.get('XR_DEBUG') == '1'
+    host = '127.0.0.1' if debug else os.environ.get('XR_HOST', '127.0.0.1')
+    port = int(os.environ.get('XR_PORT', '5000'))
+
     print("\n" + "=" * 50)
     print(f"🚀 XR-App · eXtract-Report v{VERSI}")
     print("=" * 50)
-    print("\n📍 Akses aplikasi di: http://localhost:5000")
-    print("📍 Atau: http://127.0.0.1:5000")
+    print(f"\n📍 Akses aplikasi di: http://{host}:{port}")
     print(f"\n🏦 Bank tersedia: {', '.join(get_enabled_banks().keys())}")
+    if debug:
+        print("\n⚠️  MODE DEBUG AKTIF — halaman error akan menampilkan isi")
+        print("    variabel, termasuk data rekening. Jangan dipakai untuk")
+        print("    melayani orang lain. Hanya mengikat ke localhost.")
+    else:
+        print("\n💡 Untuk melayani pemakai lain, jangan pakai server ini —")
+        print("   jalankan lewat gunicorn (lihat DEPLOY.md).")
     print("\n⏹️  Tekan CTRL+C untuk stop server\n")
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=debug, host=host, port=port)

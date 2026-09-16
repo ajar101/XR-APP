@@ -28,3 +28,7 @@ pdfplumber==0.11.10
 # karena pembersihan itu menangani gejalanya di sisi kita, bukan salah
 # dekripsi di sisi pdfminer — yang efek lainnya belum tentu ketahuan.
 pdfminer.six==20260107
+
+# Server WSGI produksi. app.run() bawaan Werkzeug hanya untuk pengembangan
+# di mesin sendiri — lihat wsgi.py & gunicorn.conf.py.
+gunicorn==26.2.0
