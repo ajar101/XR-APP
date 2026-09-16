@@ -49,6 +49,7 @@ AWALAN_BANK = {
     'mandiri_': 'mandiri',
     'bni_': 'bni',
     'BNI_': 'bni',
+    'BRI ': 'bri',
 }
 
 
