@@ -21,6 +21,15 @@ Tujuan jangka panjang: dipakai oleh seluruh tim (pusat & cabang) untuk mempercep
 ```
 XR-APP/
 ├── app.py                       # Flask entrypoint — routing upload & orkestrasi (tanpa HTML)
+├── wsgi.py                      # Pintu masuk server produksi (gunicorn)
+├── gunicorn.conf.py             # Timeout & jumlah worker, diukur bukan ditebak
+├── Dockerfile                   # Citra produksi
+├── DEPLOY.md                    # Topologi, sizing, daftar periksa sebelum melayani pemakai
+├── auth.py                      # Autentikasi, otorisasi per cabang, jejak audit
+├── manage.py                    # CLI: buat admin pertama, kelola pengguna
+├── tugas.py                     # Jalur ekstraksi — dipakai mode langsung DAN worker
+├── antrean.py                   # Sambungan Redis/RQ & penentu mode kerja
+├── worker.py                    # Proses pekerja mode antrean
 ├── templates/
 │   └── index.html               # Halaman depan (Jinja) — daftar sheet & bank dirender dari katalog
 ├── static/
@@ -192,18 +201,18 @@ Satu tabel supaya tidak perlu membaca seluruh §6 untuk tahu apa yang belum bere
 
 | # | Yang menggantung | Dampak sekarang | Prioritas | Detail |
 |---|---|---|---|---|
-| 1 | Tidak ada autentikasi sama sekali | Siapa pun yang menjangkau port bisa upload & unduh rekening koran | **Tinggi** | §6.2 |
-| 2 | Ekstraksi blocking di dalam request HTTP | PDF 296 halaman = 60–90 detik; rawan timeout proxy, pemakai kedua antre | Sedang | §6.2 |
-| 3 | Bunga & pajak bunga dipasangkan per tanggal persis | 2 temuan **palsu** tingkat Rendah pada BRI (dari 9 PDF referensi) | Sedang | §6.1 |
-| 4 | Jadwal biaya admin BRI Giro & Simpedes belum ada | Pemeriksaannya **dilewati** untuk kedua produk itu — bukan salah, tapi juga bukan lolos | Rendah | §6.1 |
-| 5 | Daftar hari libur baru 4 tanggal tetap | Indikator hari libur hanya menangkap Minggu + 4 tanggal | Rendah | §6.1 |
-| 6 | Ekor nama lawan transaksi (Mandiri 32, BCA 18 baris) | <0,6% per format; keterangan lengkap tetap ada di Detail Transaksi | Rendah | §6.1 |
-| 7 | Pemisahan nama vs berita pada BNI e-channel | Berita ber-huruf besar semua masih ikut terbawa ke kolom Nama | Rendah | §6.1 |
-| 8 | Akurasi kolom nama BCA, Mandiri, BNI belum diaudit ulang | Angka §7.3 dari 12 Sep belum memakai metode dua lapis seperti §7.4 | Rendah | §6.1 |
-| 9 | OCR / vision untuk PDF hasil scan | Belum ada — PDF scan ditolak dengan pesan jelas, bukan salah baca | Rendah | §6.1 |
-| 10 | Format tanpa extractor (Mandiri E-Banking, BNI & BRI format lain) | Ditolak 400 dengan pesan yang menyebut format terdeteksi | Rendah | §3 |
+| 1 | Bunga & pajak bunga dipasangkan per tanggal persis | 2 temuan **palsu** tingkat Rendah pada BRI (dari 9 PDF referensi) | Sedang | §6.1 |
+| 2 | Jadwal biaya admin BRI Giro & Simpedes belum ada | Pemeriksaannya **dilewati** untuk kedua produk itu — bukan salah, tapi juga bukan lolos | Rendah | §6.1 |
+| 3 | Daftar hari libur baru 4 tanggal tetap | Indikator hari libur hanya menangkap Minggu + 4 tanggal | Rendah | §6.1 |
+| 4 | Ekor nama lawan transaksi (Mandiri 32, BCA 18 baris) | <0,6% per format; keterangan lengkap tetap ada di Detail Transaksi | Rendah | §6.1 |
+| 5 | Pemisahan nama vs berita pada BNI e-channel | Berita ber-huruf besar semua masih ikut terbawa ke kolom Nama | Rendah | §6.1 |
+| 6 | Akurasi kolom nama BCA, Mandiri, BNI belum diaudit ulang | Angka §7.3 dari 12 Sep belum memakai metode dua lapis seperti §7.4 | Rendah | §6.1 |
+| 7 | OCR / vision untuk PDF hasil scan | Belum ada — PDF scan ditolak dengan pesan jelas, bukan salah baca | Rendah | §6.1 |
+| 8 | Format tanpa extractor (Mandiri E-Banking, BNI & BRI format lain) | Ditolak 400 dengan pesan yang menyebut format terdeteksi | Rendah | §3 |
 
-**Tidak ada butir terbuka yang membuat angka laporan salah tanpa diketahui.** Satu-satunya yang menghasilkan temuan keliru adalah butir 3, dan temuannya bertingkat Rendah. Butir 6–8 menyentuh kolom Nama, bukan nominal; butir 1–2 soal operasional & keamanan, bukan kebenaran ekstraksi. Total mutasi dan saldo akhir seluruh format tetap dijaga checksum extractor terhadap angka resmi yang tercetak di PDF-nya sendiri.
+**Tidak ada butir terbuka yang membuat angka laporan salah tanpa diketahui.** Satu-satunya yang menghasilkan temuan keliru adalah butir 1, dan temuannya bertingkat Rendah. Butir 4–6 menyentuh kolom Nama, bukan nominal. Total mutasi dan saldo akhir seluruh format tetap dijaga checksum extractor terhadap angka resmi yang tercetak di PDF-nya sendiri.
+
+Butir keamanan & operasional yang dulu ada di sini (debug mode menyala, tidak ada autentikasi, ekstraksi menahan koneksi, laporan menumpuk di disk) **sudah selesai** — lihat §6.4 dan `DEPLOY.md`.
 
 ---
 
@@ -232,17 +241,22 @@ Urut dari yang paling berdampak:
 
 ### 6.2 Jangka menengah — untuk pemakaian tim (pusat & cabang)
 
-Ini yang **lebih mendesak daripada migrasi framework**, karena aplikasi saat ini masih single-user tanpa histori. Urut dari yang paling mendesak:
+Tiga dari lima butir di bagian ini **sudah dikerjakan** (lihat §6.4): retensi
+berkas, autentikasi & otorisasi, dan job queue. Yang tersisa:
 
-1. **Autentikasi & otorisasi.** Sekarang `app.run(host='0.0.0.0', port=5000)` tanpa login: siapa pun yang menjangkau port itu bisa mengunggah rekening koran dan mengunduh laporannya, dan tidak ada catatan siapa melakukan apa. Yang dibutuhkan dua hal yang sering dikira satu — **autentikasi** (membuktikan Anda siapa) dan **otorisasi** (apa yang boleh dilihat setelah login; cabang A tidak boleh melihat hasil cabang B). Wujud paling sederhana di Flask: `Flask-Login` + tabel user + `@login_required` pada route upload, dengan kolom cabang pada user. Bonusnya gratis: `app.logger.warning` untuk checksum gagal bisa menyebut siapa pengunggahnya — jadi audit trail, bukan sekadar log.
+1. **Histori hasil ekstraksi.** Jejak audit sudah mencatat *bahwa* sebuah
+   rekening diproses — siapa, kapan, bank apa, nomor rekening, dan hasilnya —
+   tapi hasil ekstraksinya sendiri tidak disimpan. Nilainya justru di riwayat:
+   pola lintas waktu per nasabah, dan terutama histori temuan Indikasi
+   Kejanggalan, bukan unduhan sekali pakai. Begitu disimpan, isolasi antar
+   cabang yang sekarang hanya berlaku untuk jejak audit tinggal dipakai ulang
+   untuk data hasilnya — batasnya sudah ada di `auth.py`.
 
-2. **Background job queue.** Ekstraksi kini jalan di dalam request HTTP: PDF 296 halaman menahan koneksi 60–90 detik. Tiga masalah nyata — (a) banyak proxy memutus di 30–60 detik sehingga ekstraksi yang berhasil tetap terlihat gagal; (b) server Flask bawaan memproses satu request pada satu waktu, jadi pemakai kedua antre; (c) tab tidak boleh ditutup. Dengan queue: upload → jawab "job #123 diproses" seketika → worker mengerjakan → pemakai memantau status → unduh saat selesai. **RQ** (Redis) paling masuk akal untuk skala ini; Celery lebih lengkap tapi jauh lebih berat.
-
-   > **Retensi berkas jadi relevan lagi di sini.** Saat ini laporan Excel dibangun di memori dan tidak pernah menyentuh disk (§6.4), jadi tidak ada yang perlu dijadwalkan hapus. Begitu ekstraksi pindah ke job queue, worker dan pengunduh menjadi proses berbeda sehingga hasilnya **harus** tersimpan di suatu tempat — dan saat itu kebijakan TTL (mis. hapus setelah 24 jam) wajib dirancang bersamaan, bukan menyusul.
-
-3. **Database + audit log** — riwayat upload, hasil ekstraksi, dan terutama histori temuan Indikasi Kejanggalan. Nilainya justru di riwayat (pola lintas waktu per nasabah), bukan di unduhan sekali pakai.
-
-4. **Topologi deployment aman** — VPN atau HTTPS + auth kuat untuk akses cabang, bukan diekspos langsung ke internet.
+2. **Topologi deployment aman** — VPN atau HTTPS + auth kuat untuk akses
+   cabang, bukan diekspos langsung ke internet. Sudah diuraikan lengkap di
+   `DEPLOY.md` (topologi, sizing terukur, konfigurasi nginx, daftar periksa),
+   tinggal dijalankan. Yang harus dituntaskan lebih dulu di luar kode:
+   konfirmasi tim kepatuhan soal penempatan data — lihat `DEPLOY.md` §1.
 
 ---
 
@@ -264,6 +278,24 @@ Alasan menundanya bukan "nanti saja", melainkan karena **investasinya memang tid
 - **Pemeriksaan jejak cetak jadi bank-agnostik** (sebelumnya tercatat di §6.1 sebagai "belum dikerjakan"). Gerbang `BANK_POLA_MENTAH` dan `_check_mutasi_hilang` sudah tidak ada di kode. Keempat pemeriksaan berbasis jejak cetak (running balance, nomor halaman, template halaman, format nominal) kini digerakkan metadata `_provenance` berupa *fakta*, bukan pola regex per bank. **Ketujuh extractor** mengirim `_provenance` dan `_checksum`; enam di antaranya (semua kecuali BCA) juga mengirim `_peringatan`. Cakupan tiap pemeriksaan kini mengikuti apa yang memang dicetak dokumennya: nomor halaman hanya ada di BCA, Mandiri Kopra, BNI Account Statement, dan BRI; header kolom per halaman ada di semua kecuali Mandiri Rekening Koran; `teks_mentah` hanya dikirim BCA. Penjelasan per indikator ada di sheet **Daftar Indikator** di dalam laporan Excel-nya sendiri.
 - **Katalog isi laporan jadi satu sumber kebenaran** (`engine/report_catalog.py`) — daftar sheet & indikator tidak lagi ditulis ulang di engine, UI, dan dokumen ini. Dijaga `tests/katalog.py`. Lihat §2.2.
 - **HTML/CSS/JS keluar dari `app.py`** (743 → 229 baris) ke `templates/` dan `static/`.
+- **Debug mode dimatikan.** `app.run(debug=True, host='0.0.0.0')` dulu berarti
+  halaman error menampilkan potongan kode sumber dan isi variabel lokal — yang
+  di aplikasi ini berisi nama pemilik rekening dan baris mutasinya. Kini mati
+  secara bawaan, dan hanya mengikat localhost bila dinyalakan eksplisit.
+- **Server produksi.** `wsgi.py` + `gunicorn.conf.py` + `Dockerfile` +
+  `DEPLOY.md`. Timeout 180 detik (bukan bawaan 30) dan jumlah worker disetel
+  menurut RAM — keduanya berdasar pengukuran, bukan tebakan: PDF 257 halaman =
+  26,8 detik dan 867 MB puncak.
+- **Autentikasi & otorisasi.** Login wajib, dua peran (admin/pemakai), dan
+  isolasi per cabang pada halaman Riwayat yang disaring di kueri. Jejak audit
+  mencatat siapa memproses rekening apa — termasuk seluruh kegagalan, karena
+  semua jalan keluar `upload_file()` lewat satu helper.
+- **Job queue (RQ).** Request web tidak lagi menahan koneksi selama ekstraksi:
+  unggahan dijawab dalam ~0,04 detik, worker terpisah yang mengerjakan. Mode
+  antrean hanya aktif kalau `XR_REDIS_URL` disetel; tanpa itu aplikasi tetap
+  berjalan seperti semula. Keduanya memakai jalur ekstraksi yang sama
+  (`tugas.py`) supaya isinya tidak pernah berbeda. Umur hasil di Redis
+  (`XR_TTL_HASIL`, bawaan 1 jam) sekaligus jadi kebijakan retensinya.
 - **Audit akurasi kolom nama BRI** — 4.131 baris, lihat §7.4. Skripnya (`tests/audit_nama.py`) bank-agnostik dan bisa dipakai untuk audit ulang format lain.
 - **Laporan Excel tidak lagi ditulis ke disk.** Dulu tiap laporan disimpan di `exports/` dan tidak pernah dihapus, sehingga nama pemilik, nomor rekening, dan seluruh mutasi menumpuk di server tanpa kedaluwarsa. Kini dibangun di `io.BytesIO` lalu dikirim langsung: tidak ada berkas yang perlu dijadwalkan hapus karena tidak ada berkas yang dibuat. Folder `exports/` tidak dibuat lagi. PDF yang diunggah tetap mendarat di disk (extractor membacanya lewat path) dan tetap dihapus di blok `finally`. Lihat catatan di §6.2 poin 2: begitu ada job queue, kebijakan retensi jadi perlu lagi.
 - **Tiga kelas cacat kolom nama BRI diperbaiki** (§7.4): kode kanal `ATMSTRPRM` kini digantikan nomor rekening tujuan yang tercetak di uraiannya — 40 baris yang tadinya menggumpal jadi satu entri Rekap kini terurai jadi 14 lawan transaksi berbeda; token `0` (12 baris) dan `;` (7 baris) kini ditandai `Tidak Teridentifikasi`. Penyaringan token sampah ditaruh di satu pagar (`_bermakna`) yang dilewati SEMUA cabang penguraian nama, bukan ditambal per cabang, supaya bentuk uraian baru tidak lolos lagi.

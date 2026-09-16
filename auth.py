@@ -25,6 +25,7 @@ dipakai ulang.
 """
 
 import functools
+import logging
 import os
 import sqlite3
 import datetime
@@ -200,30 +201,60 @@ def ada_pengguna(app=None) -> bool:
 # JEJAK AUDIT
 # ============================================================
 
-def catat_audit(aksi: str, hasil: str, bank=None, jumlah_berkas=None,
-                nama_berkas=None, no_rekening=None, keterangan=None,
-                app=None) -> None:
+def catat_audit_langsung(db_path, pengguna_id, nama_pengguna, cabang,
+                         aksi, hasil, bank=None, jumlah_berkas=None,
+                         nama_berkas=None, no_rekening=None,
+                         keterangan=None) -> None:
     """
-    Catat satu kejadian. Tidak pernah melempar exception ke pemanggilnya:
-    gagal mencatat jejak tidak boleh menggagalkan pekerjaan penggunanya —
-    tapi juga tidak boleh diam, jadi kegagalannya masuk log aplikasi.
+    Tulis satu baris jejak audit TANPA konteks Flask apa pun.
+
+    Dipakai worker RQ (lihat tugas.py): worker berjalan di proses lain, tidak
+    punya `current_user` maupun objek aplikasi, jadi semua yang dibutuhkan
+    diteruskan eksplisit.
+
+    Tidak pernah melempar exception ke pemanggilnya: gagal mencatat jejak
+    tidak boleh menggagalkan pekerjaan penggunanya — tapi juga tidak boleh
+    diam, jadi kegagalannya masuk log.
     """
     try:
-        with koneksi(app) as conn:
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.execute('PRAGMA journal_mode = WAL')
+            conn.executescript(SKEMA)
             conn.execute(
                 'INSERT INTO jejak_audit (waktu, pengguna_id, nama_pengguna, '
                 '    cabang, aksi, bank, jumlah_berkas, nama_berkas, '
                 '    no_rekening, hasil, keterangan) '
                 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 (datetime.datetime.now().isoformat(timespec='seconds'),
-                 getattr(current_user, 'id', None),
-                 getattr(current_user, 'nama_pengguna', '-'),
-                 getattr(current_user, 'cabang', '-'),
-                 aksi, bank, jumlah_berkas, nama_berkas, no_rekening,
-                 hasil, keterangan))
+                 pengguna_id, nama_pengguna, cabang, aksi, bank,
+                 jumlah_berkas, nama_berkas, no_rekening, hasil, keterangan))
+            conn.commit()
+        finally:
+            conn.close()
     except Exception:
-        from flask import current_app
-        current_app.logger.exception('Gagal menulis jejak audit (aksi=%s)', aksi)
+        logging.getLogger(__name__).exception(
+            'Gagal menulis jejak audit (aksi=%s)', aksi)
+
+
+def catat_audit(aksi: str, hasil: str, bank=None, jumlah_berkas=None,
+                nama_berkas=None, no_rekening=None, keterangan=None,
+                app=None) -> None:
+    """
+    Catat satu kejadian atas nama pengguna yang sedang masuk.
+
+    Pembungkus catat_audit_langsung() yang mengambil identitas dari sesi.
+    Hanya bisa dipakai di dalam konteks request.
+    """
+    catat_audit_langsung(
+        db_path=path_db(app),
+        pengguna_id=getattr(current_user, 'id', None),
+        nama_pengguna=getattr(current_user, 'nama_pengguna', '-'),
+        cabang=getattr(current_user, 'cabang', '-'),
+        aksi=aksi, hasil=hasil, bank=bank, jumlah_berkas=jumlah_berkas,
+        nama_berkas=nama_berkas, no_rekening=no_rekening,
+        keterangan=keterangan)
 
 
 def baca_audit(cabang=None, batas=200, app=None) -> list:

@@ -36,3 +36,8 @@ gunicorn==26.2.0
 # Autentikasi & sesi. Penyimpanan penggunanya memakai sqlite3 dari pustaka
 # standar — lihat auth.py.
 Flask-Login==0.6.3
+
+# Antrean pekerjaan (opsional). Hanya dipakai kalau XR_REDIS_URL disetel —
+# tanpa itu aplikasi berjalan dalam mode langsung. Lihat antrean.py.
+rq==2.12.0
+redis==8.1.0

@@ -138,6 +138,9 @@ produksi.
 | `XR_DEBUG` | *(mati)* | **Jangan dinyalakan di server.** Lihat §6 |
 | `XR_SECRET_KEY` | — | **Wajib.** Aplikasi menolak jalan tanpa ini. Lihat §4.1 |
 | `XR_DB` | `data/xr-app.db` | Basis data pengguna & jejak audit. **Butuh volume awet** |
+| `XR_REDIS_URL` | *(kosong)* | Disetel → mode antrean. Kosong → mode langsung. Lihat §4.2 |
+| `XR_TTL_HASIL` | `3600` | Detik. Umur berkas hasil di mode antrean — inilah kebijakan retensinya |
+| `XR_BATAS_JOB` | `900` | Detik. Batas satu job dianggap gantung |
 
 ### 4.1 Kunci sesi dan akun pertama
 
@@ -170,6 +173,63 @@ ke servernya. Pengguna berikutnya ditambahkan admin lewat halaman
 Kata sandi minimal 12 karakter dan tidak pernah diterima sebagai argumen
 baris perintah — argumen tersimpan di riwayat shell dan terlihat proses lain
 lewat daftar proses.
+
+### 4.2 Dua mode kerja: langsung vs antrean
+
+Yang menentukan hanya satu hal: apakah `XR_REDIS_URL` disetel.
+
+| | **Mode langsung** (bawaan) | **Mode antrean** |
+|---|---|---|
+| `XR_REDIS_URL` | tidak disetel | disetel |
+| Ekstraksi dikerjakan | di dalam request web | worker terpisah |
+| Pemakai menunggu | koneksi ditahan 27–90 detik | jawaban seketika, lalu halaman memantau status |
+| Perlu Redis & worker | tidak | ya |
+| Laporan hasil | tidak pernah keluar dari memori proses | tersimpan di Redis, kedaluwarsa otomatis |
+| `XR_TIMEOUT` gunicorn | harus longgar (180 dtk) | boleh kembali ke puluhan detik |
+
+Keduanya memakai jalur ekstraksi yang **sama** (`tugas.proses_ekstraksi`), jadi
+berpindah mode tidak mengubah isi laporan — hanya mengubah siapa yang
+mengerjakannya dan bagaimana pemakai menunggunya.
+
+**Mulailah dari mode langsung.** Untuk satu cabang dengan sedikit pemakai, ia
+lebih sederhana dan lebih aman: tidak perlu Redis, tidak perlu proses worker,
+dan laporan tidak pernah meninggalkan memori proses sehingga tidak ada yang
+perlu dijadwalkan hapus.
+
+**Pindah ke mode antrean** begitu salah satu dari ini mulai terjadi: pemakai
+melihat timeout pada PDF besar, atau beberapa orang mengunggah bersamaan dan
+saling mengantre.
+
+```bash
+# di mesin yang sama, atau Redis internal yang sudah ada
+export XR_REDIS_URL=redis://127.0.0.1:6379/0
+
+# jalankan minimal satu worker, TERPISAH dari gunicorn
+python worker.py
+```
+
+Jumlah worker disetel seperti `XR_WORKERS` gunicorn: menurut RAM, bukan
+jumlah core — tiap worker mengerjakan satu ekstraksi pada satu waktu dan satu
+ekstraksi memuncak di ~870 MB.
+
+Kalau `XR_REDIS_URL` disetel tapi Redis tidak bisa dihubungi, aplikasi
+**menolak start** — bukan diam-diam kembali ke mode langsung. Kembali
+diam-diam berarti pemakai mengira pekerjaannya diantre padahal koneksinya
+ditahan, dan itu jenis kejutan yang paling buruk saat produksi sedang sibuk.
+
+#### Retensi di mode antrean
+
+Di mode antrean, worker dan pengunduh adalah proses **berbeda**, jadi laporan
+hasil harus tersimpan di antara keduanya. Ia disimpan di Redis dengan umur
+`XR_TTL_HASIL` (bawaan 1 jam), yang **inilah kebijakan retensinya**: Redis
+sendiri yang menghapusnya, jadi tidak ada job pembersih yang bisa lupa
+dijalankan. Setelah lewat, permintaan unduh dijawab 404 dengan pesan meminta
+pemakai mengunggah ulang.
+
+Karena laporan berisi data rekening ikut singgah di Redis, Redis-nya perlu
+perlakuan yang sama dengan basis data: **tidak boleh terjangkau dari luar
+mesin**, dan sebaiknya tanpa persistensi ke disk (`--save '' --appendonly no`)
+supaya isinya tidak tertulis ke berkas dump.
 
 ---
 
@@ -230,7 +290,10 @@ server {
       pernah menulis laporan ke disk, tapi berkas lama tidak ikut terhapus
       sendiri.
 - [ ] `uploads/` kosong saat idle. Isinya dihapus di blok `finally` tiap
-      request; kalau menumpuk, ada proses yang mati di tengah jalan.
+      request; kalau menumpuk, ada proses yang mati di tengah jalan. (Folder
+      yatim tetap disapu otomatis setelah 6 jam — lihat `tugas.sapu_yatim`.)
+- [ ] **Bila memakai mode antrean:** minimal satu `worker.py` berjalan, Redis
+      tidak terjangkau dari luar mesin, dan persistensi Redis dimatikan.
 
 ---
 
@@ -238,7 +301,7 @@ server {
 
 Lihat `RINGKASAN_APLIKASI.md` §6.2. Yang paling berpengaruh pada deployment:
 
-- **Job queue** — setelah dipakai, request web tidak lagi menunggu ekstraksi,
-  `XR_TIMEOUT` bisa turun kembali ke puluhan detik, dan hasil ekstraksi perlu
-  kebijakan retensi tersendiri karena worker dan pengunduh menjadi proses yang
-  berbeda.
+- **Histori hasil ekstraksi** — jejak audit mencatat *bahwa* sebuah rekening
+  diproses, tapi hasilnya sendiri tidak disimpan. Begitu disimpan, isolasi
+  antar cabang yang sekarang hanya berlaku untuk jejak audit tinggal dipakai
+  ulang untuk data hasilnya.
