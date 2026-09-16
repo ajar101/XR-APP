@@ -31,12 +31,19 @@ COPY --chown=xrapp:xrapp . .
 # `finally`. Laporan Excel-nya tidak pernah menyentuh disk sama sekali.
 RUN mkdir -p /app/uploads && chown xrapp:xrapp /app/uploads
 
+# Basis data pengguna & jejak audit. WAJIB dipasangi volume yang awet —
+# kalau tidak, seluruh akun dan jejak auditnya hilang tiap container dibuat
+# ulang, dan admin pertama harus dibuat lagi dari nol.
+RUN mkdir -p /app/data && chown xrapp:xrapp /app/data
+VOLUME ["/app/data"]
+
 USER xrapp
 
 # Di dalam container mengikat ke semua antarmuka supaya bisa dipetakan
 # keluar; yang membatasi jangkauan adalah pemetaan port dan jaringan di
 # luar container (lihat DEPLOY.md), bukan setelan ini.
 ENV XR_BIND=0.0.0.0:5000 \
+    XR_DB=/app/data/xr-app.db \
     PYTHONUNBUFFERED=1
 EXPOSE 5000
 

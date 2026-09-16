@@ -1,0 +1,23 @@
+{% extends "dasar.html" %}
+{% block judul %}Masuk{% endblock %}
+{% block isi %}
+<div class="kartu-tengah">
+    <h1>Masuk</h1>
+    <p class="kartu-sub">
+        XR-App memproses data rekening nasabah. Akses dicatat di jejak audit.
+    </p>
+
+    <form method="post" class="borang">
+        <label for="nama_pengguna">Nama pengguna</label>
+        <input type="text" id="nama_pengguna" name="nama_pengguna"
+               autocomplete="username" required autofocus>
+
+        <label for="sandi">Kata sandi</label>
+        <input type="password" id="sandi" name="sandi"
+               autocomplete="current-password" required>
+
+        <button type="submit" class="btn-primary">Masuk</button>
+    </form>
+</div>
+{% endblock %}
+{% block kaki %}Hubungi admin bila lupa kata sandi{% endblock %}

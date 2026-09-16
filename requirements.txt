@@ -32,3 +32,7 @@ pdfminer.six==20260107
 # Server WSGI produksi. app.run() bawaan Werkzeug hanya untuk pengembangan
 # di mesin sendiri — lihat wsgi.py & gunicorn.conf.py.
 gunicorn==26.2.0
+
+# Autentikasi & sesi. Penyimpanan penggunanya memakai sqlite3 dari pustaka
+# standar — lihat auth.py.
+Flask-Login==0.6.3

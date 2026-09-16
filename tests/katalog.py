@@ -84,24 +84,42 @@ def periksa_workbook() -> list:
 
 def periksa_halaman_depan() -> list:
     """Angka yang dijanjikan halaman depan = angka katalog."""
-    from app import app
+    # Halaman depan kini wajib login, jadi tesnya perlu basis data sendiri
+    # dan satu pengguna. Dipakai berkas sementara supaya basis data nyata
+    # (berisi akun & jejak audit sungguhan) tidak tersentuh tes.
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ['XR_DB'] = os.path.join(tmp, 'uji.db')
+        os.environ.setdefault('XR_SECRET_KEY', 'kunci-untuk-tes-saja')
 
-    with app.test_client() as klien:
-        respons = klien.get('/')
-        if respons.status_code != 200:
-            return [f'Halaman depan gagal dirender: HTTP {respons.status_code}']
-        html = respons.data.decode()
+        import auth
+        from app import app
 
-    masalah = []
-    if f'Output · {len(SHEETS)} Sheet Excel' not in html:
-        masalah.append(f'Halaman depan tidak menyebut {len(SHEETS)} sheet.')
-    for judul in JUDUL_SHEET:
-        if judul not in html:
-            masalah.append(f'Sheet "{judul}" tidak disebut di halaman depan.')
-    if f'{len(DAFTAR_INDIKATOR)} indikator' not in html:
-        masalah.append(
-            f'Halaman depan tidak menyebut {len(DAFTAR_INDIKATOR)} indikator.')
-    return masalah
+        app.config['DB_PATH'] = os.environ['XR_DB']
+        auth.siapkan_db(app)
+        auth.buat_pengguna('penguji', 'sandi-penguji-uji', 'Penguji',
+                           'UJI', 'pemakai', app)
+
+        with app.test_client() as klien:
+            masuk = klien.post('/login', data={'nama_pengguna': 'penguji',
+                                               'sandi': 'sandi-penguji-uji'})
+            if masuk.status_code not in (200, 302):
+                return [f'Gagal masuk untuk menguji halaman depan: '
+                        f'HTTP {masuk.status_code}']
+            respons = klien.get('/')
+            if respons.status_code != 200:
+                return [f'Halaman depan gagal dirender: HTTP {respons.status_code}']
+            html = respons.data.decode()
+
+        masalah = []
+        if f'Output · {len(SHEETS)} Sheet Excel' not in html:
+            masalah.append(f'Halaman depan tidak menyebut {len(SHEETS)} sheet.')
+        for judul in JUDUL_SHEET:
+            if judul not in html:
+                masalah.append(f'Sheet "{judul}" tidak disebut di halaman depan.')
+        if f'{len(DAFTAR_INDIKATOR)} indikator' not in html:
+            masalah.append(
+                f'Halaman depan tidak menyebut {len(DAFTAR_INDIKATOR)} indikator.')
+        return masalah
 
 
 def main() -> int:

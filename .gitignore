@@ -12,3 +12,9 @@ Parsed_*.xlsx
 # Folder runtime aplikasi
 uploads/
 exports/
+
+# Basis data pengguna & jejak audit — memuat PII, jangan pernah masuk git
+data/
+*.db
+*.db-wal
+*.db-shm

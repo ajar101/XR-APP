@@ -92,13 +92,23 @@ dari pemakaian nyata.
 
 ```bash
 docker build -t xr-app .
+docker volume create xr-app-data
+
 docker run -d --name xr-app \
   -p 127.0.0.1:5000:5000 \
+  -v xr-app-data:/app/data \
+  -e XR_SECRET_KEY="$(cat /etc/xr-app/secret_key)" \
   -e XR_WORKERS=4 \
   --memory=6g \
   --restart=unless-stopped \
   xr-app
+
+# sekali saja, untuk membuat admin pertama
+docker exec -it xr-app python manage.py buat-admin
 ```
+
+Volume `xr-app-data` menyimpan akun pengguna dan jejak audit. **Tanpa volume,
+keduanya hilang setiap container dibuat ulang.**
 
 Pemetaan `127.0.0.1:5000:5000` penting: container hanya dapat dijangkau dari
 mesin itu sendiri, dan nginx yang meneruskannya. Menulis `-p 5000:5000` saja
@@ -108,7 +118,9 @@ akan membuka port itu ke seluruh jaringan.
 
 ```bash
 pip install -r requirements.txt
-XR_BIND=127.0.0.1:5000 XR_WORKERS=4 gunicorn -c gunicorn.conf.py wsgi:app
+python manage.py buat-admin        # sekali saja
+XR_SECRET_KEY=... XR_BIND=127.0.0.1:5000 XR_WORKERS=4 \
+  gunicorn -c gunicorn.conf.py wsgi:app
 ```
 
 Jangan pernah menjalankan `python app.py` untuk melayani orang lain — itu
@@ -124,6 +136,40 @@ produksi.
 | `XR_TIMEOUT` | `180` | Detik. Harus ≥ timeout proxy di depannya |
 | `XR_LOG_LEVEL` | `info` | |
 | `XR_DEBUG` | *(mati)* | **Jangan dinyalakan di server.** Lihat §6 |
+| `XR_SECRET_KEY` | — | **Wajib.** Aplikasi menolak jalan tanpa ini. Lihat §4.1 |
+| `XR_DB` | `data/xr-app.db` | Basis data pengguna & jejak audit. **Butuh volume awet** |
+
+### 4.1 Kunci sesi dan akun pertama
+
+Buat kunci sesi **sekali saja**, lalu simpan sebagai variabel lingkungan
+(bukan di dalam repositori):
+
+```bash
+python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+Kunci ini menandatangani cookie sesi. Tanpa kunci yang rahasia dan **tetap**,
+cookie login bisa dipalsukan. Kunci acak yang dibuat tiap kali proses mulai
+juga tidak memadai: tiap worker gunicorn akan punya kunci berbeda sehingga
+sesi pemakai putus bergantian, dan semua orang ter-logout tiap restart.
+Karena itu di produksi ketiadaannya membuat aplikasi **menolak jalan**, bukan
+diam-diam memakai kunci sementara.
+
+Admin pertama dibuat dari baris perintah, bukan lewat halaman pendaftaran:
+
+```bash
+python manage.py buat-admin        # di dalam container: docker exec -it xr-app python manage.py buat-admin
+```
+
+Halaman pendaftaran terbuka harus bisa diakses tanpa login, dan selama belum
+ada yang mendaftar, siapa pun yang menjangkau aplikasi bisa mengangkat
+dirinya jadi admin. Lewat CLI, pembuat admin pertama harus sudah punya akses
+ke servernya. Pengguna berikutnya ditambahkan admin lewat halaman
+**Pengguna** di aplikasi.
+
+Kata sandi minimal 12 karakter dan tidak pernah diterima sebagai argumen
+baris perintah — argumen tersimpan di riwayat shell dan terlihat proses lain
+lewat daftar proses.
 
 ---
 
@@ -172,9 +218,14 @@ server {
 - [ ] TLS aktif di nginx.
 - [ ] `timeout` gunicorn ≤ `proxy_read_timeout` nginx.
 - [ ] Memori container/VM ≥ `XR_WORKERS` × ~1 GB.
-- [ ] **Autentikasi sudah terpasang.** Tanpa ini, siapa pun yang bisa
-      menjangkau portnya dapat mengunggah dan mengunduh rekening koran —
-      termasuk di jaringan kantor bersama.
+- [ ] `XR_SECRET_KEY` disetel dari nilai yang **tetap** dan rahasia, bukan
+      dibuat ulang tiap deploy (kalau berubah, semua pemakai ter-logout).
+- [ ] `XR_DB` menunjuk ke volume yang awet, dan volumenya **ikut dicadangkan**.
+      Isinya akun pengguna serta jejak audit — termasuk nomor rekening yang
+      pernah diproses, jadi cadangannya perlu perlakuan yang sama dengan data
+      nasabah lain (terenkripsi, akses terbatas, jadwal hapus).
+- [ ] Admin pertama sudah dibuat (`python manage.py buat-admin`), dan tidak
+      ada akun contoh/uji yang tertinggal aktif.
 - [ ] Folder `exports/` dari versi lama sudah dihapus. Versi sekarang tidak
       pernah menulis laporan ke disk, tapi berkas lama tidak ikut terhapus
       sendiri.
@@ -187,7 +238,6 @@ server {
 
 Lihat `RINGKASAN_APLIKASI.md` §6.2. Yang paling berpengaruh pada deployment:
 
-- **Audit log** — belum ada catatan siapa mengunggah apa.
 - **Job queue** — setelah dipakai, request web tidak lagi menunggu ekstraksi,
   `XR_TIMEOUT` bisa turun kembali ke puluhan detik, dan hasil ekstraksi perlu
   kebijakan retensi tersendiri karena worker dan pengunduh menjadi proses yang

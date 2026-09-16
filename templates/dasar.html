@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block judul %}XR-App{% endblock %} · XR-App</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<header class="topbar">
+    <div class="logo">
+        <div class="logo-mark">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <rect x="2" y="10" width="3" height="4" rx="0.5" fill="#1A6BFF"/>
+                <rect x="6.5" y="6" width="3" height="8" rx="0.5" fill="#00C896"/>
+                <rect x="11" y="2" width="3" height="12" rx="0.5" fill="white"/>
+            </svg>
+        </div>
+        <span class="logo-text">XR<span>-App</span></span>
+    </div>
+    {% if current_user.is_authenticated %}
+    <nav class="bilah-akun">
+        <a href="{{ url_for('index') }}">Ekstrak</a>
+        <a href="{{ url_for('riwayat') }}">Riwayat</a>
+        {% if current_user.admin %}<a href="{{ url_for('kelola_pengguna') }}">Pengguna</a>{% endif %}
+        <span class="akun-info">{{ current_user.nama_lengkap }} · {{ current_user.cabang }}</span>
+        <a class="keluar" href="{{ url_for('logout') }}">Keluar</a>
+    </nav>
+    {% endif %}
+</header>
+
+<main class="halaman">
+    {% with pesan = get_flashed_messages(with_categories=true) %}
+      {% if pesan %}
+        {% for kategori, teks in pesan %}
+        <div class="notifikasi {{ kategori }}">{{ teks }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    {% block isi %}{% endblock %}
+</main>
+
+<footer class="bottombar">
+    <span class="bottombar-left">XR-App · eXtract-Report v{{ versi }} · © 2026 Ajar D Ashaq</span>
+    <span class="bottombar-right">{% block kaki %}{% endblock %}</span>
+</footer>
+
+</body>
+</html>

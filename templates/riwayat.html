@@ -1,0 +1,51 @@
+{% extends "dasar.html" %}
+{% block judul %}Riwayat{% endblock %}
+{% block isi %}
+<div class="kartu-lebar">
+    <h1>Riwayat &amp; Jejak Audit</h1>
+    <p class="kartu-sub">
+        Menampilkan <strong>{{ lingkup }}</strong>, maksimum 200 kejadian terbaru.
+        Nama pemilik rekening, nominal, dan isi transaksi sengaja tidak dicatat di sini.
+    </p>
+
+    {% if baris %}
+    <div class="tabel-bungkus">
+    <table class="tabel">
+        <thead>
+            <tr>
+                <th>Waktu</th><th>Pengguna</th><th>Cabang</th><th>Aksi</th>
+                <th>Bank</th><th>Berkas</th><th>No. Rekening</th><th>Hasil</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for b in baris %}
+            <tr>
+                <td class="mono">{{ b['waktu']|replace('T', ' ') }}</td>
+                <td>{{ b['nama_pengguna'] }}</td>
+                <td>{{ b['cabang'] }}</td>
+                <td>{{ b['aksi'] }}</td>
+                <td>{{ b['bank'] or '—' }}</td>
+                <td class="ringkas" title="{{ b['nama_berkas'] or '' }}">
+                    {{ b['nama_berkas'] or '—' }}
+                    {%- if b['jumlah_berkas'] and b['jumlah_berkas'] > 1 %}
+                    <span class="lencana">{{ b['jumlah_berkas'] }} berkas</span>
+                    {%- endif %}
+                </td>
+                <td class="mono">{{ b['no_rekening'] or '—' }}</td>
+                <td>
+                    <span class="status {{ 'oke' if b['hasil'] == 'berhasil' else 'galat' }}">
+                        {{ b['hasil'] }}
+                    </span>
+                    {% if b['keterangan'] %}<div class="ket">{{ b['keterangan'] }}</div>{% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% else %}
+    <p class="kosong">Belum ada kejadian yang tercatat.</p>
+    {% endif %}
+</div>
+{% endblock %}
+{% block kaki %}{{ baris|length }} kejadian ditampilkan{% endblock %}
