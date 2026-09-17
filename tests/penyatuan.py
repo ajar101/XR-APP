@@ -23,7 +23,8 @@ import sys
 SESAT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, SESAT)
 
-from engine.penyatu_nama import kunci, satukan   # noqa: E402
+from engine.penyatu_nama import (MAKS_KANDIDAT_FUZZY, kunci,   # noqa: E402
+                                 satukan)
 
 # ── Nama yang HARUS menyatu ──────────────────────────────────────────────
 # (daftar nama, berapa baris yang menyatu, wakil yang diharapkan)
@@ -217,6 +218,33 @@ def periksa_uraian_asli_utuh() -> list:
     return masalah
 
 
+def periksa_pemotongan_kandidat_dilaporkan() -> list:
+    """
+    Kalau daftar kandidat dipotong karena batas cetak, jumlahnya wajib
+    dilaporkan.
+
+    Ini kegagalan yang paling mudah luput: laporannya tetap terlihat rapi,
+    daftarnya tetap terisi, dan pemeriksa menyimpulkan itu daftar lengkap.
+    Pada data referensi sekarang ada satu laporan yang jumlah kandidatnya
+    TEPAT di batas, jadi satu nama baru saja sudah cukup memicunya.
+    """
+    # Nomor invoice yang berbeda: kemiripannya tinggi, tapi validasi konteks
+    # menolaknya (angka berbeda), jadi semuanya jatuh ke daftar kandidat.
+    nama = [f'PEMBAYARAN INVOICE {i:04d} KEPADA MITRA UTAMA' for i in range(12)]
+    h = satukan(nama)
+    masalah = []
+    if h.jumlah_digabung:
+        masalah.append(f'nomor invoice berbeda ikut tergabung: {h.varian}')
+    if len(h.kandidat) > MAKS_KANDIDAT_FUZZY:
+        masalah.append(f'daftar kandidat {len(h.kandidat)} baris, melewati '
+                       f'batas {MAKS_KANDIDAT_FUZZY} tanpa dipotong')
+    if not h.kandidat_dipotong:
+        masalah.append(f'{len(nama)} nama menghasilkan {len(h.kandidat)} '
+                       f'kandidat tercetak tapi kandidat_dipotong = '
+                       f'{h.kandidat_dipotong} — pemotongannya senyap')
+    return masalah
+
+
 def periksa_label() -> list:
     """Label kategori harus lolos apa adanya, walau mirip satu sama lain."""
     nama = sorted(LABEL_UJI) + ['Biaya Administrasi Bulanan']
@@ -250,6 +278,8 @@ def main() -> int:
         ('satu saudara asing tidak meracuni rantai potongan',
          periksa_rantai_tidak_teracuni),
         ('uraian asli tetap utuh', periksa_uraian_asli_utuh),
+        ('pemotongan daftar kandidat dilaporkan',
+         periksa_pemotongan_kandidat_dilaporkan),
         ('label kategori tidak tersentuh', periksa_label),
         ('hasil stabil apa pun urutan masukannya', periksa_stabil),
         ('normalisasi bentuk badan usaha', periksa_kunci),

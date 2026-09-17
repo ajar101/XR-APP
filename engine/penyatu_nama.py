@@ -214,12 +214,18 @@ class Penyatuan:
         varian    {nama wakil -> daftar nama asli} hanya kelompok >1 varian
         kandidat  [(pendek, panjang, alasan)] pasangan mirip yang TIDAK
                   digabung, beserta alasannya
+        kandidat_dipotong
+                  berapa kandidat kemiripan huruf yang TIDAK masuk daftar
+                  karena MAKS_KANDIDAT_FUZZY. Wajib ikut dilaporkan: daftar
+                  yang dipotong tanpa diberi tahu lebih buruk daripada tidak
+                  punya daftar, karena pemeriksa tidak tahu ada yang hilang.
     """
 
-    def __init__(self, peta, varian, kandidat):
+    def __init__(self, peta, varian, kandidat, kandidat_dipotong=0):
         self.peta = peta
         self.varian = varian
         self.kandidat = kandidat
+        self.kandidat_dipotong = kandidat_dipotong
 
     def __call__(self, nama: str) -> str:
         return self.peta.get(nama, nama)
@@ -313,7 +319,8 @@ def _tahap3_kemiripan(kelompok, kandidat, ambang=AMBANG):
     di situlah manfaat tahap ini yang terbukti pada data nyata: bukan
     memutuskan, melainkan menunjukkan apa yang perlu dilihat manusia.
 
-    Mengembalikan {kunci wakil kelompok -> kunci wakil kelompok induk}.
+    Mengembalikan ({kunci wakil kelompok -> kunci wakil kelompok induk},
+    berapa kandidat yang tidak masuk daftar karena batas cetak).
     """
     wakil_kelompok = {k: _wakil(v) for k, v in kelompok.items()}
     urut = sorted(wakil_kelompok)
@@ -343,12 +350,13 @@ def _tahap3_kemiripan(kelompok, kandidat, ambang=AMBANG):
             anak, orang_tua = ((ka, kb) if len(ka) < len(kb) else (kb, ka))
             gabung[anak] = orang_tua
 
-    for nilai, a, b, alasan in sorted(tinjau, reverse=True)[:MAKS_KANDIDAT_FUZZY]:
+    urut = sorted(tinjau, reverse=True)
+    for nilai, a, b, alasan in urut[:MAKS_KANDIDAT_FUZZY]:
         kandidat.append((a, b, f'kemiripan {nilai:.3f} — {alasan}; '
                               f'di bawah ambang gabung otomatis '
                               f'({ambang.mungkin:.2f})'))
 
-    return gabung
+    return gabung, max(0, len(urut) - MAKS_KANDIDAT_FUZZY)
 
 
 def _akar(kunci_awal, induk):
@@ -400,7 +408,7 @@ def satukan(nama_unik, abaikan=frozenset(), ambang=AMBANG) -> Penyatuan:
         kelompok.setdefault(_akar(k, induk), []).extend(anggota)
 
     # ── TAHAP 3: kemiripan huruf (+ TAHAP 4) ──
-    induk_fuzzy = _tahap3_kemiripan(kelompok, kandidat, ambang)
+    induk_fuzzy, dipotong = _tahap3_kemiripan(kelompok, kandidat, ambang)
     if induk_fuzzy:
         gabungan = {}
         for k, anggota in kelompok.items():
@@ -419,4 +427,4 @@ def satukan(nama_unik, abaikan=frozenset(), ambang=AMBANG) -> Penyatuan:
     for n in nama_unik:
         peta.setdefault(n, n)
 
-    return Penyatuan(peta, varian, kandidat)
+    return Penyatuan(peta, varian, kandidat, dipotong)

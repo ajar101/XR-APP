@@ -95,13 +95,13 @@ def jalankan(data, ambang):
 
     def bungkus(kelompok, kandidat, ambang_dipakai=ambang):
         sebelum = len(kandidat)
-        hasil = asli(kelompok, kandidat, ambang_dipakai)
-        jumlah['kandidat'] += len(kandidat) - sebelum
+        hasil, dipotong = asli(kelompok, kandidat, ambang_dipakai)
+        jumlah['kandidat'] += len(kandidat) - sebelum + dipotong
         jumlah['gabung'] += len(hasil)
         wakil = {k: pn._wakil(v) for k, v in kelompok.items()}
         for anak, orang_tua in hasil.items():
             gabungan.append((wakil[anak], wakil[orang_tua]))
-        return hasil
+        return hasil, dipotong
 
     pn._tahap3_kemiripan = bungkus
     try:
