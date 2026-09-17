@@ -65,6 +65,7 @@ XR-APP/
 │   └── pdf_utils.py             #   Deteksi PDF hasil scan/foto (bank-agnostic)
 ├── engine/                      # Lapisan pemrosesan (bank-agnostic)
 │   ├── report_catalog.py        #   KATALOG: daftar sheet & indikator — dibaca engine DAN halaman depan
+│   ├── penyatu_nama.py          #   Satukan varian penulisan lawan transaksi (Rekap & HHI)
 │   ├── excel_builder.py         #   Generator Excel, satu builder per entri katalog
 │   ├── categorizer.py           #   Kategorisasi transaksi berbasis keyword
 │   ├── anomaly_detector.py      #   17 pemeriksaan indikasi kejanggalan
@@ -73,6 +74,7 @@ XR-APP/
 │   ├── regresi.py               #   Bandingkan hasil ekstraksi + temuan Indikasi Kejanggalan dgn snapshot
 │   ├── katalog.py               #   Katalog = judul sheet di berkas Excel = janji halaman depan
 │   ├── audit_nama.py            #   Bahan audit akurasi kolom Nama (sampel ber-seed tetap)
+│   ├── penyatuan.py             #   Aturan penyatuan nama — termasuk apa yang HARUS tetap terpisah
 │   └── snapshot/                #   Hasil yang direkam, satu JSON per PDF (1 transaksi/temuan = 1 baris)
 ├── references/                  # PDF contoh + hasil Excel untuk validasi manual
 └── parse_rekening.py            # Skrip CLI lama, tidak terhubung ke app.py (peninggalan awal)
@@ -153,6 +155,8 @@ Laporan Excel tidak pernah ditulis ke disk.
 | Isolasi per cabang pada halaman Riwayat | ✅ Aktif — disaring di kueri; admin melihat semua cabang |
 | Job queue (ekstraksi tidak menahan koneksi) | ✅ Aktif, opsional — hanya bila `XR_REDIS_URL` disetel (§6.2) |
 | Laporan Excel tidak pernah ditulis ke disk | ✅ Aktif — dibangun di memori, dikirim langsung |
+| Penyatuan varian penulisan lawan transaksi (Rekap & HHI) | ✅ Aktif — normalisasi + potongan sistem; lihat §5.2 |
+| Penyatuan lewat daftar alias singkatan (WKS → Wira Karya Sakti) | ❌ Belum ada (lihat §6.1) |
 | Histori hasil ekstraksi (bukan sekadar jejak audit) | ❌ Belum ada (lihat §6.2) |
 
 ---
@@ -229,6 +233,92 @@ Disusun sebagai dashboard ringkas (skor risiko + ringkasan per kategori) diikuti
 
 ---
 
+### 5.2 Penyatuan varian nama di Rekap & HHI
+
+Satu lawan transaksi kerap muncul dengan beberapa penulisan di rekening yang
+sama — `PT BARASENTOSA LESTARI` · `BARASENTOSA LESTARI` · `BARASENTOSA LES`.
+Tanpa disatukan, satu pihak pecah jadi beberapa baris di Rekap.
+
+Akibatnya bukan sekadar tidak rapi: **HHI Score dihitung dari pangsa tiap
+nama**, jadi memecah satu pihak besar jadi tiga baris menurunkan HHI dan
+membuat rekening yang sebenarnya terpusat tampak terdiversifikasi. Pada
+simulasi dengan pola di atas, HHI turun dari 3350 (*Concentrated*) ke 1708
+(*Moderate*) — salah ke arah yang justru berbahaya.
+
+`engine/penyatu_nama.py` menyatukannya lewat dua aturan **deterministik**,
+bukan fuzzy/jarak edit:
+
+| Tahap | Aturan | Risiko |
+|---|---|---|
+| 1 | Normalisasi: buang bentuk badan usaha di depan (`PT`/`PT.`/`CV`), spasi, tanda baca | Nol — kuncinya identik |
+| 2 | Awalan yang **terpotong di tengah kata** | Rendah — lihat di bawah |
+
+**Kenapa bukan fuzzy.** Pada data nyata penyebabnya bukan salah ketik,
+melainkan pemotongan dan format. Diukur pada satu daftar 38 nama: 38 → 32
+kelompok, dan tidak satu pun penggabungan membutuhkan jarak edit.
+
+**Apa yang membedakan potongan dari nama yang memang lebih pendek.** Relasi
+awalan saja tidak cukup — `CITRA PERISAI` adalah awalan `CITRA PERISAI
+LINTASINDO`, tapi menggabungkannya berarti menebak. Tanda khas pemotongan
+mesin adalah potongannya jatuh **di tengah kata**:
+
+```
+BARASENTOSA LES|TARI       ← terpotong di tengah "LESTARI"  → digabung
+CITRA PERISAI  |LINTASINDO ← berhenti di batas kata         → TIDAK digabung
+```
+
+Diuji pada sembilan pasangan dari data nyata, aturan ini memisahkan keduanya
+dengan tepat — tanpa perlu menebak berapa batas potong tiap bank.
+
+> Percobaan pertama menebak batas potong dari sebaran panjang nama, dan
+> **dibuang setelah diuji pada data nyata**: pada satu berkas Mandiri dengan
+> 341 nama ia "mendeteksi" 16 batas berbeda padahal Mandiri tidak memotong
+> sama sekali (nama terpanjangnya 110 karakter), lalu menggabungkan 26 nama
+> tanpa dasar. Aturan "potong di tengah kata" menurunkannya jadi 3, dan
+> ketiganya memang terpotong.
+
+**Yang ragu tidak digabung, tapi juga tidak disembunyikan.** Penggabungan
+keliru membuat HHI salah ke arah sebaliknya tanpa meninggalkan jejak. Karena
+itu yang tidak memenuhi syarat muncul sebagai **kandidat** di bawah tabel
+Rekap, lengkap dengan alasannya, supaya pemeriksa yang memutuskan. Kolom
+**Varian Nama Digabung** menampilkan penulisan lain yang dilebur ke tiap
+baris — penggabungan tidak pernah terjadi diam-diam.
+
+**Diuji atas SELURUH 44 PDF referensi**, bukan sampel: Excel dibangun penuh
+lewat `create_excel` untuk tiap berkas, lalu jumlah baris tiap sheet Rekap
+dicocokkan dengan baris TOTAL-nya.
+
+| | Nama unik | Menyatu | Kandidat |
+|---|---:|---:|---:|
+| BCA | 1.103 | 21 | 22 |
+| BNI | 1.022 | 20 | 16 |
+| BRI | 831 | 45 | 17 |
+| Mandiri | 1.143 | 5 | 54 |
+| **Total** | **4.099** | **91** | **109** |
+
+Hasilnya: **44/44 berhasil dibangun, 44/44 menghasilkan 12 sheet, 0 gagal,
+dan 0 selisih total.** Penggabungan tidak mengubah satu rupiah pun di mana
+pun.
+
+Perhatikan sebaran per bank: Mandiri paling banyak namanya tapi paling
+sedikit menyatu (5) dan paling banyak kandidat (54) — konsisten dengan
+temuan bahwa Mandiri tidak memotong nama, sehingga hampir semua relasi
+awalannya berhenti di batas kata dan memang tidak boleh diputuskan sistem.
+
+Label kategori (`Biaya Administrasi`, `Tidak Teridentifikasi`, dst) dikecualikan
+— itu bukan lawan transaksi, dan meleburnya membuang informasi.
+
+> Catatan dari sapuan itu: ada lawan transaksi bernama **"TOTAL LINTAS
+> SAMUDERA"**. Skrip pemeriksa pertama mengenali baris TOTAL dari awalan
+> katanya, jadi baris itu terhitung sebagai baris total dan nominalnya hilang
+> dari penjumlahan — selisih Rp5.400.000 yang sempat terlihat seperti cacat
+> penggabungan padahal berkas itu nol penggabungan. Kode produksi tidak punya
+> kelemahan yang sama (diperiksa: tidak ada yang mencocokkan baris total lewat
+> awalan), tapi ini pengingat bahwa nama nasabah bisa menyerupai kata kunci
+> apa pun.
+
+---
+
 ## 6. Status pekerjaan & rencana ke depan
 
 ### 6.0 Yang masih menggantung — ringkasan (per 16 September 2026)
@@ -245,10 +335,12 @@ Satu tabel supaya tidak perlu membaca seluruh §6 untuk tahu apa yang belum bere
 | 6 | Akurasi kolom nama BCA, Mandiri, BNI belum diaudit ulang | Angka §7.3 dari 12 Sep belum memakai metode dua lapis seperti §7.4 | Rendah | §6.1 |
 | 7 | OCR / vision untuk PDF hasil scan | Belum ada — PDF scan ditolak dengan pesan jelas, bukan salah baca | Rendah | §6.1 |
 | 8 | Format tanpa extractor (Mandiri E-Banking, BNI & BRI format lain) | Ditolak 400 dengan pesan yang menyebut format terdeteksi | Rendah | §3 |
-| 9 | `XR_UPLOAD_DIR` dibaca `worker.py` tapi diabaikan `app.py` | Belum merusak apa pun (keduanya kebetulan sama), tapi menyetel variabel itu akan membuat worker menyapu folder yang salah | Sedang | §6.1 |
-| 10 | Mode antrean menuntut `uploads/` dibagi antara web & worker | Belum jadi masalah karena keduanya masih satu proses/mesin; akan menggagalkan **seluruh** ekstraksi kalau dipisah container tanpa volume bersama | Sedang | §6.2 |
+| 9 | Singkatan belum disatukan (`WKS`, `PT BAP`, `PT BMH`) | Satu pihak masih pecah di Rekap bila dokumen memakai singkatan; HHI ikut terbaca lebih rendah | Sedang | §6.1 |
+| 10 | 109 kandidat penggabungan menunggu keputusan manusia | Tidak salah, tapi belum ada cara mencatat keputusannya supaya tidak ditanya ulang tiap laporan | Rendah | §6.1 |
+| 11 | `XR_UPLOAD_DIR` dibaca `worker.py` tapi diabaikan `app.py` | Belum merusak apa pun (keduanya kebetulan sama), tapi menyetel variabel itu akan membuat worker menyapu folder yang salah | Sedang | §6.1 |
+| 12 | Mode antrean menuntut `uploads/` dibagi antara web & worker | Belum jadi masalah karena keduanya masih satu proses/mesin; akan menggagalkan **seluruh** ekstraksi kalau dipisah container tanpa volume bersama | Sedang | §6.2 |
 
-Butir 9 dan 10 baru ketahuan saat merancang Docker Compose, bukan dari pemakaian — keduanya laten dan tidak mempengaruhi hasil hari ini.
+Butir 11 dan 12 baru ketahuan saat merancang Docker Compose, bukan dari pemakaian — keduanya laten dan tidak mempengaruhi hasil hari ini.
 
 **Urutan yang disarankan** (per 16 September 2026, selaras dengan keputusan
 pilot di §6.2):
@@ -262,7 +354,7 @@ pilot di §6.2):
 | **Saat pilot naik ke tim** | Butir 9, 10 + Docker Compose, lalu §6.2 | Butir 10 akan menggagalkan seluruh ekstraksi kalau terlewat |
 | **Nanti, kalau perlu** | §6.3 migrasi | Prasyaratnya sudah terpenuhi; yang menahan tinggal nilainya |
 
-**Tidak ada butir terbuka yang membuat angka laporan salah tanpa diketahui.** Satu-satunya yang menghasilkan temuan keliru adalah butir 1, dan temuannya bertingkat Rendah. Butir 4–6 menyentuh kolom Nama, bukan nominal; butir 9–10 laten dan baru berdampak pada susunan deployment tertentu. Total mutasi dan saldo akhir seluruh format tetap dijaga checksum extractor terhadap angka resmi yang tercetak di PDF-nya sendiri.
+**Tidak ada butir terbuka yang membuat angka laporan salah tanpa diketahui.** Satu-satunya yang menghasilkan temuan keliru adalah butir 1, dan temuannya bertingkat Rendah. Butir 4–6 dan 9–10 menyentuh kolom Nama, bukan nominal; butir 11–12 laten dan baru berdampak pada susunan deployment tertentu. Total mutasi dan saldo akhir seluruh format tetap dijaga checksum extractor terhadap angka resmi yang tercetak di PDF-nya sendiri.
 
 Butir keamanan & operasional yang dulu ada di sini (debug mode menyala, tidak ada autentikasi, ekstraksi menahan koneksi, laporan menumpuk di disk) **sudah selesai** — lihat §6.4 dan `DEPLOY.md`.
 
@@ -273,6 +365,8 @@ Butir keamanan & operasional yang dulu ada di sini (debug mode menyala, tidak ad
 Urut dari yang paling berdampak:
 
 - **Pemasangan bunga & pajak bunga masih per tanggal persis.** `_check_rasio_pajak_bunga` (`engine/anomaly_detector.py`) mengelompokkan bunga dan pajaknya berdasarkan kolom `Tanggal` yang sama. BRI untuk sebagian bulan mendebet "PAJAK BUNGA SIMPANAN" H+1 dari bunganya (bunga 20/11, pajak 21/11), sehingga muncul **dua temuan palsu bertingkat Rendah** ("bunga tanpa pasangan pajak" dan sebaliknya) — 2 kejadian dari 9 PDF referensi BRI. Tanggalnya sengaja **tidak** digeser extractor supaya laporan tetap sama dengan dokumennya; pemasangan lintas-hari harus diputuskan di engine dan menyentuh semua bank. Ini satu-satunya butir terbuka yang menghasilkan temuan palsu, jadi paling layak dikerjakan duluan.
+
+- **Daftar alias untuk singkatan.** Tahap 1 & 2 penyatuan nama (§5.2) tidak bisa menyentuh singkatan: `WKS` tidak punya kemiripan huruf apa pun dengan "Wira Karya Sakti", begitu pula `PT BAP KU`/`PT BAP AP152` dengan "PT Bumi Andalas Permai" dan `PT BMH MH175`. Tidak ada aturan yang bisa menyimpulkannya — ini pengetahuan yang harus diisi manusia, seperti `_biaya_admin`. Rancangannya: satu berkas daftar alias yang dipelihara pemakai, dibaca `engine/penyatu_nama.py` sebagai tahap 3. Sekalian bisa menampung keputusan atas **kandidat** yang sekarang dilaporkan tiap laporan (butir 10) supaya tidak perlu diputuskan berulang.
 
 - **Audit ulang akurasi kolom nama BCA, Mandiri, dan BNI.** Angka §7.3 (12 September) memakai sampel 18–24 baris per format tanpa pemindaian populasi penuh. Audit BRI di §7.4 menunjukkan metode dua lapis — pemindaian seluruh populasi untuk cacat berpola, ditambah sampel manual untuk cacat yang tidak berpola — menemukan hal yang tidak tertangkap sampel saja: dua dari tiga kelas cacat BRI (`ATMSTRPRM`, `;`) luput dari sampel 40 baris. Ketiga bank lain belum diperiksa dengan cara itu, jadi kemungkinan ada kelas cacat serupa yang belum ketahuan. Skripnya sudah siap: `python tests/audit_nama.py <bank>`.
 
@@ -448,6 +542,7 @@ Kalau salah satunya tiba:
   berjalan seperti semula. Keduanya memakai jalur ekstraksi yang sama
   (`tugas.py`) supaya isinya tidak pernah berbeda. Umur hasil di Redis
   (`XR_TTL_HASIL`, bawaan 1 jam) sekaligus jadi kebijakan retensinya.
+- **Penyatuan varian penulisan lawan transaksi** (§5.2) — Rekap Kredit/Debit, Summary Rekap, dan HHI kini mengelompokkan lewat nama yang sudah disatukan, dihitung **sekali** di `create_excel` supaya keempatnya tidak bisa berbeda. Dua aturan deterministik (normalisasi + potongan di tengah kata), bukan fuzzy. 91 baris menyatu atas 44 PDF referensi, total rupiah tidak berubah satu pun. Dijaga `tests/penyatuan.py`, yang menguji **apa yang harus tetap terpisah** juga — bukan hanya apa yang digabung.
 - **Audit akurasi kolom nama BRI** — 4.131 baris, lihat §7.4. Skripnya (`tests/audit_nama.py`) bank-agnostik dan bisa dipakai untuk audit ulang format lain.
 - **Laporan Excel tidak lagi ditulis ke disk.** Dulu tiap laporan disimpan di `exports/` dan tidak pernah dihapus, sehingga nama pemilik, nomor rekening, dan seluruh mutasi menumpuk di server tanpa kedaluwarsa. Kini dibangun di `io.BytesIO` lalu dikirim langsung: tidak ada berkas yang perlu dijadwalkan hapus karena tidak ada berkas yang dibuat. Folder `exports/` tidak dibuat lagi. PDF yang diunggah tetap mendarat di disk (extractor membacanya lewat path) dan tetap dihapus di blok `finally`. Lihat catatan di §6.2 poin 2: begitu ada job queue, kebijakan retensi jadi perlu lagi.
 - **Tiga kelas cacat kolom nama BRI diperbaiki** (§7.4): kode kanal `ATMSTRPRM` kini digantikan nomor rekening tujuan yang tercetak di uraiannya — 40 baris yang tadinya menggumpal jadi satu entri Rekap kini terurai jadi 14 lawan transaksi berbeda; token `0` (12 baris) dan `;` (7 baris) kini ditandai `Tidak Teridentifikasi`. Penyaringan token sampah ditaruh di satu pagar (`_bermakna`) yang dilewati SEMUA cabang penguraian nama, bukan ditambal per cabang, supaya bentuk uraian baru tidak lolos lagi.
