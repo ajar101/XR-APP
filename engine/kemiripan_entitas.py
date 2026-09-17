@@ -760,7 +760,7 @@ def validasi_konteks(a: str, b: str):
 def bukti_potongan(a: str, b: str):
     """
     Adakah bukti POSITIF bahwa selisih dua nama ini kata yang TERPOTONG,
-    bukan kata yang ditambahkan?
+    bukan kata yang ditambahkan atau diganti?
 
     Kenapa ini perlu padahal sudah ada ambang dan validasi konteks: ambang
     hanya tahu seberapa BANYAK dua nama berbeda. Diukur pada 44 PDF
@@ -771,16 +771,31 @@ def bukti_potongan(a: str, b: str):
         MIRNA HASANAH        ↔ MIRNA HASANAH KOTO      0.802  → bisa dua orang
 
     Yang membedakan bukan nilainya, melainkan BENTUK selisihnya: "INDONESI"
-    adalah "INDONESIA" yang terpotong, sedangkan "KOTO" adalah kata baru
-    yang utuh. Selama yang menahan keduanya cuma selisih 0,04 dari ambang,
-    yang menahannya adalah keberuntungan.
+    adalah "INDONESIA" yang terpotong, sedangkan "KOTO" kata baru yang utuh.
+    Selama yang menahan keduanya cuma selisih 0,04 dari ambang, yang
+    menahannya adalah keberuntungan.
 
-    Dua bentuk yang diterima sebagai bukti, keduanya diambil dari cacat yang
-    memang terlihat di data:
+    Dua bentuk diterima sebagai bukti, keduanya dari cacat yang memang
+    terlihat di data:
 
-      1. token yang berbeda saling BERAWALAN — "INDONE" / "INDONESIA"
-      2. dua token berdampingan yang disambung menjadi token di sisi lain —
-         "I"+"DONESIA" → "INDONESIA", yaitu spasi yang tersisip di tengah kata
+      POTONGAN KATA   Tiap kata yang berbeda harus berpasangan dengan kata
+                      di sisi lain yang SALING BERAWALAN — "INDONE" /
+                      "INDONESIA". Syarat "tiap kata" itu penting: kalau
+                      cukup SATU pasangan yang berawalan, maka "PT ABC
+                      INDONESIA" dan "PT XYZ INDONESI" akan lolos lewat
+                      INDONESIA/INDONESI padahal ABC dan XYZ tidak ada
+                      hubungannya sama sekali.
+
+      SPASI TERSISIP  "PT AEROTRANS SERVICES I DONESIA" vs "...INDONESIA":
+                      jumlah katanya berbeda, kuncinya beda paling banyak
+                      satu huruf, DAN sisi yang katanya lebih banyak
+                      kuncinya tidak lebih panjang. Syarat terakhir yang
+                      memisahkannya dari gelar yang DITAMBAHKAN: "DUDUNG
+                      MULYADI, M." juga berbeda satu huruf dari "DUDUNG
+                      MULYADI" dan jumlah katanya juga berbeda — tapi
+                      kuncinya bertambah panjang, bukan berkurang. Huruf
+                      yang hilang adalah tanda kata yang terbelah; huruf
+                      yang bertambah adalah kata baru.
 
     Returns:
         (True, bukti)     ada bukti, beserta bentuknya dalam bahasa manusia
@@ -791,31 +806,67 @@ def bukti_potongan(a: str, b: str):
     Sengaja TIDAK dipakai tahap 2: di sana relasi awalan atas seluruh nama
     plus potongan di tengah kata sudah menjadi buktinya sendiri, dan
     aturannya dijaga tesnya sendiri.
+
+    YANG DIUKUR LALU DITOLAK: VETO TOKEN UMUM
+
+    Sebelum aturan di atas ada, empat pasangan berikut lolos ambang dan
+    validasi konteks, dan semuanya harus tetap terpisah:
+
+        AJL LOGISTIK INDONESIA    ↔ PT TAPANULI LOGISTIK INDONESIA
+        Siti Aminah               ↔ Siti Alinah
+        NI WAYAN ARTINI           ↔ NI WAYAN SUGIARTINI
+        PT GARUDA INDONESIA CARGO ↔ PT GARUDA INDONESIA
+
+    Semuanya punya pola sama: yang mereka bagi hanyalah kata yang UMUM
+    (INDONESIA muncul di 71 nama, SITI di 28, LOGISTIK di 15). Jadi
+    dicobalah satu veto: tolak kalau seluruh token bersama termasuk 77 token
+    ber-df >= 8 yang diukur dari korpus.
+
+    Veto itu diukur dan DIBUANG, karena sesudah aturan bukti di atas ia
+    tidak menambah apa pun dan justru merusak:
+
+      · keempat pasangan itu kini ditolak oleh aturan bukti — "AJL" dan
+        "TAPANULI", "AMINAH" dan "ALINAH", "ARTINI" dan "SUGIARTINI" tidak
+        saling berawalan, dan "CARGO" adalah kata utuh yang ditambahkan;
+      · sebaliknya, ia MEMBATALKAN penggabungan yang benar: "GARUDA
+        INDONESI" ↔ "PT GARUDA INDONESIA" cuma berbagi satu kata, "GARUDA",
+        yang termasuk umum — padahal itu potongan mesin yang jelas.
+
+    Diukur pada 44 PDF referensi di tiga setelan ambang, veto itu
+    membatalkan 0, 1, dan 2 penggabungan — dan SELURUHNYA penggabungan yang
+    benar. Ia juga akan membuat nilai satu pasangan bergantung pada isi
+    laporan lain, yang tidak bisa diuji. Bentuk selisih ternyata bukti yang
+    lebih kuat daripada kelangkaan kata.
     """
     ta, tb = list(token(a)), list(token(b))
     sa, sb = set(ta), set(tb)
     beda_a, beda_b = sa - sb, sb - sa
 
-    # Satu sisi hanya MENAMBAH kata, tidak ada kata yang berubah: itu tanda
-    # kata baru (nama keluarga, keterangan transaksi, cabang), bukan potongan.
+    # ── Spasi tersisip di tengah kata ──
+    if len(ta) != len(tb):
+        ka, kb = kunci_banding(a), kunci_banding(b)
+        banyak, sedikit = ((ka, kb) if len(ta) > len(tb) else (kb, ka))
+        if len(banyak) <= len(sedikit) and jarak_edit(ka, kb) <= 1:
+            return True, (f'jumlah kata berbeda tapi kuncinya hampir sama '
+                          f'({jarak_edit(ka, kb)} huruf) — spasi tersisip di '
+                          f'tengah kata')
+
+    # ── Potongan kata ──
     if not beda_a or not beda_b:
         return False, ('selisihnya kata utuh yang ditambahkan, bukan kata '
                        'yang terpotong')
 
+    berpasangan = set()
+    bukti = []
     for x in sorted(beda_a):
         for y in sorted(beda_b):
             if y.startswith(x) or x.startswith(y):
-                return True, f'{x} / {y} — kata yang sama, satu terpotong'
+                berpasangan |= {x, y}
+                bukti.append(f'{x} / {y}')
 
-    for kiri, kanan_beda, kiri_beda in ((ta, beda_b, beda_a),
-                                        (tb, beda_a, beda_b)):
-        for i in range(len(kiri) - 1):
-            if kiri[i] not in kiri_beda or kiri[i + 1] not in kiri_beda:
-                continue
-            sambung = kiri[i] + kiri[i + 1]
-            for y in sorted(kanan_beda):
-                if y == sambung or y.startswith(sambung):
-                    return True, (f'{kiri[i]}+{kiri[i + 1]} → {y} — spasi '
-                                  f'tersisip di tengah kata')
+    sisa = sorted((beda_a | beda_b) - berpasangan)
+    if sisa:
+        return False, ('kata yang berbeda tidak saling berawalan (' +
+                       ', '.join(sisa[:3]) + ') — bukan potongan')
 
-    return False, 'kata yang berbeda tidak saling berawalan — bukan potongan'
+    return True, ', '.join(bukti) + ' — kata yang sama, satu terpotong'

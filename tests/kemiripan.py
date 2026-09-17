@@ -242,6 +242,16 @@ def periksa_bukti_potongan() -> list:
         ('DUDUNG MULYADI', 'DUDUNG MULYADI, M.'),
         # Kata yang berbeda tidak saling berawalan — dua pihak berbeda.
         ('TIGA BERSAMA LOGISTIK PT', 'TIGA PERMATA LOGISTIK PT'),
+        # SATU pasangan kata yang berawalan tidak cukup: kalau cukup satu,
+        # pasangan ini lolos lewat INDONESIA/INDONESI padahal ABC dan XYZ
+        # tidak ada hubungannya.
+        ('PT ABC INDONESIA', 'PT XYZ INDONESI'),
+        # Gelar DITAMBAHKAN: jumlah kata berbeda dan kuncinya beda satu
+        # huruf, sama seperti spasi tersisip — yang membedakan, kuncinya
+        # BERTAMBAH panjang, bukan berkurang.
+        ('Sagirin', 'SAGIRIN, ST'),
+        ('AJL LOGISTIK INDONESIA', 'PT TAPANULI LOGISTIK INDONESIA'),
+        ('PT GARUDA INDONESIA CARGO', 'PT GARUDA INDONESIA'),
         ('93497004099102 PT HAIER SALES INDONESIA - 087',
          '93497004099102 PT IRAWAN SALES INDONESIA - 087'),
         ('NI WAYAN ARTINI', 'NI WAYAN SUGIARTINI'),
