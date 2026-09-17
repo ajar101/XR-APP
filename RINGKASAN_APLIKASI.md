@@ -155,7 +155,7 @@ Laporan Excel tidak pernah ditulis ke disk.
 | Isolasi per cabang pada halaman Riwayat | ✅ Aktif — disaring di kueri; admin melihat semua cabang |
 | Job queue (ekstraksi tidak menahan koneksi) | ✅ Aktif, opsional — hanya bila `XR_REDIS_URL` disetel (§6.2) |
 | Laporan Excel tidak pernah ditulis ke disk | ✅ Aktif — dibangun di memori, dikirim langsung |
-| Penyatuan varian penulisan lawan transaksi (Rekap & HHI) | ✅ Aktif — normalisasi + potongan sistem; lihat §5.2 |
+| Penyatuan varian penulisan lawan transaksi (Rekap & HHI) | ✅ Aktif — 4 tahap: normalisasi → potongan sistem → kemiripan huruf → validasi konteks; lihat §5.2 |
 | Penyatuan lewat daftar alias singkatan (WKS → Wira Karya Sakti) | ❌ Belum ada (lihat §6.1) |
 | Histori hasil ekstraksi (bukan sekadar jejak audit) | ❌ Belum ada (lihat §6.2) |
 
@@ -245,17 +245,86 @@ membuat rekening yang sebenarnya terpusat tampak terdiversifikasi. Pada
 simulasi dengan pola di atas, HHI turun dari 3350 (*Concentrated*) ke 1708
 (*Moderate*) — salah ke arah yang justru berbahaya.
 
-`engine/penyatu_nama.py` menyatukannya lewat dua aturan **deterministik**,
-bukan fuzzy/jarak edit:
+`engine/penyatu_nama.py` mengerjakannya dalam **empat tahap, dari yang
+paling pasti ke yang paling ragu**. Urutannya bukan selera: tiap tahap hanya
+menerima apa yang tidak tuntas di tahap sebelumnya, sehingga kasus yang punya
+aturan pasti tidak pernah diserahkan pada tebakan.
 
 | Tahap | Aturan | Risiko |
 |---|---|---|
-| 1 | Normalisasi: buang bentuk badan usaha di depan (`PT`/`PT.`/`CV`), spasi, tanda baca | Nol — kuncinya identik |
-| 2 | Awalan yang **terpotong di tengah kata** | Rendah — lihat di bawah |
+| 1 | Normalisasi: bentuk badan usaha di depan **maupun di belakang** (`PT X` = `X PT` = `X, PT`), sapaan (`Sdr`/`Sdri`/`Bpk`/`Ibu`), spasi, tanda baca | Nol — kuncinya identik |
+| 2 | Awalan yang **terpotong di tengah kata** (potongan mesin) | Rendah — lihat di bawah |
+| 3 | Kemiripan huruf (`engine/kemiripan_entitas.py`) | Tinggi — lihat di bawah |
+| 4 | **Validasi konteks**: bukan menggabungkan, melainkan membatalkan | Menurunkan risiko tahap 2 & 3 |
 
-**Kenapa bukan fuzzy.** Pada data nyata penyebabnya bukan salah ketik,
-melainkan pemotongan dan format. Diukur pada satu daftar 38 nama: 38 → 32
-kelompok, dan tidak satu pun penggabungan membutuhkan jarak edit.
+**Nama orang tidak dibandingkan dengan nama badan usaha.** `PT HINO FINANCE
+INDONESIA` dan `Sdr HENDRI` tidak pernah bertemu di perhitungan kemiripan —
+bukan karena nilainya rendah, tapi karena pertanyaannya salah. Golongan
+`UNKNOWN` tetap boleh bertemu keduanya: potongan mesin justru sering membuang
+bagian yang menandai golongan (`AEROTRANS SERVICES I` sudah kehilangan
+`PT`-nya).
+
+**Sapaan dibuang hanya untuk MEMBANDINGKAN.** `Sdr ROLAND GAROS HUTABARAT`
+dan `ROLAND GAROS HUTABARAT` jadi satu baris, tapi uraian yang ditampilkan
+tetap apa adanya — yang tercetak di dokumen adalah bukti.
+
+#### Apa yang sebenarnya diberikan kemiripan huruf — diukur, bukan ditebak
+
+Tahap 3 memakai enam ukuran sekaligus (jarak edit Levenshtein, Jaro-Winkler,
+kemiripan token, n-gram karakter, tumpang tindih token, selisih panjang
+ternormalisasi) lewat satu fungsi:
+
+```python
+calculate_entity_similarity(a, b)
+#  → overall_score · character_score · token_score
+#    prefix_score  · length_score
+```
+
+Tingkat keyakinannya bisa disetel tanpa menyentuh algoritmanya
+(`AmbangKemiripan`): `>= 0.95` gabung · `0.90` gabung bila konteks mendukung
+· `0.80` tinjau · di bawah itu pisah.
+
+Lalu diukur pada 44 PDF referensi (3.523 nama unik, ±300 ribu pasangan), dan
+hasilnya menentukan seluruh rancangan di atas:
+
+| Rentang | Pasangan ditemukan | Isinya |
+|---|---:|---|
+| `>= 0.95` | **1** | `ANI ROHIMAH` vs `Ibu ANI ROHIMAH` — sudah tuntas di tahap 1 |
+| `0.90 – 0.949` | **0** | — |
+| `0.80 – 0.899` | 75 | campuran: sebagian varian penulisan, sebagian pihak yang memang berbeda |
+
+Dan yang paling menentukan: **peringkatnya terbalik terhadap kebenaran.**
+
+```
+FLAZZ BCA TOPUP08111441280 200,000.00      0.912   ← beda nominal, BEDA pihak
+FLAZZ BCA TOPUP08111441280 300,000.00
+
+DEXTRATAMA NITYA SANJAYA PT - HT002        0.883   ← beda nomor kontrak
+DEXTRATAMA NITYA SANJAYA PT - HT003
+
+BARASENTOSA LES                            0.738   ← potongan mesin, SATU pihak
+PT BARASENTOSA LESTARI
+```
+
+Pasangan yang harus tetap terpisah bernilai **lebih tinggi** daripada
+potongan mesin yang benar-benar satu pihak. Jadi tahap 3 tidak bisa dipakai
+untuk memutuskan, dan pada 44 PDF referensi ia memang **menggabungkan 0
+pasangan**. Manfaatnya yang terbukti bukan menggabungkan, melainkan
+**menunjukkan**: dari 177 kandidat yang dilaporkan atas 44 PDF referensi, **59
+berasal dari tahap ini** — pasangan mirip yang sebelumnya tidak terlihat sama
+sekali karena tidak punya relasi awalan. Ambangnya tetap dibiarkan bisa
+disetel, dan `tests/kemiripan.py` menjaga temuan "peringkat terbalik" ini
+supaya kalau suatu hari keadaannya berubah, itu ketahuan sebelum ambangnya
+diturunkan.
+
+**Karena itu ada tahap 4.** Nilai kemiripan hanya tahu SEBERAPA BANYAK dua
+nama berbeda, bukan APA yang membedakannya — dan justru jenis perbedaannya
+yang memutuskan. `validasi_konteks` menolak empat hal yang semuanya bernilai
+tinggi: angka yang berbeda (nominal, nomor kontrak, nomor rekening),
+keterangan transaksi yang menempel di ekor nama (`THR`, `DP`, `PINBUK`),
+inisial satu huruf (`Sdr M ABDINTA TARIGAN` vs `Sdr ABDINTA TARIGAN` — bisa
+orang yang sama, bisa dua orang), dan golongan yang bertentangan. Semua
+penolakan membawa alasan, dan alasan itu ikut tercetak di daftar kandidat.
 
 **Apa yang membedakan potongan dari nama yang memang lebih pendek.** Relasi
 awalan saja tidak cukup — `CITRA PERISAI` adalah awalan `CITRA PERISAI
@@ -267,8 +336,20 @@ BARASENTOSA LES|TARI       ← terpotong di tengah "LESTARI"  → digabung
 CITRA PERISAI  |LINTASINDO ← berhenti di batas kata         → TIDAK digabung
 ```
 
-Diuji pada sembilan pasangan dari data nyata, aturan ini memisahkan keduanya
-dengan tepat — tanpa perlu menebak berapa batas potong tiap bank.
+Aturan yang sama sekarang dipakai untuk memilih induk ketika satu awalan
+cocok ke beberapa nama, dan itu memperbaiki satu pihak yang sebelumnya tetap
+pecah jadi enam baris. `PT AEROTRANS SERVICES IND` · `...INDON` ·
+`...INDONESIA` adalah satu rantai potongan, tapi di berkas yang sama ada
+saudara keempat: `AEROTRANS SERVICES INDON PINBUK KE BNI OPS`. Dulu
+kehadirannya membatalkan seluruh keluarga itu ("cocok ke beberapa nama yang
+berbeda"). Sekarang ia disingkirkan lebih dulu — ekornya menyambung di
+**batas kata** (`INDON| PINBUK`), bukan menyelesaikan kata yang terpotong
+(`INDON|ESIA`) — lalu sisanya menyatu, dan si saudara keempat dilaporkan
+sebagai kandidat.
+
+Yang tetap dibatalkan adalah percabangan yang dua-duanya menyelesaikan kata
+terpotong: `PT GARUDA INDON` cocok ke `...INDONESIA` dan `...INDONESIA
+CARGO`, dan tidak ada dasar memilih salah satunya.
 
 > Percobaan pertama menebak batas potong dari sebaran panjang nama, dan
 > **dibuang setelah diuji pada data nyata**: pada satu berkas Mandiri dengan
@@ -276,6 +357,27 @@ dengan tepat — tanpa perlu menebak berapa batas potong tiap bank.
 > sama sekali (nama terpanjangnya 110 karakter), lalu menggabungkan 26 nama
 > tanpa dasar. Aturan "potong di tengah kata" menurunkannya jadi 3, dan
 > ketiganya memang terpotong.
+
+> **Daftar bentuk badan usaha di EKOR nama jauh lebih pendek** daripada di
+> depan (`PT`, `CV`, `PERSERO` saja), dan itu bukan kelalaian: di ekor nama,
+> singkatan yang sama berarti lain. `Armanto S Pd` dan `IIN RAJUDIN,S.PD`
+> memakai `PD` sebagai gelar Sarjana Pendidikan, `MUHAMMAD ILHAM FA` memakai
+> `FA` sebagai bagian nama. Membuangnya berarti memotong nama orang. `TBK`
+> pun tidak masuk walau sah secara hukum — ia tidak pernah muncul di data,
+> dan membuangnya membuat `PT GARUDA INDONESIA TBK` berkunci sama dengan
+> `GARUDA INDONESIA`, lalu potongan `PT GARUDA INDON` jadi punya dua induk
+> yang sama-sama masuk akal.
+
+> **Satu laporan bisa memuat 771 nama unik — 297 ribu pasangan.** Menghitung
+> keenam ukuran untuk semuanya makan 33 detik, dan penyatuan berjalan di
+> dalam pembuatan laporan. Yang dipakai bukan sekadar "ambang murah"
+> melainkan **batas atas yang terbukti**: rasio jarak edit tidak mungkin
+> melebihi perbandingan panjang, jadi pasangan yang batas atasnya sudah di
+> bawah ambang tinjau dilewati tanpa kehilangan satu pasangan pun. Hasilnya
+> 0,51 detik (65× lebih cepat) dan 99,3% pasangan tersaring. Bahwa
+> saringannya tidak menghilangkan apa pun diuji dengan cara paling kasar:
+> satu berkas 305 nama dihitung SELURUH 46.360 pasangannya tanpa saringan,
+> lalu dibandingkan — 0 pasangan hilang.
 
 **Yang ragu tidak digabung, tapi juga tidak disembunyikan.** Penggabungan
 keliru membuat HHI salah ke arah sebaliknya tanpa meninggalkan jejak. Karena
@@ -290,11 +392,19 @@ dicocokkan dengan baris TOTAL-nya.
 
 | | Nama unik | Menyatu | Kandidat |
 |---|---:|---:|---:|
-| BCA | 1.103 | 21 | 22 |
-| BNI | 1.022 | 20 | 16 |
-| BRI | 831 | 45 | 17 |
-| Mandiri | 1.143 | 5 | 54 |
-| **Total** | **4.099** | **91** | **109** |
+| BCA | 1.103 | 22 | 47 |
+| BNI | 1.021 | 27 | 21 |
+| BRI | 831 | 45 | 20 |
+| Mandiri | 1.143 | 6 | 89 |
+| **Total** | **4.098** | **100** | **177** |
+
+Sebelum tahap 1 diperluas (bentuk badan usaha di ekor + sapaan) dan tahap 2
+diperbaiki: 91 menyatu, 109 kandidat. Tambahan 9 baris yang menyatu itu
+seluruhnya dari tahap 1 dan 2 — tahap 3 menyumbang 0. Pengaruhnya ke HHI
+terlihat pada dua berkas: `BNI_inquiry (4)` dari 2819 ke 2895 (61 pihak jadi
+57) dan `BCA_8180999800` dari 774 ke 775. Keduanya bergerak ke arah yang
+benar — konsentrasi yang sebelumnya dilaporkan lebih rendah daripada
+kenyataannya.
 
 Hasilnya: **44/44 berhasil dibangun, 44/44 menghasilkan 12 sheet, 0 gagal,
 dan 0 selisih total.** Penggabungan tidak mengubah satu rupiah pun di mana
@@ -366,7 +476,7 @@ Urut dari yang paling berdampak:
 
 - **Pemasangan bunga & pajak bunga masih per tanggal persis.** `_check_rasio_pajak_bunga` (`engine/anomaly_detector.py`) mengelompokkan bunga dan pajaknya berdasarkan kolom `Tanggal` yang sama. BRI untuk sebagian bulan mendebet "PAJAK BUNGA SIMPANAN" H+1 dari bunganya (bunga 20/11, pajak 21/11), sehingga muncul **dua temuan palsu bertingkat Rendah** ("bunga tanpa pasangan pajak" dan sebaliknya) — 2 kejadian dari 9 PDF referensi BRI. Tanggalnya sengaja **tidak** digeser extractor supaya laporan tetap sama dengan dokumennya; pemasangan lintas-hari harus diputuskan di engine dan menyentuh semua bank. Ini satu-satunya butir terbuka yang menghasilkan temuan palsu, jadi paling layak dikerjakan duluan.
 
-- **Daftar alias untuk singkatan.** Tahap 1 & 2 penyatuan nama (§5.2) tidak bisa menyentuh singkatan: `WKS` tidak punya kemiripan huruf apa pun dengan "Wira Karya Sakti", begitu pula `PT BAP KU`/`PT BAP AP152` dengan "PT Bumi Andalas Permai" dan `PT BMH MH175`. Tidak ada aturan yang bisa menyimpulkannya — ini pengetahuan yang harus diisi manusia, seperti `_biaya_admin`. Rancangannya: satu berkas daftar alias yang dipelihara pemakai, dibaca `engine/penyatu_nama.py` sebagai tahap 3. Sekalian bisa menampung keputusan atas **kandidat** yang sekarang dilaporkan tiap laporan (butir 10) supaya tidak perlu diputuskan berulang.
+- **Daftar alias untuk singkatan.** Keempat tahap penyatuan nama (§5.2) tidak bisa menyentuh singkatan: `WKS` tidak punya kemiripan huruf apa pun dengan "Wira Karya Sakti", begitu pula `PT BAP KU`/`PT BAP AP152` dengan "PT Bumi Andalas Permai" dan `PT BMH MH175`. Tidak ada aturan yang bisa menyimpulkannya — ini pengetahuan yang harus diisi manusia, seperti `_biaya_admin`. Rancangannya: satu berkas daftar alias yang dipelihara pemakai, dibaca `engine/penyatu_nama.py` sebagai tahap tersendiri (tahap 1 sampai 4 sekarang sudah terpakai, lihat §5.2). Sekalian bisa menampung keputusan atas **kandidat** yang sekarang dilaporkan tiap laporan (butir 10) supaya tidak perlu diputuskan berulang.
 
 - **Audit ulang akurasi kolom nama BCA, Mandiri, dan BNI.** Angka §7.3 (12 September) memakai sampel 18–24 baris per format tanpa pemindaian populasi penuh. Audit BRI di §7.4 menunjukkan metode dua lapis — pemindaian seluruh populasi untuk cacat berpola, ditambah sampel manual untuk cacat yang tidak berpola — menemukan hal yang tidak tertangkap sampel saja: dua dari tiga kelas cacat BRI (`ATMSTRPRM`, `;`) luput dari sampel 40 baris. Ketiga bank lain belum diperiksa dengan cara itu, jadi kemungkinan ada kelas cacat serupa yang belum ketahuan. Skripnya sudah siap: `python tests/audit_nama.py <bank>`.
 
@@ -543,6 +653,7 @@ Kalau salah satunya tiba:
   (`tugas.py`) supaya isinya tidak pernah berbeda. Umur hasil di Redis
   (`XR_TTL_HASIL`, bawaan 1 jam) sekaligus jadi kebijakan retensinya.
 - **Penyatuan varian penulisan lawan transaksi** (§5.2) — Rekap Kredit/Debit, Summary Rekap, dan HHI kini mengelompokkan lewat nama yang sudah disatukan, dihitung **sekali** di `create_excel` supaya keempatnya tidak bisa berbeda. Dua aturan deterministik (normalisasi + potongan di tengah kata), bukan fuzzy. 91 baris menyatu atas 44 PDF referensi, total rupiah tidak berubah satu pun. Dijaga `tests/penyatuan.py`, yang menguji **apa yang harus tetap terpisah** juga — bukan hanya apa yang digabung.
+- **Kemiripan entitas & empat tahap penyatuan** (§5.2) — `engine/kemiripan_entitas.py` baru: enam ukuran kemiripan dalam satu fungsi (`calculate_entity_similarity`), penggolongan COMPANY/PERSON/UNKNOWN yang mencegah nama orang dibandingkan dengan nama badan usaha, ambang keyakinan yang bisa disetel tanpa menyentuh algoritma, dan `validasi_konteks` yang membatalkan nilai tinggi tanpa bukti. Diukur pada 44 PDF referensi: tahap kemiripan huruf menggabungkan **0** pasangan — yang menambah penggabungan justru perluasan tahap 1 (bentuk badan usaha di ekor nama, sapaan) dan perbaikan tahap 2, 91 → 100 baris menyatu. Manfaat kemiripan huruf yang terbukti adalah 59 kandidat tambahan untuk diperiksa manusia (dari 177 kandidat seluruhnya; sisanya dari tahap 1-2, yang pelaporannya kini per saudara, bukan per kelompok). Dijaga `tests/kemiripan.py` (termasuk pagar atas temuan "peringkat kemiripan terbalik terhadap kebenaran") dan `tests/penyatuan.py`.
 - **Audit akurasi kolom nama BRI** — 4.131 baris, lihat §7.4. Skripnya (`tests/audit_nama.py`) bank-agnostik dan bisa dipakai untuk audit ulang format lain.
 - **Laporan Excel tidak lagi ditulis ke disk.** Dulu tiap laporan disimpan di `exports/` dan tidak pernah dihapus, sehingga nama pemilik, nomor rekening, dan seluruh mutasi menumpuk di server tanpa kedaluwarsa. Kini dibangun di `io.BytesIO` lalu dikirim langsung: tidak ada berkas yang perlu dijadwalkan hapus karena tidak ada berkas yang dibuat. Folder `exports/` tidak dibuat lagi. PDF yang diunggah tetap mendarat di disk (extractor membacanya lewat path) dan tetap dihapus di blok `finally`. Lihat catatan di §6.2 poin 2: begitu ada job queue, kebijakan retensi jadi perlu lagi.
 - **Tiga kelas cacat kolom nama BRI diperbaiki** (§7.4): kode kanal `ATMSTRPRM` kini digantikan nomor rekening tujuan yang tercetak di uraiannya — 40 baris yang tadinya menggumpal jadi satu entri Rekap kini terurai jadi 14 lawan transaksi berbeda; token `0` (12 baris) dan `;` (7 baris) kini ditandai `Tidak Teridentifikasi`. Penyaringan token sampah ditaruh di satu pagar (`_bermakna`) yang dilewati SEMUA cabang penguraian nama, bukan ditambal per cabang, supaya bentuk uraian baru tidak lolos lagi.

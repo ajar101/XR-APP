@@ -565,6 +565,13 @@ def _tulis_kandidat_penyatuan(ws, baris_mulai, kolom_akhir, penyatuan):
     salah ke arah sebaliknya — tanpa meninggalkan jejak di laporan. Jadi
     yang tidak bisa dipastikan tidak digabung, tapi juga tidak disembunyikan:
     ditampilkan di sini beserta alasannya supaya pemeriksa yang memutuskan.
+
+    Isinya datang dari keempat tahap penyatuan (engine/penyatu_nama.py):
+    awalan yang berhenti di batas kata, percabangan yang tidak bisa dipilih,
+    dan — sejak tahap kemiripan huruf ada — pasangan yang nilainya tinggi
+    tapi tidak lolos validasi konteks. Yang terakhir itu justru manfaat
+    kemiripan huruf yang terbukti pada data nyata: menunjukkan, bukan
+    memutuskan.
     """
     if penyatuan is None or not penyatuan.kandidat:
         return
@@ -577,15 +584,15 @@ def _tulis_kandidat_penyatuan(ws, baris_mulai, kolom_akhir, penyatuan):
     ws.row_dimensions[r].height = 22
     r += 1
 
-    for i, judul in enumerate(('Nama pendek', 'Kemungkinan sama dengan',
+    for i, judul in enumerate(('Nama', 'Kemungkinan sama dengan',
                                'Alasan tidak digabung otomatis')):
         style_header(ws.cell(row=r, column=1 + i, value=judul), bg_color='2E75B6')
     r += 1
 
-    for pendek, panjang, alasan in penyatuan.kandidat:
-        style_data(ws.cell(row=r, column=1, value=pendek), align='left',
+    for nama, pasangan, alasan in penyatuan.kandidat:
+        style_data(ws.cell(row=r, column=1, value=nama), align='left',
                    bg_color='FFF9E6')
-        style_data(ws.cell(row=r, column=2, value=panjang), align='left',
+        style_data(ws.cell(row=r, column=2, value=pasangan), align='left',
                    bg_color='FFF9E6')
         c = ws.cell(row=r, column=3, value=alasan)
         style_data(c, align='left', bg_color='FFF9E6')

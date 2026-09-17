@@ -43,6 +43,27 @@ HARUS_MENYATU = [
     (['EKAMATRA RIZQI ANUGRAH', 'EKAMATRA RIZQI ANUGR'], 1,
      'EKAMATRA RIZQI ANUGRAH'),
 
+    # Tahap 1 — bentuk badan usaha di EKOR nama. Satu pihak bisa muncul
+    # dalam dua urutan di satu rekening koran yang sama.
+    (['PT HINO FINANCE INDONESIA', 'HINO FINANCE INDONESIA PT'], 1,
+     'PT HINO FINANCE INDONESIA'),
+    (['PT. AEROFOOD INDONESIA', 'AEROFOOD INDONESIA, PT'], 1,
+     'PT. AEROFOOD INDONESIA'),
+    (['CV CIPTA SAUDARA', 'CIPTA SAUDARA CV', 'CIPTA SAUDARA'], 2,
+     'CV CIPTA SAUDARA'),
+
+    # Tahap 1 — sapaan di depan nama orang. Pasangan "Ibu ANI ROHIMAH" ada
+    # di data referensi; nama yang ditampilkan tetap apa adanya.
+    (['Ibu ANI ROHIMAH', 'ANI ROHIMAH'], 1, 'Ibu ANI ROHIMAH'),
+    (['Sdr ROLAND GAROS HUTABARAT', 'ROLAND GAROS HUTABARAT'], 1,
+     'Sdr ROLAND GAROS HUTABARAT'),
+
+    # Tahap 2 — rantai potongan bertingkat (lihat juga
+    # periksa_rantai_tidak_teracuni).
+    (['PT AEROTRANS SERVICES IND', 'PT AEROTRANS SERVICES INDON',
+      'PT AEROTRANS SERVICES INDONESIA'], 2,
+     'PT AEROTRANS SERVICES INDONESIA'),
+
     # Gabungan kedua tahap dalam satu kelompok.
     (['PT BARASENTOSA LESTARI', 'BARASENTOSA LESTARI', 'BARASENTOSA LES'], 2,
      'PT BARASENTOSA LESTARI'),
@@ -62,6 +83,31 @@ HARUS_TERPISAH = [
      'PT GARUDA INDONESIA TBK'],
     # Nama berawalan huruf bentuk badan usaha, tapi tanpa pemisah.
     ['PTX SEJAHTERA', 'PTX SEJAHTERA ABADI'],
+]
+
+# ── Pasangan bernilai kemiripan TINGGI yang tetap harus terpisah ─────────
+# Semuanya dari data referensi, dan semuanya bernilai 0.80-0.92 — lebih
+# tinggi daripada potongan mesin yang benar-benar satu pihak. Inilah yang
+# dijaga tahap 4 (validasi konteks); tanpa itu, menurunkan ambang gabung
+# otomatis akan meleburnya diam-diam dan HHI Score ikut salah.
+MIRIP_TAPI_BEDA = [
+    # Nominal topup berbeda — nilainya 0.91, tertinggi di antara semuanya.
+    ['FLAZZ BCA TOPUP08111441280 200,000.00',
+     'FLAZZ BCA TOPUP08111441280 300,000.00'],
+    # Nomor kontrak berbeda.
+    ['DEXTRATAMA NITYA SANJAYA PT - HT002',
+     'DEXTRATAMA NITYA SANJAYA PT - HT003'],
+    # Keterangan transaksi menempel di ekor nama.
+    ['ERWINSYAH HARAHAP', 'ERWINSYAH HARAHAP THR'],
+    ['PANUSUNAN ALAMSAH SRG', 'PANUSUNAN ALAMSAH SRG DP'],
+    # Dua badan usaha berbeda yang berawalan dan berakhiran sama.
+    ['TIGA BERSAMA LOGISTIK PT', 'TIGA PERMATA LOGISTIK PT'],
+    # Inisial satu huruf: bisa orang yang sama, bisa dua orang.
+    ['Sdr M ABDINTA TARIGAN', 'Sdr ABDINTA TARIGAN'],
+    # Gelar di ekor nama orang ("S.Pd"), bukan bentuk badan usaha.
+    ['Armanto S Pd', 'Armanto Suprapto'],
+    # Nama orang lawan badan usaha — tidak dibandingkan sama sekali.
+    ['PT HINO FINANCE INDONESIA', 'Sdr HENDRI'],
 ]
 
 # ── Label kategori tidak boleh ikut dilebur ──────────────────────────────
@@ -99,6 +145,66 @@ def periksa_terpisah() -> list:
     return masalah
 
 
+def periksa_mirip_tapi_beda() -> list:
+    """Nilai kemiripan tinggi tidak boleh cukup untuk menggabungkan."""
+    masalah = []
+    for nama in MIRIP_TAPI_BEDA:
+        h = satukan(nama)
+        if h.jumlah_digabung:
+            masalah.append(f'{nama} TERGABUNG padahal kemiripan tinggi saja '
+                           f'tidak cukup — varian: {h.varian}')
+    return masalah
+
+
+def periksa_rantai_tidak_teracuni() -> list:
+    """
+    Satu saudara yang bukan varian nama tidak boleh membatalkan keluarganya.
+
+    Kasus nyata dari references/: "PT AEROTRANS SERVICES IND", "...INDON",
+    dan "...INDONESIA" adalah satu rantai potongan mesin, tapi di berkas yang
+    sama ada "AEROTRANS SERVICES INDON PINBUK KE BNI OPS" — nama berekor
+    keterangan transaksi. Dulu kehadirannya membuat ketiganya ikut dianggap
+    "cocok ke beberapa nama yang berbeda", sehingga satu pihak tetap pecah
+    jadi beberapa baris Rekap dan HHI ikut salah.
+
+    Sekarang yang berekor keterangan itu disingkirkan lebih dulu (ekornya
+    menyambung di BATAS KATA, dan "PINBUK" adalah keterangan transaksi), lalu
+    sisanya menyatu. Yang disingkirkan wajib muncul sebagai kandidat.
+    """
+    rantai = ['PT AEROTRANS SERVICES IND', 'PT AEROTRANS SERVICES INDON',
+              'PT AEROTRANS SERVICES INDONESIA']
+    asing = 'AEROTRANS SERVICES INDON PINBUK KE BNI OPS'
+    h = satukan(rantai + [asing])
+    masalah = []
+    wakil = {h(n) for n in rantai}
+    if wakil != {'PT AEROTRANS SERVICES INDONESIA'}:
+        masalah.append(f'rantai potongan tidak menyatu: {sorted(wakil)}')
+    if h(asing) != asing:
+        masalah.append(f'{asing!r} ikut dilebur jadi {h(asing)!r}, padahal '
+                       f'ekornya keterangan transaksi')
+    if not any(asing in (a, b) for a, b, _ in h.kandidat):
+        masalah.append(f'{asing!r} tidak digabung TAPI juga tidak dilaporkan '
+                       f'sebagai kandidat')
+    return masalah
+
+
+def periksa_uraian_asli_utuh() -> list:
+    """
+    Sapaan dibuang hanya untuk MEMBANDINGKAN, tidak dari nama yang
+    ditampilkan. Uraian yang tercetak di dokumen adalah bukti, dan pemeriksa
+    berhak melihatnya apa adanya.
+    """
+    nama = ['Sdr ROLAND GAROS HUTABARAT', 'ROLAND GAROS HUTABARAT']
+    h = satukan(nama)
+    masalah = []
+    if set(h.varian.get(h(nama[0]), [])) != set(nama):
+        masalah.append(f'varian tidak memuat kedua penulisan asli: {h.varian}')
+    if 'Sdr' not in h(nama[0]):
+        masalah.append(f'wakil kelompok {h(nama[0])!r} sudah kehilangan '
+                       f'sapaan yang tercetak di dokumen')
+    return masalah
+
+
 def periksa_label() -> list:
     """Label kategori harus lolos apa adanya, walau mirip satu sama lain."""
     nama = sorted(LABEL_UJI) + ['Biaya Administrasi Bulanan']
@@ -128,6 +234,10 @@ def main() -> int:
     for nama, fungsi in (
         ('nama yang harus menyatu', periksa_menyatu),
         ('nama yang harus tetap terpisah', periksa_terpisah),
+        ('mirip tapi pihak berbeda', periksa_mirip_tapi_beda),
+        ('satu saudara asing tidak meracuni rantai potongan',
+         periksa_rantai_tidak_teracuni),
+        ('uraian asli tetap utuh', periksa_uraian_asli_utuh),
         ('label kategori tidak tersentuh', periksa_label),
         ('hasil stabil apa pun urutan masukannya', periksa_stabil),
         ('normalisasi bentuk badan usaha', periksa_kunci),

@@ -6,6 +6,7 @@ rekening koran yang sama:
 
     PT BARASENTOSA LESTARI · BARASENTOSA LESTARI · BARASENTOSA LES
     PT WIRAKARYA SAKTI · PT WIRA KARYA SAKTI · PT WIRAKARYA SA
+    AEROFOOD INDONESIA, PT · PT. AEROFOOD INDONESIA
 
 Tanpa disatukan, satu pihak pecah jadi beberapa baris di sheet Rekap — dan
 akibatnya bukan sekadar tidak rapi. **HHI Score dihitung dari pangsa tiap
@@ -15,20 +16,51 @@ tampak terdiversifikasi. Pada simulasi dengan pola seperti di atas, HHI turun
 dari 3350 (Concentrated) ke 1708 (Moderate) — salah ke arah yang justru
 berbahaya untuk laporan yang dipakai menilai rekening.
 
-DUA TAHAP, KEDUANYA DETERMINISTIK
+EMPAT TAHAP, DARI YANG PALING PASTI KE YANG PALING RAGU
 
-Modul ini TIDAK memakai kemiripan huruf (jarak edit/fuzzy). Pada data
-referensi, penyebabnya bukan salah ketik melainkan dua hal yang punya aturan
-pasti:
+Urutannya bukan selera. Tiap tahap hanya menerima apa yang TIDAK tuntas di
+tahap sebelumnya, sehingga kasus yang punya aturan pasti tidak pernah
+diserahkan pada tebakan:
 
-  TAHAP 1  Perbedaan format. "PT BARASENTOSA LESTARI" vs "BARASENTOSA
-           LESTARI" vs "PT.TRI PUTRA ERGUNA" — beda bentuk badan usaha,
-           spasi, atau tanda baca. Disamakan lewat normalisasi, nol risiko.
+  TAHAP 1  Kunci identik sesudah normalisasi. Perbedaan format — bentuk
+  (pasti)  badan usaha di depan atau di belakang, sapaan, spasi, tanda baca.
+           "PT HINO FINANCE INDONESIA" dan "HINO FINANCE INDONESIA PT"
+           menjadi kunci yang sama persis, jadi langsung satu kelompok.
+           Tidak ada perhitungan kemiripan sama sekali, dan tidak perlu.
 
-  TAHAP 2  Pemotongan sistem. Sebagian kanal memotong nama pada panjang
-           tetap, sehingga potongannya menjadi AWALAN dari nama penuhnya.
+  TAHAP 2  Kecocokan struktural: potongan mesin. Sebagian kanal memangkas
+  (rendah) nama pada panjang tetap, sehingga potongannya menjadi AWALAN dari
+           nama penuhnya. Yang membedakannya dari nama yang memang lebih
+           pendek dijelaskan di bawah.
 
-Singkatan ("WKS" untuk Wira Karya Sakti) sengaja TIDAK ditangani: tidak ada
+  TAHAP 3  Kemiripan huruf (`engine/kemiripan_entitas.py`). Tahap paling
+  (ragu)   lemah, dan dijalankan terakhir justru karena itu.
+
+  TAHAP 4  Validasi konteks. Bukan tahap yang MENGGABUNG, melainkan yang
+  (veto)   MEMBATALKAN: tiap calon dari tahap 2 dan 3 harus melewatinya
+           dulu. Nilai kemiripan hanya tahu SEBERAPA BANYAK dua nama
+           berbeda, bukan APA yang membedakannya — dan di rekening koran
+           justru jenis perbedaannya yang memutuskan.
+
+APA YANG DIUKUR PADA DATA NYATA (44 PDF REFERENSI, 3.523 NAMA)
+
+Angka ini yang menentukan urutan di atas, bukan sebaliknya:
+
+  · Tahap 1 dan 2 menuntaskan seluruh penggabungan yang benar.
+  · Di seluruh 3.523 nama, hanya SATU pasangan mencapai kemiripan >= 0.95 —
+    dan pasangan itu ("ANI ROHIMAH" vs "Ibu ANI ROHIMAH") sudah tuntas di
+    tahap 1 lewat normalisasi sapaan. Rentang 0.90-0.949: KOSONG.
+  · Sebaliknya, pasangan bernilai TERTINGGI di rentang 0.80-an justru
+    pasangan yang HARUS tetap terpisah — topup kartu dengan nominal
+    berbeda (0.91), dua nomor kontrak berbeda (0.88) — sementara potongan
+    mesin yang benar-benar satu pihak ("BARASENTOSA LES" vs "PT
+    BARASENTOSA LESTARI") hanya bernilai 0.74.
+
+Jadi pada data ini nilai kemiripan tidak sekadar lemah, ia URUTANNYA
+TERBALIK terhadap kebenaran. Itulah sebabnya tahap 3 nyaris tidak pernah
+menggabung apa pun sendiri, dan sebabnya tahap 4 ada.
+
+Singkatan ("WKS" untuk Wira Karya Sakti) tetap TIDAK ditangani: tidak ada
 hubungan huruf antara singkatan dan kepanjangannya, jadi tidak ada aturan
 yang bisa menyimpulkannya. Itu butuh daftar alias yang diisi manusia.
 
@@ -44,9 +76,22 @@ Tanda khas pemotongan mesin adalah potongannya jatuh **di tengah kata**:
     CITRA PERISAI   | LINTASINDO ← berhenti di batas kata        → BUKAN
 
 Mesin memotong pada hitungan karakter, tidak peduli batas kata. Nama yang
-kebetulan lebih pendek justru hampir selalu berhenti di batas kata. Diuji
-pada sembilan pasangan dari data nyata, aturan ini memisahkan keduanya
-dengan tepat — tanpa perlu menebak berapa panjang batas potong tiap bank.
+kebetulan lebih pendek justru hampir selalu berhenti di batas kata.
+
+Aturan yang sama dipakai untuk memilih SATU induk ketika satu awalan cocok
+ke beberapa nama. Ini yang dulu membuat satu pihak tetap pecah jadi enam
+baris: "PT AEROTRANS SERVICES IND", "...INDON", "...INDONESIA" adalah satu
+rantai potongan, tapi ada saudara keempat, "AEROTRANS SERVICES INDON PINBUK
+KE BNI OPS" — nama yang berekor keterangan transaksi. Dulu kehadirannya
+membatalkan seluruh keluarga itu ("cocok ke beberapa nama yang berbeda").
+Sekarang ia disingkirkan lebih dulu, karena ekornya menyambung di BATAS
+KATA (`INDON| PINBUK`), bukan menyelesaikan kata yang terpotong
+(`INDON|ESIA`) — lalu sisanya menyatu seperti seharusnya, dan si saudara
+keempat dilaporkan sebagai kandidat.
+
+Yang tetap dibatalkan adalah percabangan yang dua-duanya menyelesaikan kata
+terpotong: "PT GARUDA INDON" cocok ke "...INDONESIA CARGO" dan "...INDONESIA
+TBK", dan tidak ada dasar memilih salah satunya.
 
 Percobaan sebelumnya menebak batas potong dari sebaran panjang nama.
 Pendekatan itu dibuang: pada satu berkas Mandiri dengan 341 nama, ia
@@ -62,36 +107,47 @@ karena itu tidak dibuang melainkan dilaporkan sebagai KANDIDAT, lengkap
 dengan alasannya, supaya pemeriksa yang memutuskan.
 """
 
-import re
-
-# Bentuk badan usaha di awal nama. Dibuang saat menormalkan karena dokumen
-# kerap mencetaknya tidak konsisten ("PT X", "PT. X", "PT.X", "X") untuk
-# pihak yang sama. HANYA di awal — "ASIA JAYA LESTARI PT" tidak terpotong.
-#
-# Pemisah (titik atau spasi) WAJIB ada, supaya nama yang kebetulan berawalan
-# huruf yang sama ("PTX SEJAHTERA", "CVITO MANDIRI") tidak ikut terpotong.
-BENTUK_BADAN = re.compile(
-    r'^(PT|CV|UD|PD|NV|FA|KOPERASI|KOP|YAYASAN|PERUM|PERSERO)'
-    r'(?:\s*\.\s*|\s+)',
-    re.IGNORECASE)
-
-BUKAN_ALFANUMERIK = re.compile(r'[^A-Z0-9]')
+from engine.kemiripan_entitas import (
+    AMBANG,
+    BADAN_AWAL,
+    GABUNG,
+    GABUNG_BILA_KONTEKS,
+    TINGKAT_TINJAU,
+    calculate_entity_similarity,
+    kunci_banding,
+    layak_dihitung,
+    tanpa_hiasan,
+    validasi_konteks,
+)
 
 # Panjang kunci minimum sebelum sebuah awalan boleh dianggap potongan.
 # Awalan pendek cocok ke terlalu banyak nama untuk bisa dipercaya.
 PANJANG_KUNCI_MIN = 8
+
+# Berapa banyak kandidat dari tahap 3 yang ikut dilaporkan. Tahap 1 dan 2
+# melaporkan semuanya karena jumlahnya selalu sedikit dan tiap barisnya
+# menyangkut relasi awalan yang konkret. Kemiripan huruf lain ceritanya:
+# pada satu berkas saja bisa muncul puluhan pasangan bernilai 0.8-an yang
+# sebagian besar memang pihak berbeda, dan daftar sepanjang itu justru
+# membuat pemeriksa berhenti membaca daftarnya. Yang ditampilkan yang
+# tertinggi nilainya.
+MAKS_KANDIDAT_FUZZY = 25
 
 
 def kunci(nama: str) -> str:
     """
     Bentuk baku sebuah nama untuk dibandingkan.
 
-    Huruf besar, tanpa bentuk badan usaha di depan, tanpa spasi dan tanda
-    baca. Spasi ikut dibuang supaya "WIRAKARYA" dan "WIRA KARYA" — yang jelas
-    pihak yang sama — tidak dianggap berbeda.
+    Huruf besar, tanpa sapaan ("Sdr", "Ibu"), tanpa bentuk badan usaha di
+    depan MAUPUN di belakang, tanpa spasi dan tanda baca. Spasi ikut dibuang
+    supaya "WIRAKARYA" dan "WIRA KARYA" — yang jelas pihak yang sama — tidak
+    dianggap berbeda.
+
+    Aturannya satu-satunya sumber di `engine/kemiripan_entitas.py`, supaya
+    normalisasi yang dipakai menggabungkan dan yang dipakai mengukur
+    kemiripan tidak bisa berbeda diam-diam.
     """
-    tanpa_badan = BENTUK_BADAN.sub('', (nama or '').strip().upper())
-    return BUKAN_ALFANUMERIK.sub('', tanpa_badan)
+    return kunci_banding(nama)
 
 
 def terpotong_di_tengah_kata(panjang_kunci_pendek: int, nama_panjang: str) -> bool:
@@ -107,7 +163,7 @@ def terpotong_di_tengah_kata(panjang_kunci_pendek: int, nama_panjang: str) -> bo
     """
     if panjang_kunci_pendek <= 0:
         return False
-    teks = BENTUK_BADAN.sub('', (nama_panjang or '').strip().upper())
+    teks = tanpa_hiasan(nama_panjang)
     hitung = 0
     for i, ch in enumerate(teks):
         if not ch.isalnum():
@@ -130,11 +186,23 @@ def _wakil(varian) -> str:
     mentah menganggapnya seri lalu memilih menurut abjad, dan kebetulan
     memilih yang terpotong.
 
-    Sesudah itu baru panjang teks mentah (lebih lengkap tanda bacanya), lalu
-    abjad supaya hasilnya sama persis tiap kali dijalankan — laporan yang
-    sama harus menghasilkan berkas yang sama.
+    Sesudah itu bentuk badan usaha di DEPAN lebih dipilih daripada di
+    belakang: "PT. AEROFOOD INDONESIA" dan "AEROFOOD INDONESIA, PT" sekarang
+    satu kelompok (kuncinya sama), dan yang pertama adalah cara nama badan
+    usaha lazim ditulis di Indonesia. Tanpa aturan ini pilihannya jatuh ke
+    abjad, yang kebetulan memilih bentuk terbalik.
+
+    Terakhir panjang teks mentah (lebih lengkap tanda bacanya), lalu abjad
+    supaya hasilnya sama persis tiap kali dijalankan — laporan yang sama
+    harus menghasilkan berkas yang sama.
     """
-    return sorted(varian, key=lambda n: (-len(kunci(n)), -len(n), n))[0]
+    def urutan(n):
+        return (-len(kunci(n)),
+                0 if BADAN_AWAL.match(n.strip().upper()) else 1,
+                -len(n),
+                n)
+
+    return sorted(varian, key=urutan)[0]
 
 
 class Penyatuan:
@@ -144,7 +212,8 @@ class Penyatuan:
     Atribut:
         peta      {nama asli -> nama wakil} untuk SEMUA nama yang masuk
         varian    {nama wakil -> daftar nama asli} hanya kelompok >1 varian
-        kandidat  [(pendek, panjang, alasan)] awalan yang TIDAK digabung
+        kandidat  [(pendek, panjang, alasan)] pasangan mirip yang TIDAK
+                  digabung, beserta alasannya
     """
 
     def __init__(self, peta, varian, kandidat):
@@ -158,6 +227,139 @@ class Penyatuan:
     @property
     def jumlah_digabung(self) -> int:
         return sum(len(v) - 1 for v in self.varian.values())
+
+
+def _tahap2_potongan(per_kunci, kandidat):
+    """
+    Tahap 2 — awalan yang terpotong di tengah kata.
+
+    Mengembalikan {kunci anak -> kunci induk}. Yang tidak memenuhi syarat
+    dicatat ke `kandidat` beserta alasannya, tidak dibuang diam-diam.
+    """
+    kunci_urut = sorted(per_kunci, key=len)
+    induk = {}
+
+    for i, pendek in enumerate(kunci_urut):
+        cocok = [p for p in kunci_urut[i + 1:] if p.startswith(pendek)]
+        if not cocok:
+            continue
+
+        contoh_pendek = min(per_kunci[pendek], key=len)
+
+        def catat(pasangan_kunci, alasan):
+            kandidat.append((contoh_pendek, _wakil(per_kunci[pasangan_kunci]),
+                             alasan))
+
+        # Awalan sangat pendek tetap dilaporkan, bukan ditolak diam-diam,
+        # supaya pemeriksa tahu sistem melihatnya dan memilih tidak memutuskan.
+        if len(pendek) < PANJANG_KUNCI_MIN:
+            catat(max(cocok, key=len),
+                  f'kunci hanya {len(pendek)} huruf — terlalu pendek untuk '
+                  f'dipastikan')
+            continue
+
+        # TAHAP 4, dijalankan LEBIH DULU di sini: yang terbukti bukan varian
+        # nama disingkirkan dari daftar kecocokan, bukan cuma ditolak
+        # digabung. Inilah yang memperbaiki kasus AEROTRANS di docstring
+        # modul — satu saudara berekor keterangan transaksi ("...INDON
+        # PINBUK KE BNI OPS") dulu membatalkan seluruh keluarganya.
+        sekeluarga = []
+        for p in cocok:
+            lolos, alasan = validasi_konteks(contoh_pendek,
+                                             _wakil(per_kunci[p]))
+            if lolos:
+                sekeluarga.append(p)
+            else:
+                catat(p, alasan)
+        if not sekeluarga:
+            continue
+
+        # Beberapa kecocokan boleh digabung SELAMA seluruhnya satu rantai
+        # potongan: tiap langkah harus menyambung di TENGAH KATA, termasuk
+        # langkah antar-kecocokan. "GARUDAINDON → GARUDAINDONESIA" menyambung
+        # di tengah kata, tapi "GARUDAINDONESIA → GARUDAINDONESIA CARGO"
+        # menyambung di batas kata — jadi rantainya putus di situ, dan si
+        # potongan punya dua induk yang sama-sama masuk akal. Tidak ada dasar
+        # memilih, jadi tidak dipilih.
+        sekeluarga.sort(key=len)
+        rantai = [pendek] + sekeluarga
+        putus = next(
+            (j for j in range(len(rantai) - 1)
+             if not (rantai[j + 1].startswith(rantai[j])
+                     and terpotong_di_tengah_kata(
+                         len(rantai[j]), _wakil(per_kunci[rantai[j + 1]])))),
+            None)
+        if putus is not None:
+            catat(sekeluarga[-1],
+                  'berhenti di batas kata, bukan terpotong di tengah kata — '
+                  'bisa jadi memang pihak yang berbeda'
+                  if len(sekeluarga) == 1 else
+                  f'awalan cocok ke {len(sekeluarga)} nama yang tidak '
+                  f'serantai — tidak ada dasar memilih induknya')
+            continue
+
+        induk[pendek] = sekeluarga[0]
+
+    return induk
+
+
+def _tahap3_kemiripan(kelompok, kandidat):
+    """
+    Tahap 3 — kemiripan huruf, untuk apa yang belum tuntas di tahap 1 dan 2.
+
+    Hanya pasangan yang lolos TAHAP 4 (`validasi_konteks`) yang boleh
+    digabung, dan hanya bila tingkatnya mengizinkan. Sisanya yang masuk
+    rentang tinjau dilaporkan sebagai kandidat lengkap dengan nilainya —
+    di situlah manfaat tahap ini yang terbukti pada data nyata: bukan
+    memutuskan, melainkan menunjukkan apa yang perlu dilihat manusia.
+
+    Mengembalikan {kunci wakil kelompok -> kunci wakil kelompok induk}.
+    """
+    wakil_kelompok = {k: _wakil(v) for k, v in kelompok.items()}
+    urut = sorted(wakil_kelompok)
+    gabung = {}
+    tinjau = []
+
+    for i, ka in enumerate(urut):
+        for kb in urut[i + 1:]:
+            a, b = wakil_kelompok[ka], wakil_kelompok[kb]
+            if not layak_dihitung(a, b):
+                continue
+            nilai = calculate_entity_similarity(a, b)
+            if nilai.tindakan not in (GABUNG, GABUNG_BILA_KONTEKS):
+                if nilai.tingkat == TINGKAT_TINJAU:
+                    tinjau.append((nilai.overall_score, a, b,
+                                   nilai.alasan or
+                                   'kemiripan di rentang tinjau'))
+                continue
+
+            lolos, alasan = validasi_konteks(a, b)
+            if not lolos:
+                tinjau.append((nilai.overall_score, a, b, alasan))
+                continue
+
+            # Nama yang lebih panjang kuncinya menjadi induk: pada potongan
+            # mesin, yang panjang adalah nama utuhnya.
+            anak, orang_tua = ((ka, kb) if len(ka) < len(kb) else (kb, ka))
+            gabung[anak] = orang_tua
+
+    for nilai, a, b, alasan in sorted(tinjau, reverse=True)[:MAKS_KANDIDAT_FUZZY]:
+        kandidat.append((a, b, f'kemiripan {nilai:.3f} — {alasan}; '
+                              f'di bawah ambang gabung otomatis '
+                              f'({AMBANG.mungkin:.2f})'))
+
+    return gabung
+
+
+def _akar(kunci_awal, induk):
+    terlihat = {kunci_awal}
+    k = kunci_awal
+    while k in induk:
+        k = induk[k]
+        if k in terlihat:      # jaga-jaga, seharusnya tak mungkin
+            break
+        terlihat.add(k)
+    return k
 
 
 def satukan(nama_unik, abaikan=frozenset()) -> Penyatuan:
@@ -175,6 +377,7 @@ def satukan(nama_unik, abaikan=frozenset()) -> Penyatuan:
     """
     nama_unik = [n for n in dict.fromkeys(nama_unik) if n and n.strip()]
     ikut = [n for n in nama_unik if n not in abaikan]
+    kandidat = []
 
     # ── TAHAP 1: kunci identik sesudah normalisasi ──
     per_kunci = {}
@@ -183,61 +386,22 @@ def satukan(nama_unik, abaikan=frozenset()) -> Penyatuan:
         if k:
             per_kunci.setdefault(k, []).append(n)
 
-    # ── TAHAP 2: awalan yang terpotong di tengah kata ──
-    kunci_urut = sorted(per_kunci, key=len)
-    induk = {}
-    kandidat = []
-
-    for i, pendek in enumerate(kunci_urut):
-        cocok = [p for p in kunci_urut[i + 1:] if p.startswith(pendek)]
-        if not cocok:
-            continue
-
-        cocok.sort(key=len)
-        target = cocok[-1]
-        contoh_pendek = min(per_kunci[pendek], key=len)
-        wakil_target = _wakil(per_kunci[target])
-
-        def catat(alasan):
-            kandidat.append((contoh_pendek, wakil_target, alasan))
-
-        # Awalan sangat pendek tetap dilaporkan, bukan ditolak diam-diam,
-        # supaya pemeriksa tahu sistem melihatnya dan memilih tidak memutuskan.
-        if len(pendek) < PANJANG_KUNCI_MIN:
-            catat(f'kunci hanya {len(pendek)} huruf — terlalu pendek untuk '
-                  f'dipastikan')
-            continue
-
-        # Beberapa kecocokan masih boleh digabung SELAMA semuanya satu rantai
-        # (A awalan B, B awalan C) — ujung terpanjang adalah nama penuhnya.
-        # Yang tidak serantai berarti dua pihak berbeda yang kebetulan
-        # berawalan sama, dan tidak ada dasar memilih salah satunya.
-        if not all(cocok[j + 1].startswith(cocok[j]) for j in range(len(cocok) - 1)):
-            catat(f'awalan cocok ke {len(cocok)} nama yang berbeda satu sama lain')
-            continue
-
-        # Syarat penentu: potongannya harus jatuh di tengah kata.
-        if not terpotong_di_tengah_kata(len(pendek), per_kunci[target][0]):
-            catat('berhenti di batas kata, bukan terpotong di tengah kata — '
-                  'bisa jadi memang pihak yang berbeda')
-            continue
-
-        induk[pendek] = target
-
-    # ── Susun kelompok akhir ──
-    def akar(k):
-        terlihat = {k}
-        while k in induk:
-            k = induk[k]
-            if k in terlihat:      # jaga-jaga, seharusnya tak mungkin
-                break
-            terlihat.add(k)
-        return k
+    # ── TAHAP 2: awalan yang terpotong di tengah kata (+ TAHAP 4) ──
+    induk = _tahap2_potongan(per_kunci, kandidat)
 
     kelompok = {}
     for k, anggota in per_kunci.items():
-        kelompok.setdefault(akar(k), []).extend(anggota)
+        kelompok.setdefault(_akar(k, induk), []).extend(anggota)
 
+    # ── TAHAP 3: kemiripan huruf (+ TAHAP 4) ──
+    induk_fuzzy = _tahap3_kemiripan(kelompok, kandidat)
+    if induk_fuzzy:
+        gabungan = {}
+        for k, anggota in kelompok.items():
+            gabungan.setdefault(_akar(k, induk_fuzzy), []).extend(anggota)
+        kelompok = gabungan
+
+    # ── Susun kelompok akhir ──
     peta, varian = {}, {}
     for anggota in kelompok.values():
         w = _wakil(anggota)
