@@ -755,3 +755,67 @@ def validasi_konteks(a: str, b: str):
                        ') — bisa orang yang berbeda')
 
     return True, ''
+
+
+def bukti_potongan(a: str, b: str):
+    """
+    Adakah bukti POSITIF bahwa selisih dua nama ini kata yang TERPOTONG,
+    bukan kata yang ditambahkan?
+
+    Kenapa ini perlu padahal sudah ada ambang dan validasi konteks: ambang
+    hanya tahu seberapa BANYAK dua nama berbeda. Diukur pada 44 PDF
+    referensi, dua bentuk di bawah nilainya nyaris sama — dan yang satu
+    harus digabung, yang lain tidak:
+
+        GARUDA INDONESI      ↔ PT GARUDA INDONESIA     0.846  → satu pihak
+        MIRNA HASANAH        ↔ MIRNA HASANAH KOTO      0.802  → bisa dua orang
+
+    Yang membedakan bukan nilainya, melainkan BENTUK selisihnya: "INDONESI"
+    adalah "INDONESIA" yang terpotong, sedangkan "KOTO" adalah kata baru
+    yang utuh. Selama yang menahan keduanya cuma selisih 0,04 dari ambang,
+    yang menahannya adalah keberuntungan.
+
+    Dua bentuk yang diterima sebagai bukti, keduanya diambil dari cacat yang
+    memang terlihat di data:
+
+      1. token yang berbeda saling BERAWALAN — "INDONE" / "INDONESIA"
+      2. dua token berdampingan yang disambung menjadi token di sisi lain —
+         "I"+"DONESIA" → "INDONESIA", yaitu spasi yang tersisip di tengah kata
+
+    Returns:
+        (True, bukti)     ada bukti, beserta bentuknya dalam bahasa manusia
+        (False, alasan)   tidak ada — dan alasannya ikut tercetak di daftar
+                          KANDIDAT, supaya pemeriksa tahu apa yang dilihat
+                          sistem
+
+    Sengaja TIDAK dipakai tahap 2: di sana relasi awalan atas seluruh nama
+    plus potongan di tengah kata sudah menjadi buktinya sendiri, dan
+    aturannya dijaga tesnya sendiri.
+    """
+    ta, tb = list(token(a)), list(token(b))
+    sa, sb = set(ta), set(tb)
+    beda_a, beda_b = sa - sb, sb - sa
+
+    # Satu sisi hanya MENAMBAH kata, tidak ada kata yang berubah: itu tanda
+    # kata baru (nama keluarga, keterangan transaksi, cabang), bukan potongan.
+    if not beda_a or not beda_b:
+        return False, ('selisihnya kata utuh yang ditambahkan, bukan kata '
+                       'yang terpotong')
+
+    for x in sorted(beda_a):
+        for y in sorted(beda_b):
+            if y.startswith(x) or x.startswith(y):
+                return True, f'{x} / {y} — kata yang sama, satu terpotong'
+
+    for kiri, kanan_beda, kiri_beda in ((ta, beda_b, beda_a),
+                                        (tb, beda_a, beda_b)):
+        for i in range(len(kiri) - 1):
+            if kiri[i] not in kiri_beda or kiri[i + 1] not in kiri_beda:
+                continue
+            sambung = kiri[i] + kiri[i + 1]
+            for y in sorted(kanan_beda):
+                if y == sambung or y.startswith(sambung):
+                    return True, (f'{kiri[i]}+{kiri[i + 1]} → {y} — spasi '
+                                  f'tersisip di tengah kata')
+
+    return False, 'kata yang berbeda tidak saling berawalan — bukan potongan'

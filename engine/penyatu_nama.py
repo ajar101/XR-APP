@@ -113,6 +113,7 @@ from engine.kemiripan_entitas import (
     GABUNG,
     GABUNG_BILA_KONTEKS,
     TINGKAT_TINJAU,
+    bukti_potongan,
     calculate_entity_similarity,
     kunci_banding,
     layak_dihitung,
@@ -313,11 +314,21 @@ def _tahap3_kemiripan(kelompok, kandidat, ambang=AMBANG):
     """
     Tahap 3 — kemiripan huruf, untuk apa yang belum tuntas di tahap 1 dan 2.
 
-    Hanya pasangan yang lolos TAHAP 4 (`validasi_konteks`) yang boleh
-    digabung, dan hanya bila tingkatnya mengizinkan. Sisanya yang masuk
-    rentang tinjau dilaporkan sebagai kandidat lengkap dengan nilainya —
-    di situlah manfaat tahap ini yang terbukti pada data nyata: bukan
-    memutuskan, melainkan menunjukkan apa yang perlu dilihat manusia.
+    Penggabungan di sini butuh TIGA hal sekaligus, dan nilai kemiripan cuma
+    yang pertama:
+
+      1. nilainya mengizinkan (tingkat GABUNG / GABUNG_BILA_KONTEKS),
+      2. ada BUKTI bahwa selisihnya kata terpotong (`bukti_potongan`),
+      3. tidak ada bukti sebaliknya (`validasi_konteks`).
+
+    Syarat kedua yang membuat tahap ini bisa dipertanggungjawabkan. Tanpanya,
+    yang memisahkan "GARUDA INDONESI ↔ PT GARUDA INDONESIA" (0.846, satu
+    pihak) dari "MIRNA HASANAH ↔ MIRNA HASANAH KOTO" (0.802, bisa dua orang)
+    hanyalah selisih 0,04 dari ambang — yaitu keberuntungan, bukan alasan.
+
+    Yang tidak lolos dilaporkan sebagai kandidat lengkap dengan nilainya dan
+    alasannya — di situlah manfaat tahap ini yang terbukti pada data nyata:
+    bukan memutuskan, melainkan menunjukkan apa yang perlu dilihat manusia.
 
     Mengembalikan ({kunci wakil kelompok -> kunci wakil kelompok induk},
     berapa kandidat yang tidak masuk daftar karena batas cetak).
@@ -338,6 +349,11 @@ def _tahap3_kemiripan(kelompok, kandidat, ambang=AMBANG):
                     tinjau.append((nilai.overall_score, a, b,
                                    nilai.alasan or
                                    'kemiripan di rentang tinjau'))
+                continue
+
+            berbukti, catatan = bukti_potongan(a, b)
+            if not berbukti:
+                tinjau.append((nilai.overall_score, a, b, catatan))
                 continue
 
             lolos, alasan = validasi_konteks(a, b)

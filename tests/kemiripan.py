@@ -34,6 +34,7 @@ from engine.kemiripan_entitas import (     # noqa: E402
     UNKNOWN,
     AmbangKemiripan,
     boleh_dibandingkan,
+    bukti_potongan,
     calculate_entity_similarity,
     klasifikasi_entitas,
     kunci_banding,
@@ -215,50 +216,82 @@ def periksa_tingkat() -> list:
     return masalah
 
 
+def periksa_bukti_potongan() -> list:
+    """
+    Bukti potongan harus membedakan hal yang AMBANG TIDAK BISA membedakan.
+
+    Ini inti perubahan dari "gabung karena nilainya tinggi" ke "gabung karena
+    ada buktinya". Pasangan di bawah dipilih justru karena nilainya
+    berdekatan — kalau yang memisahkannya kembali cuma selisih beberapa
+    perseratus dari ambang, tes ini yang gagal.
+    """
+    berbukti = [
+        # Kata yang sama, satu terpotong.
+        ('GARUDA INDONESI', 'PT GARUDA INDONESIA'),
+        ('INDOMOBIL FINANCE INDONE/BCA', 'PT INDOMOBIL FINANCE INDONESIA/BCA'),
+        ('BARASENTOSA LES', 'PT BARASENTOSA LESTARI'),
+        # Spasi tersisip di tengah kata.
+        ('PT AEROTRANS SERVICES I DONESIA', 'PT AEROTRANS SERVICES INDONESIA'),
+        ('Bennyekaputra', 'Benny Eka Putra'),
+    ]
+    tanpa_bukti = [
+        # Kata utuh yang ditambahkan — bisa nama keluarga, bisa keterangan.
+        ('MIRNA HASANAH', 'MIRNA HASANAH KOTO'),
+        ('Depari Mujeham Naska', 'Depari Mujeham Naska Pratama'),
+        ('Wulan Permata', 'Wulan Permata Sar'),
+        ('DUDUNG MULYADI', 'DUDUNG MULYADI, M.'),
+        # Kata yang berbeda tidak saling berawalan — dua pihak berbeda.
+        ('TIGA BERSAMA LOGISTIK PT', 'TIGA PERMATA LOGISTIK PT'),
+        ('93497004099102 PT HAIER SALES INDONESIA - 087',
+         '93497004099102 PT IRAWAN SALES INDONESIA - 087'),
+        ('NI WAYAN ARTINI', 'NI WAYAN SUGIARTINI'),
+    ]
+    masalah = [f'{a!r} vs {b!r} dianggap TANPA bukti potongan '
+               f'({bukti_potongan(a, b)[1]})'
+               for a, b in berbukti if not bukti_potongan(a, b)[0]]
+    masalah += [f'{a!r} vs {b!r} dianggap BERBUKTI potongan '
+                f'({bukti_potongan(a, b)[1]}) — padahal selisihnya kata utuh'
+                for a, b in tanpa_bukti if bukti_potongan(a, b)[0]]
+
+    # Tiap bukti maupun penolakan wajib punya keterangan yang bisa dibaca —
+    # keterangan itu yang tercetak di kolom alasan pada daftar kandidat.
+    for a, b in berbukti + tanpa_bukti:
+        if not bukti_potongan(a, b)[1].strip():
+            masalah.append(f'{a!r} vs {b!r} tanpa keterangan')
+    return masalah
+
+
 def periksa_ambang_terukur() -> list:
     """
-    Tiga pasangan yang penggabungannya muncul KARENA ambang diturunkan dari
-    0.95/0.90 ke 0.90/0.85 (lihat tests/ambang.py), dan dua pasangan yang
-    tetap harus tertahan.
+    Pasangan yang penggabungannya bergantung pada ambang, dikunci supaya
+    hasil pengukuran (tests/ambang.py, tests/palsu.py) tidak hilang.
 
-    Dikunci di sini supaya hasil pengukuran itu tidak hilang: kalau suatu
-    hari bobot atau normalisasinya diubah, yang pertama ketahuan adalah
-    apakah ketiga pasangan ini masih tergabung dan kedua pasangan itu masih
-    tertahan — bukan angka ambangnya.
+    Yang dijaga bukan angka ambangnya, melainkan: pasangan berbukti masih
+    boleh digabung, dan pasangan tanpa bukti masih tertahan — apa pun
+    ambangnya.
     """
-    harus_gabung = [
-        # Gelar akademik yang terpotong di ekor nama.
-        ('DUDUNG MULYADI', 'DUDUNG MULYADI, M.'),
-        ('Lili Muniri S', 'Lili Muniri S Si'),
-        # Potongan di TENGAH teks gabungan: karena ada "/BCA" menempel,
-        # kuncinya bukan awalan dari kunci nama penuhnya — tahap 2 memang
-        # tidak bisa melihat ini, dan inilah yang kemiripan huruf beri.
-        ('INDOMOBIL FINANCE INDONE/BCA', 'PT INDOMOBIL FINANCE INDONESIA/BCA'),
-    ]
-    harus_tertahan = [
-        # Keduanya berhenti di BATAS KATA — pola yang aturan tahap 2 sengaja
-        # tolak, dan yang mulai ikut tergabung kalau ambang diturunkan lagi
-        # ke 0.85/0.80.
-        ('Depari Mujeham Naska', 'Depari Mujeham Naska Pratama'),
-        ('MIRNA HASANAH', 'MIRNA HASANAH KOTO'),
-        # Dua badan usaha berbeda; ikut tergabung pada 0.80/0.75.
-        ('TIGA BERSAMA LOGISTIK PT', 'TIGA PERMATA LOGISTIK PT'),
-    ]
+    boleh = [('INDOMOBIL FINANCE INDONE/BCA',
+              'PT INDOMOBIL FINANCE INDONESIA/BCA')]
+    tertahan = [('Depari Mujeham Naska', 'Depari Mujeham Naska Pratama'),
+                ('MIRNA HASANAH', 'MIRNA HASANAH KOTO'),
+                ('TIGA BERSAMA LOGISTIK PT', 'TIGA PERMATA LOGISTIK PT')]
     masalah = []
-    for a, b in harus_gabung:
+    for a, b in boleh:
         h = calculate_entity_similarity(a, b)
         if h.tindakan not in (GABUNG, 'GABUNG_BILA_KONTEKS'):
             masalah.append(f'{a!r} vs {b!r} → {h.tindakan} pada nilai '
                            f'{h.overall_score:.3f}, harusnya boleh digabung')
-        elif not validasi_konteks(a, b)[0]:
-            masalah.append(f'{a!r} vs {b!r} ditolak validasi konteks: '
-                           f'{validasi_konteks(a, b)[1]}')
-    for a, b in harus_tertahan:
+        elif not (bukti_potongan(a, b)[0] and validasi_konteks(a, b)[0]):
+            masalah.append(f'{a!r} vs {b!r} lolos ambang tapi tertahan '
+                           f'bukti/konteks')
+    for a, b in tertahan:
         h = calculate_entity_similarity(a, b)
-        if h.tindakan in (GABUNG, 'GABUNG_BILA_KONTEKS') and validasi_konteks(a, b)[0]:
+        lolos = (h.tindakan in (GABUNG, 'GABUNG_BILA_KONTEKS')
+                 and bukti_potongan(a, b)[0] and validasi_konteks(a, b)[0])
+        if lolos:
             masalah.append(f'{a!r} vs {b!r} BOLEH digabung pada nilai '
-                           f'{h.overall_score:.3f}, padahal berhenti di batas '
-                           f'kata / pihak berbeda')
+                           f'{h.overall_score:.3f}, padahal tanpa bukti '
+                           f'potongan')
     return masalah
 
 
@@ -370,6 +403,8 @@ def main() -> int:
         ('penggolongan entitas dan pasangan yang ditolak', periksa_golongan),
         ('tingkat keyakinan dan ambang yang bisa disetel', periksa_tingkat),
         ('validasi konteks membatalkan nilai tinggi', periksa_veto_konteks),
+        ('bukti potongan membedakan yang ambang tidak bisa',
+         periksa_bukti_potongan),
         ('ambang hasil pengukuran masih berlaku', periksa_ambang_terukur),
         ('peringkat kemiripan masih terbalik pada data nyata',
          periksa_urutan_terbalik),

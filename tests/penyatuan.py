@@ -65,11 +65,10 @@ HARUS_MENYATU = [
       'PT AEROTRANS SERVICES INDONESIA'], 2,
      'PT AEROTRANS SERVICES INDONESIA'),
 
-    # Tahap 3 — kemiripan huruf, pada ambang hasil pengukuran (0.90/0.85).
-    # Ketiganya hal yang aturan struktural memang tidak bisa jangkau; lihat
-    # tests/ambang.py dan periksa_ambang_terukur di tests/kemiripan.py.
-    (['DUDUNG MULYADI', 'DUDUNG MULYADI, M.'], 1, 'DUDUNG MULYADI, M.'),
-    (['Lili Muniri S', 'Lili Muniri S Si'], 1, 'Lili Muniri S Si'),
+    # Tahap 3 — kemiripan huruf. Potongan di TENGAH teks gabungan: karena
+    # ada "/BCA" menempel, kunci potongannya bukan awalan dari kunci nama
+    # penuhnya, jadi tahap 2 memang tidak bisa melihatnya. Inilah satu-satunya
+    # bentuk yang terbukti hanya bisa diberikan kemiripan huruf.
     (['INDOMOBIL FINANCE INDONE/BCA', 'PT INDOMOBIL FINANCE INDONESIA/BCA'], 1,
      'PT INDOMOBIL FINANCE INDONESIA/BCA'),
 
@@ -92,6 +91,24 @@ HARUS_TERPISAH = [
      'PT GARUDA INDONESIA TBK'],
     # Nama berawalan huruf bentuk badan usaha, tapi tanpa pemisah.
     ['PTX SEJAHTERA', 'PTX SEJAHTERA ABADI'],
+]
+
+# ── Celah yang DIKETAHUI dan diukur, bukan diabaikan ─────────────────────
+# Gelar akademik di ekor nama. Keduanya hampir pasti orang yang sama, tapi
+# bentuk selisihnya — kata utuh yang ditambahkan — tidak bisa dibedakan dari
+# "MIRNA HASANAH" vs "MIRNA HASANAH KOTO", yang bisa dua orang. Yang
+# membedakannya hanya pengetahuan bahwa "S.Si" itu gelar dan "KOTO" itu nama
+# keluarga, dan pengetahuan itu belum ada di kode.
+#
+# Jadi keduanya sengaja TIDAK digabung, dan dilaporkan sebagai kandidat.
+# Tes ini menjaga keadaan itu tetap DISENGAJA: kalau suatu hari daftar gelar
+# ditambahkan, tes ini yang gagal lebih dulu dan mengingatkan bahwa
+# keputusannya berubah. Besar celahnya terukur di tests/palsu.py (pola
+# "gelar ditambah").
+BELUM_DITANGANI_GELAR = [
+    ['DUDUNG MULYADI', 'DUDUNG MULYADI, M.'],
+    ['Lili Muniri S', 'Lili Muniri S Si'],
+    ['Sagirin', 'SAGIRIN, ST'],
 ]
 
 # ── Pasangan bernilai kemiripan TINGGI yang tetap harus terpisah ─────────
@@ -218,6 +235,22 @@ def periksa_uraian_asli_utuh() -> list:
     return masalah
 
 
+def periksa_celah_gelar() -> list:
+    """Gelar akademik belum ditangani — dan ketidaktanganannya disengaja."""
+    masalah = []
+    for nama in BELUM_DITANGANI_GELAR:
+        h = satukan(nama)
+        if h.jumlah_digabung:
+            masalah.append(
+                f'{nama} TERGABUNG. Kalau daftar gelar memang baru '
+                f'ditambahkan, pindahkan kasus ini ke HARUS_MENYATU dan '
+                f'perbarui catatan celahnya di tests/palsu.py')
+        if not h.kandidat:
+            masalah.append(f'{nama} tidak digabung TAPI juga tidak '
+                           f'dilaporkan sebagai kandidat')
+    return masalah
+
+
 def periksa_pemotongan_kandidat_dilaporkan() -> list:
     """
     Kalau daftar kandidat dipotong karena batas cetak, jumlahnya wajib
@@ -275,6 +308,7 @@ def main() -> int:
         ('nama yang harus menyatu', periksa_menyatu),
         ('nama yang harus tetap terpisah', periksa_terpisah),
         ('mirip tapi pihak berbeda', periksa_mirip_tapi_beda),
+        ('celah gelar akademik masih disengaja', periksa_celah_gelar),
         ('satu saudara asing tidak meracuni rantai potongan',
          periksa_rantai_tidak_teracuni),
         ('uraian asli tetap utuh', periksa_uraian_asli_utuh),
