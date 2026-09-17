@@ -284,12 +284,38 @@ Rekap, lengkap dengan alasannya, supaya pemeriksa yang memutuskan. Kolom
 **Varian Nama Digabung** menampilkan penulisan lain yang dilebur ke tiap
 baris — penggabungan tidak pernah terjadi diam-diam.
 
-Atas 44 PDF referensi: **91 baris menyatu, 109 kandidat dilaporkan.** Total
-rupiah di Rekap tidak berubah satu pun — diperiksa terhadap baris TOTAL di
-keempat bank.
+**Diuji atas SELURUH 44 PDF referensi**, bukan sampel: Excel dibangun penuh
+lewat `create_excel` untuk tiap berkas, lalu jumlah baris tiap sheet Rekap
+dicocokkan dengan baris TOTAL-nya.
+
+| | Nama unik | Menyatu | Kandidat |
+|---|---:|---:|---:|
+| BCA | 1.103 | 21 | 22 |
+| BNI | 1.022 | 20 | 16 |
+| BRI | 831 | 45 | 17 |
+| Mandiri | 1.143 | 5 | 54 |
+| **Total** | **4.099** | **91** | **109** |
+
+Hasilnya: **44/44 berhasil dibangun, 44/44 menghasilkan 12 sheet, 0 gagal,
+dan 0 selisih total.** Penggabungan tidak mengubah satu rupiah pun di mana
+pun.
+
+Perhatikan sebaran per bank: Mandiri paling banyak namanya tapi paling
+sedikit menyatu (5) dan paling banyak kandidat (54) — konsisten dengan
+temuan bahwa Mandiri tidak memotong nama, sehingga hampir semua relasi
+awalannya berhenti di batas kata dan memang tidak boleh diputuskan sistem.
 
 Label kategori (`Biaya Administrasi`, `Tidak Teridentifikasi`, dst) dikecualikan
 — itu bukan lawan transaksi, dan meleburnya membuang informasi.
+
+> Catatan dari sapuan itu: ada lawan transaksi bernama **"TOTAL LINTAS
+> SAMUDERA"**. Skrip pemeriksa pertama mengenali baris TOTAL dari awalan
+> katanya, jadi baris itu terhitung sebagai baris total dan nominalnya hilang
+> dari penjumlahan — selisih Rp5.400.000 yang sempat terlihat seperti cacat
+> penggabungan padahal berkas itu nol penggabungan. Kode produksi tidak punya
+> kelemahan yang sama (diperiksa: tidak ada yang mencocokkan baris total lewat
+> awalan), tapi ini pengingat bahwa nama nasabah bisa menyerupai kata kunci
+> apa pun.
 
 ---
 
