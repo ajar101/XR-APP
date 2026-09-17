@@ -161,15 +161,42 @@ def periksa_tingkat() -> list:
     """
     Pemetaan nilai → tingkat, dan bahwa ambangnya benar-benar bisa disetel
     tanpa menyentuh algoritmanya.
+
+    Batasnya diambil dari AMBANG, bukan ditulis ulang di sini: yang diuji
+    adalah PERILAKU pemetaannya, dan menyetel ambang tidak boleh
+    menggagalkan tes ini. Nilai bawaannya sendiri diperiksa terpisah di
+    bawah, karena angka itu hasil pengukuran (`tests/ambang.py`) dan tidak
+    boleh bergeser tanpa sengaja.
     """
     masalah = []
-    for nilai, harap in ((1.00, TINGKAT_TINGGI), (0.95, TINGKAT_TINGGI),
-                         (0.9499, 'PROBABLE_MATCH'), (0.90, 'PROBABLE_MATCH'),
-                         (0.8999, TINGKAT_TINJAU), (0.80, TINGKAT_TINJAU),
-                         (0.7999, TINGKAT_PISAH), (0.0, TINGKAT_PISAH)):
+    if (AMBANG.tinggi, AMBANG.mungkin, AMBANG.tinjau) != (0.90, 0.85, 0.80):
+        masalah.append(
+            f'ambang bawaan {AMBANG.tinggi}/{AMBANG.mungkin}/{AMBANG.tinjau} '
+            f'bukan 0.90/0.85/0.80 — kalau ini disengaja, ukur dulu dengan '
+            f'tests/ambang.py lalu perbarui angka di tes ini')
+
+    eps = 1e-4
+    for nilai, harap in ((1.00, TINGKAT_TINGGI),
+                         (AMBANG.tinggi, TINGKAT_TINGGI),
+                         (AMBANG.tinggi - eps, 'PROBABLE_MATCH'),
+                         (AMBANG.mungkin, 'PROBABLE_MATCH'),
+                         (AMBANG.mungkin - eps, TINGKAT_TINJAU),
+                         (AMBANG.tinjau, TINGKAT_TINJAU),
+                         (AMBANG.tinjau - eps, TINGKAT_PISAH),
+                         (0.0, TINGKAT_PISAH)):
         if tingkat_dari_nilai(nilai) != harap:
             masalah.append(f'nilai {nilai} → {tingkat_dari_nilai(nilai)}, '
                            f'harusnya {harap}')
+
+    # Setelan awal yang dipakai sebelum diukur harus tetap berlaku kalau
+    # diberikan eksplisit — itu inti "configurable".
+    awal = AmbangKemiripan(tinggi=0.95, mungkin=0.90, tinjau=0.80)
+    for nilai, harap in ((0.96, TINGKAT_TINGGI), (0.92, 'PROBABLE_MATCH'),
+                         (0.87, TINGKAT_TINJAU), (0.70, TINGKAT_PISAH)):
+        if tingkat_dari_nilai(nilai, awal) != harap:
+            masalah.append(f'pada setelan awal 0.95/0.90/0.80, nilai {nilai} '
+                           f'→ {tingkat_dari_nilai(nilai, awal)}, harusnya '
+                           f'{harap}')
 
     # Ambang yang disetel harus mengubah keputusan, bukan diabaikan.
     a, b = 'BARASENTOSA LES', 'PT BARASENTOSA LESTARI'
@@ -185,6 +212,53 @@ def periksa_tingkat() -> list:
     if bawaan.overall_score != longgar.overall_score:
         masalah.append('menyetel ambang mengubah NILAI, padahal hanya boleh '
                        'mengubah penggolongannya')
+    return masalah
+
+
+def periksa_ambang_terukur() -> list:
+    """
+    Tiga pasangan yang penggabungannya muncul KARENA ambang diturunkan dari
+    0.95/0.90 ke 0.90/0.85 (lihat tests/ambang.py), dan dua pasangan yang
+    tetap harus tertahan.
+
+    Dikunci di sini supaya hasil pengukuran itu tidak hilang: kalau suatu
+    hari bobot atau normalisasinya diubah, yang pertama ketahuan adalah
+    apakah ketiga pasangan ini masih tergabung dan kedua pasangan itu masih
+    tertahan — bukan angka ambangnya.
+    """
+    harus_gabung = [
+        # Gelar akademik yang terpotong di ekor nama.
+        ('DUDUNG MULYADI', 'DUDUNG MULYADI, M.'),
+        ('Lili Muniri S', 'Lili Muniri S Si'),
+        # Potongan di TENGAH teks gabungan: karena ada "/BCA" menempel,
+        # kuncinya bukan awalan dari kunci nama penuhnya — tahap 2 memang
+        # tidak bisa melihat ini, dan inilah yang kemiripan huruf beri.
+        ('INDOMOBIL FINANCE INDONE/BCA', 'PT INDOMOBIL FINANCE INDONESIA/BCA'),
+    ]
+    harus_tertahan = [
+        # Keduanya berhenti di BATAS KATA — pola yang aturan tahap 2 sengaja
+        # tolak, dan yang mulai ikut tergabung kalau ambang diturunkan lagi
+        # ke 0.85/0.80.
+        ('Depari Mujeham Naska', 'Depari Mujeham Naska Pratama'),
+        ('MIRNA HASANAH', 'MIRNA HASANAH KOTO'),
+        # Dua badan usaha berbeda; ikut tergabung pada 0.80/0.75.
+        ('TIGA BERSAMA LOGISTIK PT', 'TIGA PERMATA LOGISTIK PT'),
+    ]
+    masalah = []
+    for a, b in harus_gabung:
+        h = calculate_entity_similarity(a, b)
+        if h.tindakan not in (GABUNG, 'GABUNG_BILA_KONTEKS'):
+            masalah.append(f'{a!r} vs {b!r} → {h.tindakan} pada nilai '
+                           f'{h.overall_score:.3f}, harusnya boleh digabung')
+        elif not validasi_konteks(a, b)[0]:
+            masalah.append(f'{a!r} vs {b!r} ditolak validasi konteks: '
+                           f'{validasi_konteks(a, b)[1]}')
+    for a, b in harus_tertahan:
+        h = calculate_entity_similarity(a, b)
+        if h.tindakan in (GABUNG, 'GABUNG_BILA_KONTEKS') and validasi_konteks(a, b)[0]:
+            masalah.append(f'{a!r} vs {b!r} BOLEH digabung pada nilai '
+                           f'{h.overall_score:.3f}, padahal berhenti di batas '
+                           f'kata / pihak berbeda')
     return masalah
 
 
@@ -296,6 +370,7 @@ def main() -> int:
         ('penggolongan entitas dan pasangan yang ditolak', periksa_golongan),
         ('tingkat keyakinan dan ambang yang bisa disetel', periksa_tingkat),
         ('validasi konteks membatalkan nilai tinggi', periksa_veto_konteks),
+        ('ambang hasil pengukuran masih berlaku', periksa_ambang_terukur),
         ('peringkat kemiripan masih terbalik pada data nyata',
          periksa_urutan_terbalik),
         ('saringan tidak menghilangkan pasangan',

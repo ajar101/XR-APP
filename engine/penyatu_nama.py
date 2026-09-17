@@ -303,7 +303,7 @@ def _tahap2_potongan(per_kunci, kandidat):
     return induk
 
 
-def _tahap3_kemiripan(kelompok, kandidat):
+def _tahap3_kemiripan(kelompok, kandidat, ambang=AMBANG):
     """
     Tahap 3 — kemiripan huruf, untuk apa yang belum tuntas di tahap 1 dan 2.
 
@@ -323,9 +323,9 @@ def _tahap3_kemiripan(kelompok, kandidat):
     for i, ka in enumerate(urut):
         for kb in urut[i + 1:]:
             a, b = wakil_kelompok[ka], wakil_kelompok[kb]
-            if not layak_dihitung(a, b):
+            if not layak_dihitung(a, b, ambang):
                 continue
-            nilai = calculate_entity_similarity(a, b)
+            nilai = calculate_entity_similarity(a, b, ambang)
             if nilai.tindakan not in (GABUNG, GABUNG_BILA_KONTEKS):
                 if nilai.tingkat == TINGKAT_TINJAU:
                     tinjau.append((nilai.overall_score, a, b,
@@ -346,7 +346,7 @@ def _tahap3_kemiripan(kelompok, kandidat):
     for nilai, a, b, alasan in sorted(tinjau, reverse=True)[:MAKS_KANDIDAT_FUZZY]:
         kandidat.append((a, b, f'kemiripan {nilai:.3f} — {alasan}; '
                               f'di bawah ambang gabung otomatis '
-                              f'({AMBANG.mungkin:.2f})'))
+                              f'({ambang.mungkin:.2f})'))
 
     return gabung
 
@@ -362,7 +362,7 @@ def _akar(kunci_awal, induk):
     return k
 
 
-def satukan(nama_unik, abaikan=frozenset()) -> Penyatuan:
+def satukan(nama_unik, abaikan=frozenset(), ambang=AMBANG) -> Penyatuan:
     """
     Kelompokkan varian penulisan yang merujuk pihak yang sama.
 
@@ -371,6 +371,12 @@ def satukan(nama_unik, abaikan=frozenset()) -> Penyatuan:
         abaikan:   nama yang tidak boleh disentuh — label kategori seperti
                    "Biaya Administrasi" atau "Tidak Teridentifikasi". Itu
                    bukan lawan transaksi, dan meleburnya membuang informasi.
+        ambang:    `AmbangKemiripan` untuk tahap 3. Sengaja bisa diganti per
+                   pemanggilan, bukan cuma lewat mengedit modul: menyetel
+                   ambang adalah hal yang perlu DIUKUR pada data nyata
+                   (lihat tests/ambang.py), dan pengukuran itu harus lewat
+                   jalur kode yang sama dengan produksi — bukan lewat
+                   menambal nilai bawaan dari luar.
 
     Returns:
         Penyatuan
@@ -394,7 +400,7 @@ def satukan(nama_unik, abaikan=frozenset()) -> Penyatuan:
         kelompok.setdefault(_akar(k, induk), []).extend(anggota)
 
     # ── TAHAP 3: kemiripan huruf (+ TAHAP 4) ──
-    induk_fuzzy = _tahap3_kemiripan(kelompok, kandidat)
+    induk_fuzzy = _tahap3_kemiripan(kelompok, kandidat, ambang)
     if induk_fuzzy:
         gabungan = {}
         for k, anggota in kelompok.items():

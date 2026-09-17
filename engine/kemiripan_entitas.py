@@ -152,20 +152,53 @@ UNKNOWN = 'UNKNOWN'
 
 
 # ── Tingkat keyakinan ────────────────────────────────────────────────────
-# Angkanya TITIK AWAL, bukan kebenaran. Diletakkan di satu tempat supaya
-# bisa disetel tanpa menyentuh algoritmanya sama sekali.
+# Diletakkan di satu tempat supaya bisa disetel tanpa menyentuh algoritmanya
+# sama sekali — dan angkanya di bawah bukan selera, melainkan hasil sapuan
+# atas 44 PDF referensi (`python tests/ambang.py`, yang bisa dijalankan ulang
+# kapan pun datanya bertambah).
 #
-# Yang perlu diketahui sebelum menaikkan/menurunkan: pada 44 PDF referensi,
-# rentang >= 0.95 hanya memuat SATU pasangan di seluruh 3.523 nama, dan
-# pasangan itu sudah tuntas di tahap normalisasi (sapaan "Ibu"). Rentang
-# 0.90-0.949 KOSONG. Jadi menurunkan ambang gabung otomatis tidak menambah
-# penggabungan yang benar — ia hanya mulai menyentuh rentang 0.80-an, yang
-# pasangan bernilai tertingginya justru pasangan yang harus tetap terpisah.
+# TITIK AWALNYA 0.95 / 0.90 / 0.80. Yang ditemukan sapuan itu:
+#
+#   Ambang GABUNG. Pada 0.95/0.90 tahap kemiripan huruf menggabungkan NOL
+#   pasangan di seluruh 3.523 nama — satu-satunya pasangan >= 0.95 sudah
+#   tuntas di tahap normalisasi (sapaan "Ibu"), dan rentang 0.90-0.949
+#   kosong. Diturunkan ke 0.90/0.85 muncul 3 penggabungan, dan ketiganya
+#   diperiksa satu per satu dan BENAR — semuanya hal yang tidak bisa
+#   dijangkau aturan struktural:
+#
+#       DUDUNG MULYADI                 · DUDUNG MULYADI, M.       (gelar terpotong)
+#       Lili Muniri S                  · Lili Muniri S Si         (gelar terpotong)
+#       INDOMOBIL FINANCE INDONE/BCA   · PT INDOMOBIL FINANCE INDONESIA/BCA
+#
+#   Yang terakhir itu potongan di TENGAH teks gabungan, bukan di ekornya —
+#   karena ada "/BCA" menempel, kuncinya bukan awalan dari kunci nama
+#   penuhnya, jadi tahap 2 memang tidak bisa melihatnya.
+#
+#   Diturunkan lagi ke 0.85/0.80 muncul 8 lagi, dan di situ tebakan mulai
+#   masuk: "Depari Mujeham Naska" digabung ke "...Naska Pratama" dan "MIRNA
+#   HASANAH" ke "MIRNA HASANAH KOTO" — keduanya berhenti di batas kata,
+#   persis pola yang aturan tahap 2 sengaja tolak. Jadi 0.90/0.85 adalah
+#   batas terakhir yang masih bisa dipertanggungjawabkan pada data ini.
+#
+#   Di 0.80/0.75 ia bahkan meleburkan "TIGA BERSAMA LOGISTIK PT" dengan
+#   "TIGA PERMATA LOGISTIK PT" — dua badan usaha berbeda.
+#
+#   Ambang TINJAU. Di sini yang menentukan bukan benar/salah tapi apakah
+#   daftarnya masih terbaca. Jumlah kandidat tahap 3 atas 44 laporan:
+#
+#       0.90 →     9        0.75 →   743  (laporan terbanyak: 377 kandidat)
+#       0.85 →    33        0.70 →  3872  (laporan terbanyak: 2148)
+#       0.80 →    60        0.60 → 20700
+#
+#   0.80 tepat di lekuk kurva itu, dan tepat di batas cetak: pada 0.80 tidak
+#   satu pun laporan melewati MAKS_KANDIDAT_FUZZY, sedangkan pada 0.75 ada 4
+#   laporan yang melewatinya — dan satu laporan yang 352 kandidatnya
+#   dipotong diam-diam lebih buruk daripada tidak punya daftar sama sekali.
 @dataclass(frozen=True)
 class AmbangKemiripan:
     """Batas antar tingkat keyakinan."""
-    tinggi: float = 0.95     # HIGH CONFIDENCE  → gabung
-    mungkin: float = 0.90    # PROBABLE MATCH   → gabung bila konteks mendukung
+    tinggi: float = 0.90     # HIGH CONFIDENCE  → gabung
+    mungkin: float = 0.85    # PROBABLE MATCH   → gabung bila konteks mendukung
     tinjau: float = 0.80     # REVIEW           → jangan gabung otomatis
     #                          < tinjau         → SEPARATE
 
@@ -177,6 +210,27 @@ class AmbangKemiripan:
     bobot_token: float = 0.35
     bobot_awalan: float = 0.20
     bobot_panjang: float = 0.10
+
+    def __post_init__(self):
+        """
+        Pagar untuk knob yang memang dimaksudkan disetel orang.
+
+        Dua kekeliruan di bawah tidak meledak dengan sendirinya — keduanya
+        cuma membuat keputusan penggabungan bergeser diam-diam, dan itu
+        jenis kesalahan yang tidak kelihatan di laporan:
+
+          · urutan ambang terbalik membuat satu tingkat mustahil tercapai;
+          · bobot yang tidak berjumlah 1 membuat nilai gabungan keluar dari
+            rentang 0..1, sehingga angka ambang tidak lagi berarti apa pun.
+        """
+        if not self.tinggi >= self.mungkin >= self.tinjau:
+            raise ValueError(
+                'ambang harus menurun: tinggi >= mungkin >= tinjau '
+                f'(diberi {self.tinggi}, {self.mungkin}, {self.tinjau})')
+        jumlah = (self.bobot_karakter + self.bobot_token
+                  + self.bobot_awalan + self.bobot_panjang)
+        if abs(jumlah - 1.0) > 1e-9:
+            raise ValueError(f'jumlah bobot harus 1.0, bukan {jumlah}')
 
 
 AMBANG = AmbangKemiripan()

@@ -64,6 +64,14 @@ HARUS_MENYATU = [
       'PT AEROTRANS SERVICES INDONESIA'], 2,
      'PT AEROTRANS SERVICES INDONESIA'),
 
+    # Tahap 3 — kemiripan huruf, pada ambang hasil pengukuran (0.90/0.85).
+    # Ketiganya hal yang aturan struktural memang tidak bisa jangkau; lihat
+    # tests/ambang.py dan periksa_ambang_terukur di tests/kemiripan.py.
+    (['DUDUNG MULYADI', 'DUDUNG MULYADI, M.'], 1, 'DUDUNG MULYADI, M.'),
+    (['Lili Muniri S', 'Lili Muniri S Si'], 1, 'Lili Muniri S Si'),
+    (['INDOMOBIL FINANCE INDONE/BCA', 'PT INDOMOBIL FINANCE INDONESIA/BCA'], 1,
+     'PT INDOMOBIL FINANCE INDONESIA/BCA'),
+
     # Gabungan kedua tahap dalam satu kelompok.
     (['PT BARASENTOSA LESTARI', 'BARASENTOSA LESTARI', 'BARASENTOSA LES'], 2,
      'PT BARASENTOSA LESTARI'),
@@ -108,6 +116,10 @@ MIRIP_TAPI_BEDA = [
     ['Armanto S Pd', 'Armanto Suprapto'],
     # Nama orang lawan badan usaha — tidak dibandingkan sama sekali.
     ['PT HINO FINANCE INDONESIA', 'Sdr HENDRI'],
+    # Berhenti di batas kata, dan nilainya di rentang 0.85-an: ikut tergabung
+    # kalau ambang gabung diturunkan ke 0.85/0.80, jadi dijaga di sini.
+    ['Depari Mujeham Naska', 'Depari Mujeham Naska Pratama'],
+    ['MIRNA HASANAH', 'MIRNA HASANAH KOTO'],
 ]
 
 # ── Label kategori tidak boleh ikut dilebur ──────────────────────────────
