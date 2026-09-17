@@ -337,10 +337,12 @@ Satu tabel supaya tidak perlu membaca seluruh §6 untuk tahu apa yang belum bere
 | 8 | Format tanpa extractor (Mandiri E-Banking, BNI & BRI format lain) | Ditolak 400 dengan pesan yang menyebut format terdeteksi | Rendah | §3 |
 | 9 | Singkatan belum disatukan (`WKS`, `PT BAP`, `PT BMH`) | Satu pihak masih pecah di Rekap bila dokumen memakai singkatan; HHI ikut terbaca lebih rendah | Sedang | §6.1 |
 | 10 | 109 kandidat penggabungan menunggu keputusan manusia | Tidak salah, tapi belum ada cara mencatat keputusannya supaya tidak ditanya ulang tiap laporan | Rendah | §6.1 |
-| 11 | `XR_UPLOAD_DIR` dibaca `worker.py` tapi diabaikan `app.py` | Belum merusak apa pun (keduanya kebetulan sama), tapi menyetel variabel itu akan membuat worker menyapu folder yang salah | Sedang | §6.1 |
-| 12 | Mode antrean menuntut `uploads/` dibagi antara web & worker | Belum jadi masalah karena keduanya masih satu proses/mesin; akan menggagalkan **seluruh** ekstraksi kalau dipisah container tanpa volume bersama | Sedang | §6.2 |
+| 11 | Keterangan transaksi ikut terbawa ke kolom Nama (`… THR`, `… BB SPSI`) | ~36 baris Mandiri: satu pihak pecah dua karena sebagian transaksinya berlabel jenis pembayaran | Sedang | §6.1 |
+| 12 | Menjalankan di localhost terhalang `XR_SECRET_KEY`, dan jalan keluarnya justru menyalakan debug | Pemakai yang hanya ingin mencoba di mesin sendiri didorong ke `XR_DEBUG=1`, yang membuka halaman traceback berisi data rekening | **Tinggi** | §6.1 |
+| 13 | `XR_UPLOAD_DIR` dibaca `worker.py` tapi diabaikan `app.py` | Belum merusak apa pun (keduanya kebetulan sama), tapi menyetel variabel itu akan membuat worker menyapu folder yang salah | Sedang | §6.1 |
+| 14 | Mode antrean menuntut `uploads/` dibagi antara web & worker | Belum jadi masalah karena keduanya masih satu proses/mesin; akan menggagalkan **seluruh** ekstraksi kalau dipisah container tanpa volume bersama | Sedang | §6.2 |
 
-Butir 11 dan 12 baru ketahuan saat merancang Docker Compose, bukan dari pemakaian — keduanya laten dan tidak mempengaruhi hasil hari ini.
+Butir 13 dan 14 baru ketahuan saat merancang Docker Compose, bukan dari pemakaian — keduanya laten dan tidak mempengaruhi hasil hari ini.
 
 **Urutan yang disarankan** (per 16 September 2026, selaras dengan keputusan
 pilot di §6.2):
@@ -354,7 +356,7 @@ pilot di §6.2):
 | **Saat pilot naik ke tim** | Butir 9, 10 + Docker Compose, lalu §6.2 | Butir 10 akan menggagalkan seluruh ekstraksi kalau terlewat |
 | **Nanti, kalau perlu** | §6.3 migrasi | Prasyaratnya sudah terpenuhi; yang menahan tinggal nilainya |
 
-**Tidak ada butir terbuka yang membuat angka laporan salah tanpa diketahui.** Satu-satunya yang menghasilkan temuan keliru adalah butir 1, dan temuannya bertingkat Rendah. Butir 4–6 dan 9–10 menyentuh kolom Nama, bukan nominal; butir 11–12 laten dan baru berdampak pada susunan deployment tertentu. Total mutasi dan saldo akhir seluruh format tetap dijaga checksum extractor terhadap angka resmi yang tercetak di PDF-nya sendiri.
+**Tidak ada butir terbuka yang membuat angka laporan salah tanpa diketahui.** Satu-satunya yang menghasilkan temuan keliru adalah butir 1, dan temuannya bertingkat Rendah. Butir 4–6 dan 9–11 menyentuh kolom Nama, bukan nominal; butir 13–14 laten dan baru berdampak pada susunan deployment tertentu. Total mutasi dan saldo akhir seluruh format tetap dijaga checksum extractor terhadap angka resmi yang tercetak di PDF-nya sendiri.
 
 Butir keamanan & operasional yang dulu ada di sini (debug mode menyala, tidak ada autentikasi, ekstraksi menahan koneksi, laporan menumpuk di disk) **sudah selesai** — lihat §6.4 dan `DEPLOY.md`.
 
@@ -365,6 +367,61 @@ Butir keamanan & operasional yang dulu ada di sini (debug mode menyala, tidak ad
 Urut dari yang paling berdampak:
 
 - **Pemasangan bunga & pajak bunga masih per tanggal persis.** `_check_rasio_pajak_bunga` (`engine/anomaly_detector.py`) mengelompokkan bunga dan pajaknya berdasarkan kolom `Tanggal` yang sama. BRI untuk sebagian bulan mendebet "PAJAK BUNGA SIMPANAN" H+1 dari bunganya (bunga 20/11, pajak 21/11), sehingga muncul **dua temuan palsu bertingkat Rendah** ("bunga tanpa pasangan pajak" dan sebaliknya) — 2 kejadian dari 9 PDF referensi BRI. Tanggalnya sengaja **tidak** digeser extractor supaya laporan tetap sama dengan dokumennya; pemasangan lintas-hari harus diputuskan di engine dan menyentuh semua bank. Ini satu-satunya butir terbuka yang menghasilkan temuan palsu, jadi paling layak dikerjakan duluan.
+
+- **Jalan menjalankan aplikasi di localhost tanpa menyalakan debug.** Saat ini
+  `XR_SECRET_KEY` wajib, dan satu-satunya jalan keluarnya adalah `XR_DEBUG=1`
+  yang memakai kunci sementara — padahal itu **sekaligus menyalakan halaman
+  traceback Werkzeug yang menampilkan isi variabel**, yaitu hal yang sengaja
+  dimatikan justru karena variabel itu berisi data rekening. Jadi pemakai yang
+  hanya ingin mencoba di mesin sendiri didorong ke pilihan yang paling tidak
+  aman. Rancangan perbaikannya: pisahkan kedua hal itu — kalau `XR_SECRET_KEY`
+  tidak disetel DAN aplikasi hanya mengikat ke localhost, buat kunci sekali
+  lalu simpan di `data/secret_key` (di luar git, izin berkas terbatas) supaya
+  sesi tetap awet antar restart tanpa perlu menyalakan debug. Penolakan tetap
+  berlaku begitu aplikasi mengikat ke alamat yang bisa dijangkau jaringan.
+
+- **Keterangan transaksi ikut terbawa ke kolom Nama.** Ditemukan saat
+  menelaah 109 kandidat penyatuan nama (§5.2). Sebagian "kandidat" sebenarnya
+  pihak yang SAMA, hanya saja sebagian transaksinya membawa label jenis
+  pembayaran ke kolom Nama: `BAHARMAN` vs `BAHARMAN BB SPSI`, `NUR SALIM` vs
+  `NUR SALIM THR`. Ini cacat di sisi extractor, bukan di penyatuan nama —
+  penyatu benar menolaknya, karena secara teks ia tidak bisa membedakan
+  `BB SPSI` dari sebuah marga.
+
+  **Hasil pemetaan atas 44 PDF referensi** (ekor yang muncul pada ≥2 nama
+  dasar berbeda, di mana nama dasarnya juga berdiri sendiri di dokumen yang
+  sama):
+
+  | Ekor | Kasus | Penilaian |
+  |---|---:|---|
+  | `THR` | 17 | Keterangan — Tunjangan Hari Raya |
+  | `BB SPSI` | 12 | Keterangan — iuran serikat pekerja |
+  | `DP` | 4 | **Ragu** — Down Payment? atau bagian nama? |
+  | `BB` | 3 | Keterangan — kemungkinan `BB SPSI` yang terpotong |
+  | `-` | 2 | Derau format |
+  | `PT` | 2 | **Nama** — bentuk badan usaha di ekor |
+  | `ST` | 2 | **Nama** — gelar |
+  | `HARAHAP` | 2 | **Nama** — marga |
+
+  **Aturan otomatis tidak aman.** Kalau ekor berulang dibuang berdasarkan
+  frekuensi, `HARAHAP` ikut terbuang — itu marga, bukan keterangan. Daftarnya
+  karena itu HARUS dikurasi manusia; data hanya menyediakan calonnya.
+
+  **Sebarannya lebih sempit dari dugaan awal.** Empat ekor Mandiri (`THR`,
+  `BB SPSI`, `BB`, `DP`) menutup ~36 dari 54 kandidat Mandiri. BCA nyaris
+  tidak punya keterangan sama sekali — dari 20 kandidatnya hanya 2
+  (`OVO NABUNG`, `GOPAY TOPUP`); sisanya justru nama yang memang berbeda
+  (`IDIN` vs `IDING ROHAEDI`, `KRIS` vs `KRISTIN`, `WAHYUDI` vs `WAHYUDIN`),
+  jadi mekanisme kandidat bekerja benar di sana. BNI dan BRI hanya punya
+  kejadian tunggal (`GAJI MEI ROYAL POWER`, `PINBUK KE BNI OPS`,
+  `PELUNASAN MOBIL`), tanpa pola yang bisa dijadikan pegangan.
+
+  **Rencana:** daftar ekor kurasi per bank, dikirim extractor sebagai
+  metadata — pola yang sama dengan `_biaya_admin` dan pembuangan label kanal
+  `… BI FAST` yang sudah ada di extractor BNI. Mulai dari Mandiri saja
+  (`THR`, `BB SPSI`, `BB`), yaitu 32 baris dengan bukti terkuat. **Ditunda
+  menunggu konfirmasi** apakah `DP` memang Down Payment, dan apakah `THR` /
+  `BB SPSI` benar jenis pembayaran di lingkungan pemakai.
 
 - **Daftar alias untuk singkatan.** Tahap 1 & 2 penyatuan nama (§5.2) tidak bisa menyentuh singkatan: `WKS` tidak punya kemiripan huruf apa pun dengan "Wira Karya Sakti", begitu pula `PT BAP KU`/`PT BAP AP152` dengan "PT Bumi Andalas Permai" dan `PT BMH MH175`. Tidak ada aturan yang bisa menyimpulkannya — ini pengetahuan yang harus diisi manusia, seperti `_biaya_admin`. Rancangannya: satu berkas daftar alias yang dipelihara pemakai, dibaca `engine/penyatu_nama.py` sebagai tahap 3. Sekalian bisa menampung keputusan atas **kandidat** yang sekarang dilaporkan tiap laporan (butir 10) supaya tidak perlu diputuskan berulang.
 
