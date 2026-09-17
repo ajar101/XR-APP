@@ -218,6 +218,40 @@ def periksa_rantai_tidak_teracuni() -> list:
     return masalah
 
 
+def periksa_tidak_menjembatani() -> list:
+    """
+    Penggabungan tidak boleh MENJEMBATANI dua nama yang tidak pernah lolos
+    syaratnya sendiri.
+
+    Penggabungan bersifat menular: A ke B dan B ke C membuat A dan C berakhir
+    di satu baris Rekap. Kalau pasangan A-C tidak pernah diuji, satu baris
+    Rekap bisa memuat dua pihak berbeda — bahayanya sama dengan salah gabung
+    biasa, dan sama tidak kelihatannya.
+
+    Ketiga nama di bawah dipilih supaya persis itu yang terjadi kalau
+    pagarnya tidak ada: A-B lolos (spasi tersisip), B-C lolos (kata
+    terpotong), tapi A-C TIDAK — selisihnya memuat "DONESIA" yang tidak
+    berpasangan dengan kata mana pun di sisi lain.
+    """
+    a = 'PT HARAPAN JAYA SEJAHTERA INDONESIA'
+    b = 'PT HARAPAN JAYA SEJAHTERA I DONESIA'
+    c = 'PT HARAPAN JAYA SEJAHTER I DONESIA'
+    h = satukan([a, b, c])
+    masalah = []
+    if h(a) == h(c):
+        masalah.append(f'{a!r} dan {c!r} berakhir satu kelompok ({h(a)!r}) '
+                       f'lewat {b!r} — padahal pasangannya sendiri tidak '
+                       f'lolos syarat apa pun')
+    if not h.kandidat:
+        masalah.append('penggabungan ditahan karena jembatan, tapi tidak '
+                       'dilaporkan sebagai kandidat')
+    # Hasilnya tidak boleh bergantung urutan masukan.
+    if {n: h(n) for n in (a, b, c)} != {n: satukan([c, b, a])(n)
+                                        for n in (a, b, c)}:
+        masalah.append('hasil berubah saat urutan masukan dibalik')
+    return masalah
+
+
 def periksa_uraian_asli_utuh() -> list:
     """
     Sapaan dibuang hanya untuk MEMBANDINGKAN, tidak dari nama yang
@@ -309,6 +343,7 @@ def main() -> int:
         ('nama yang harus tetap terpisah', periksa_terpisah),
         ('mirip tapi pihak berbeda', periksa_mirip_tapi_beda),
         ('celah gelar akademik masih disengaja', periksa_celah_gelar),
+        ('penggabungan tidak menjembatani', periksa_tidak_menjembatani),
         ('satu saudara asing tidak meracuni rantai potongan',
          periksa_rantai_tidak_teracuni),
         ('uraian asli tetap utuh', periksa_uraian_asli_utuh),

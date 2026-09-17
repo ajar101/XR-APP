@@ -326,17 +326,37 @@ def _tahap3_kemiripan(kelompok, kandidat, ambang=AMBANG):
     pihak) dari "MIRNA HASANAH ↔ MIRNA HASANAH KOTO" (0.802, bisa dua orang)
     hanyalah selisih 0,04 dari ambang — yaitu keberuntungan, bukan alasan.
 
-    Yang tidak lolos dilaporkan sebagai kandidat lengkap dengan nilainya dan
-    alasannya — di situlah manfaat tahap ini yang terbukti pada data nyata:
-    bukan memutuskan, melainkan menunjukkan apa yang perlu dilihat manusia.
+    Lalu ada syarat KEEMPAT yang bukan tentang sepasang nama, melainkan
+    tentang akibat menggabungkannya: penggabungan tidak boleh MENJEMBATANI.
+
+    JEMBATAN
+
+    Ketiga syarat di atas menilai satu pasangan. Tapi penggabungan bersifat
+    menular: kalau A digabung ke B dan B ke C, maka A dan C berakhir di satu
+    baris Rekap — padahal pasangan A-C mungkin tidak pernah lolos syarat apa
+    pun. Itulah jembatan, dan bahayanya sama dengan salah gabung biasa:
+    satu baris Rekap memuat dua pihak, HHI ikut salah, dan tidak ada
+    jejaknya.
+
+    Tahap 2 tidak punya masalah ini karena tiap mata rantainya wajib relasi
+    awalan PLUS potongan di tengah kata, jadi seluruh anggota satu kelompok
+    pasti serantai. Tahap 3 tidak punya jaminan itu, jadi di sini
+    dipasang eksplisit: dua kelompok hanya menyatu kalau SELURUH pasangan
+    silang di antaranya lolos sendiri-sendiri. Rantai potongan yang sah
+    ("...INDON" ⊂ "...INDONESI" ⊂ "...INDONESIA") tetap boleh menyatu,
+    karena tiap pasangannya memang lolos.
+
+    Pasangan diproses dari yang nilainya tertinggi supaya hasilnya tidak
+    bergantung urutan nama di dalam laporan — laporan yang sama harus
+    menghasilkan berkas yang sama.
 
     Mengembalikan ({kunci wakil kelompok -> kunci wakil kelompok induk},
     berapa kandidat yang tidak masuk daftar karena batas cetak).
     """
     wakil_kelompok = {k: _wakil(v) for k, v in kelompok.items()}
     urut = sorted(wakil_kelompok)
-    gabung = {}
     tinjau = []
+    calon = []
 
     for i, ka in enumerate(urut):
         for kb in urut[i + 1:]:
@@ -361,18 +381,52 @@ def _tahap3_kemiripan(kelompok, kandidat, ambang=AMBANG):
                 tinjau.append((nilai.overall_score, a, b, alasan))
                 continue
 
-            # Nama yang lebih panjang kuncinya menjadi induk: pada potongan
-            # mesin, yang panjang adalah nama utuhnya.
-            anak, orang_tua = ((ka, kb) if len(ka) < len(kb) else (kb, ka))
-            gabung[anak] = orang_tua
+            calon.append((nilai.overall_score, ka, kb))
 
-    urut = sorted(tinjau, reverse=True)
-    for nilai, a, b, alasan in urut[:MAKS_KANDIDAT_FUZZY]:
+    # ── Penyatuan bertahap, dengan pagar jembatan ──
+    berpasangan = {frozenset((ka, kb)) for _n, ka, kb in calon}
+    klaster = {k: {k} for k in urut}
+
+    for nilai, ka, kb in sorted(calon, key=lambda t: (-t[0], t[1], t[2])):
+        ga, gb = klaster[ka], klaster[kb]
+        if ga is gb:
+            continue
+        belum_diuji = sorted(
+            (x, y) for x in ga for y in gb
+            if frozenset((x, y)) not in berpasangan)
+        if belum_diuji:
+            x, y = belum_diuji[0]
+            tinjau.append((
+                nilai, wakil_kelompok[ka], wakil_kelompok[kb],
+                f'menggabungkannya akan sekalian menyatukan '
+                f'{wakil_kelompok[x]!r} dengan {wakil_kelompok[y]!r}, yang '
+                f'tidak lolos syaratnya sendiri'))
+            continue
+        satu = ga | gb
+        for k in satu:
+            klaster[k] = satu
+
+    induk = {}
+    sudah = set()
+    for k in urut:
+        satu = frozenset(klaster[k])
+        if len(satu) < 2 or satu in sudah:
+            continue
+        sudah.add(satu)
+        # Kunci terpanjang menjadi induk: pada potongan mesin, yang panjang
+        # adalah nama utuhnya.
+        akar = max(satu, key=lambda x: (len(x), x))
+        for anggota in satu:
+            if anggota != akar:
+                induk[anggota] = akar
+
+    urut_tinjau = sorted(tinjau, reverse=True)
+    for nilai, a, b, alasan in urut_tinjau[:MAKS_KANDIDAT_FUZZY]:
         kandidat.append((a, b, f'kemiripan {nilai:.3f} — {alasan}; '
                               f'di bawah ambang gabung otomatis '
                               f'({ambang.mungkin:.2f})'))
 
-    return gabung, max(0, len(urut) - MAKS_KANDIDAT_FUZZY)
+    return induk, max(0, len(urut_tinjau) - MAKS_KANDIDAT_FUZZY)
 
 
 def _akar(kunci_awal, induk):
