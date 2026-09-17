@@ -112,7 +112,6 @@ from engine.kemiripan_entitas import (
     BADAN_AWAL,
     GABUNG,
     GABUNG_BILA_KONTEKS,
-    TINGKAT_TINJAU,
     bukti_potongan,
     calculate_entity_similarity,
     kunci_banding,
@@ -365,7 +364,11 @@ def _tahap3_kemiripan(kelompok, kandidat, ambang=AMBANG):
                 continue
             nilai = calculate_entity_similarity(a, b, ambang)
             if nilai.tindakan not in (GABUNG, GABUNG_BILA_KONTEKS):
-                if nilai.tingkat == TINGKAT_TINJAU:
+                # Dilaporkan berdasarkan NILAINYA, bukan berdasarkan tingkat.
+                # Pada ambang bawaan `mungkin` dan `tinjau` sama, sehingga
+                # tingkat REVIEW tidak pernah tercapai — dan pelaporan yang
+                # bersandar pada tingkat itu akan diam-diam berhenti bekerja.
+                if nilai.overall_score >= ambang.tinjau:
                     tinjau.append((nilai.overall_score, a, b,
                                    nilai.alasan or
                                    'kemiripan di rentang tinjau'))

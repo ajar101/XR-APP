@@ -42,6 +42,7 @@ from engine.kemiripan_entitas import (     # noqa: E402
     tingkat_dari_nilai,
     validasi_konteks,
 )
+from engine.penyatu_nama import satukan   # noqa: E402
 
 MEDAN = ('overall_score', 'character_score', 'token_score', 'prefix_score',
          'length_score')
@@ -170,24 +171,42 @@ def periksa_tingkat() -> list:
     boleh bergeser tanpa sengaja.
     """
     masalah = []
-    if (AMBANG.tinggi, AMBANG.mungkin, AMBANG.tinjau) != (0.90, 0.85, 0.80):
+    if (AMBANG.tinggi, AMBANG.mungkin, AMBANG.tinjau) != (0.85, 0.80, 0.80):
         masalah.append(
             f'ambang bawaan {AMBANG.tinggi}/{AMBANG.mungkin}/{AMBANG.tinjau} '
-            f'bukan 0.90/0.85/0.80 — kalau ini disengaja, ukur dulu dengan '
-            f'tests/ambang.py lalu perbarui angka di tes ini')
+            f'bukan 0.85/0.80/0.80 — kalau ini disengaja, ukur dulu dengan '
+            f'tests/ambang.py dan tests/palsu.py lalu perbarui angka di tes '
+            f'ini')
 
+    # Batas tingkat diuji pada setelan yang keempat tingkatnya BERBEDA.
+    # Pada nilai bawaan `mungkin` dan `tinjau` sama, jadi REVIEW memang tidak
+    # pernah tercapai — itu disengaja dan dijelaskan di kemiripan_entitas.py;
+    # yang diuji di sini pemetaannya, bukan nilai bawaannya.
     eps = 1e-4
+    bertingkat = AmbangKemiripan(tinggi=0.90, mungkin=0.85, tinjau=0.80)
     for nilai, harap in ((1.00, TINGKAT_TINGGI),
-                         (AMBANG.tinggi, TINGKAT_TINGGI),
-                         (AMBANG.tinggi - eps, 'PROBABLE_MATCH'),
-                         (AMBANG.mungkin, 'PROBABLE_MATCH'),
-                         (AMBANG.mungkin - eps, TINGKAT_TINJAU),
-                         (AMBANG.tinjau, TINGKAT_TINJAU),
-                         (AMBANG.tinjau - eps, TINGKAT_PISAH),
+                         (bertingkat.tinggi, TINGKAT_TINGGI),
+                         (bertingkat.tinggi - eps, 'PROBABLE_MATCH'),
+                         (bertingkat.mungkin, 'PROBABLE_MATCH'),
+                         (bertingkat.mungkin - eps, TINGKAT_TINJAU),
+                         (bertingkat.tinjau, TINGKAT_TINJAU),
+                         (bertingkat.tinjau - eps, TINGKAT_PISAH),
                          (0.0, TINGKAT_PISAH)):
-        if tingkat_dari_nilai(nilai) != harap:
-            masalah.append(f'nilai {nilai} → {tingkat_dari_nilai(nilai)}, '
+        if tingkat_dari_nilai(nilai, bertingkat) != harap:
+            masalah.append(f'nilai {nilai} → '
+                           f'{tingkat_dari_nilai(nilai, bertingkat)}, '
                            f'harusnya {harap}')
+
+    # Pada nilai bawaan, pasangan yang mencapai ambang tinjau tapi tidak
+    # lolos bukti wajib tetap DILAPORKAN — pelaporannya tidak boleh
+    # bersandar pada tingkat REVIEW yang memang kosong.
+    h = satukan(['MIRNA HASANAH', 'MIRNA HASANAH KOTO'])
+    if h.jumlah_digabung:
+        masalah.append('MIRNA HASANAH ikut tergabung pada ambang bawaan')
+    if not h.kandidat:
+        masalah.append('pasangan di rentang tinjau tidak dilaporkan sebagai '
+                       'kandidat pada ambang bawaan — pelaporan mati karena '
+                       'tingkat REVIEW kosong')
 
     # Setelan awal yang dipakai sebelum diukur harus tetap berlaku kalau
     # diberikan eksplisit — itu inti "configurable".

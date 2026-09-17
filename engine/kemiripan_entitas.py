@@ -157,6 +157,22 @@ UNKNOWN = 'UNKNOWN'
 # atas 44 PDF referensi (`python tests/ambang.py`, yang bisa dijalankan ulang
 # kapan pun datanya bertambah).
 #
+# APA YANG SEBENARNYA DIATUR TIAP ANGKA, sesudah bukti jadi penentu:
+#
+#   mungkin   batas bawah nama boleh DIGABUNG — tapi menggabungkannya masih
+#             butuh bukti potongan dan lolos validasi konteks. Angka ini
+#             sendiri tidak pernah cukup.
+#   tinjau    batas bawah pasangan ikut DILAPORKAN sebagai kandidat, dan
+#             sekaligus batas saringan `layak_dihitung`.
+#   tinggi    tinggal label. Sejak penggabungan butuh bukti, tindakan
+#             GABUNG dan GABUNG_BILA_KONTEKS melewati pagar yang sama, jadi
+#             ia hanya menamai tingkat di `KemiripanEntitas.tingkat`.
+#
+# Pada nilai bawaan, `mungkin` dan `tinjau` kebetulan sama, sehingga tingkat
+# REVIEW tidak pernah tercapai. Itu BUKAN cacat: apa pun yang mencapai
+# `tinjau` tapi tidak lolos bukti/konteks tetap dilaporkan sebagai kandidat
+# — pelaporannya tidak bergantung pada tingkat.
+#
 # TITIK AWALNYA 0.95 / 0.90 / 0.80. Yang ditemukan sapuan itu:
 #
 #   Ambang GABUNG. Pada 0.95/0.90 tahap kemiripan huruf menggabungkan NOL
@@ -190,15 +206,42 @@ UNKNOWN = 'UNKNOWN'
 #       0.85 →    33        0.70 →  3872  (laporan terbanyak: 2148)
 #       0.80 →    60        0.60 → 20700
 #
-#   0.80 tepat di lekuk kurva itu, dan tepat di batas cetak: pada 0.80 tidak
-#   satu pun laporan melewati MAKS_KANDIDAT_FUZZY, sedangkan pada 0.75 ada 4
-#   laporan yang melewatinya — dan satu laporan yang 352 kandidatnya
-#   dipotong diam-diam lebih buruk daripada tidak punya daftar sama sekali.
+#   0.80 tepat di lekuk kurva itu. Diukur dengan pemotongan daftar yang
+#   sekarang ikut dilaporkan: pada 0.80 hanya SATU laporan yang daftarnya
+#   terpotong (1 kandidat), sedangkan pada 0.78 sudah tiga laporan dengan
+#   366 kandidat terpotong, dan pada 0.75 empat laporan dengan 605. Daftar
+#   yang lebih banyak disembunyikan daripada ditampilkan bukan daftar.
+#
+# SESUDAH BUKTI JADI PENENTU, ambang gabung diukur ULANG — kali ini dengan
+# tests/palsu.py sebagai penilai, bukan pemeriksaan mata. Hasilnya:
+#
+#   Pada harness sintetis, keempat setelan (0.95/0.90, 0.90/0.85, 0.85/0.80,
+#   0.80/0.75) memberi angka yang SAMA PERSIS: recall pola yang ditargetkan
+#   94.6%, FMR 0.00%. Ambang tidak lagi mengubah apa pun di situ — yang
+#   memutuskan stage 1-2 dan bukti potongan, bukan nilainya.
+#
+#   Di 44 PDF referensi ambang masih berpengaruh, dan ke arah yang benar:
+#
+#       0.95/0.90   100 menyatu, tahap 3 menggabungkan 0
+#       0.90/0.85   101 menyatu, tahap 3 menggabungkan 1
+#       0.85/0.80   103 menyatu, tahap 3 menggabungkan 3   ← dipakai
+#
+#   Ketiga penggabungan tahap 3 pada 0.85/0.80 seluruhnya potongan mesin
+#   berbukti: "GARUDA INDONESI" ↔ "PT GARUDA INDONESIA", "INDOMOBIL FINANCE
+#   INDONE/BCA" ↔ "PT INDOMOBIL FINANCE INDONESIA/BCA", dan "PT AEROTRANS
+#   SERVICES I DONESIA" ↔ "PT AEROTRANS SERVICES INDONESIA". Jumlah
+#   kandidatnya justru turun (176 → 174) karena yang menyatu keluar dari
+#   daftar tinjau.
+#
+#   Menurunkannya lagi ke 0.80/0.75 menambah satu penggabungan ("PT GARUDA
+#   INDON" ↔ "GARUDA INDONESI") tapi ikut menurunkan ambang tinjau, dan di
+#   situ daftar kandidatnya mulai dipotong besar-besaran. Jadi berhenti di
+#   0.85/0.80.
 @dataclass(frozen=True)
 class AmbangKemiripan:
     """Batas antar tingkat keyakinan."""
-    tinggi: float = 0.90     # HIGH CONFIDENCE  → gabung
-    mungkin: float = 0.85    # PROBABLE MATCH   → gabung bila konteks mendukung
+    tinggi: float = 0.85     # HIGH CONFIDENCE  → gabung
+    mungkin: float = 0.80    # PROBABLE MATCH   → gabung bila konteks mendukung
     tinjau: float = 0.80     # REVIEW           → jangan gabung otomatis
     #                          < tinjau         → SEPARATE
 

@@ -4,6 +4,7 @@ palsu.py — Ukur SEBERAPA SERING penyatuan nama salah menggabungkan.
     python tests/palsu.py                # angka ringkas
     python tests/palsu.py --rinci         # + daftar tiap penggabungan salah
     python tests/palsu.py --seed 7        # populasi & mutasi yang berbeda
+    python tests/palsu.py --ambang 0.85,0.80,0.80    # setelan ambang lain
 
 Kenapa ada, dan kenapa ini yang paling penting dari seluruh tes penyatuan:
 seluruh keputusan rancangan sejauh ini — ambang, aturan potongan, validasi
@@ -81,6 +82,8 @@ SESAT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, SESAT)
 
 from engine.kemiripan_entitas import (   # noqa: E402
+    AMBANG,
+    AmbangKemiripan,
     BADAN_AWAL,
     PERSON,
     batas_atas_kemiripan,
@@ -360,7 +363,8 @@ def satu_laporan(populasi, rng):
     return list(label), label, varian_dibuat
 
 
-def ukur(seed=SEED, rinci=False):
+def ukur(seed=SEED, ambang=None):
+    ambang = ambang or AMBANG
     rng = random.Random(seed)
     semua = nama_korpus()
     rng.shuffle(semua)
@@ -375,7 +379,7 @@ def ukur(seed=SEED, rinci=False):
         if len(bagian) < 10:
             break
         daftar, label, varian = satu_laporan(bagian, rng)
-        h = satukan(daftar)
+        h = satukan(daftar, ambang=ambang)
 
         for nama_pola, asli, v in varian:
             per_pola[nama_pola][1] += 1
@@ -402,12 +406,21 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--rinci', action='store_true')
     p.add_argument('--seed', type=int, default=SEED)
+    p.add_argument('--ambang', default='',
+                   help='tinggi,mungkin,tinjau — untuk membandingkan setelan '
+                        'ambang dengan FMR sebagai penilai')
     args = p.parse_args()
 
-    populasi, per_pola, salah, jumlah_gabung = ukur(args.seed, args.rinci)
+    ambang = AMBANG
+    if args.ambang:
+        tinggi, mungkin, tinjau = (float(x) for x in args.ambang.split(','))
+        ambang = AmbangKemiripan(tinggi=tinggi, mungkin=mungkin, tinjau=tinjau)
+
+    populasi, per_pola, salah, jumlah_gabung = ukur(args.seed, ambang)
     print(f'populasi: {len(populasi)} nama yang pasti pihak berbeda, '
           f'{JUMLAH_LAPORAN} laporan sintetis @{PER_LAPORAN} nama '
-          f'(seed {args.seed})\n')
+          f'(seed {args.seed}, ambang {ambang.tinggi}/{ambang.mungkin}/'
+          f'{ambang.tinjau})\n')
 
     print(f'{"pola cacat":<24} {"golongan":<16} {"ketemu":>7} {"dari":>6} {"recall":>8}')
     print('-' * 66)

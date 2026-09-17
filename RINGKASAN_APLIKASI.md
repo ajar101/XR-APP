@@ -155,7 +155,7 @@ Laporan Excel tidak pernah ditulis ke disk.
 | Isolasi per cabang pada halaman Riwayat | ✅ Aktif — disaring di kueri; admin melihat semua cabang |
 | Job queue (ekstraksi tidak menahan koneksi) | ✅ Aktif, opsional — hanya bila `XR_REDIS_URL` disetel (§6.2) |
 | Laporan Excel tidak pernah ditulis ke disk | ✅ Aktif — dibangun di memori, dikirim langsung |
-| Penyatuan varian penulisan lawan transaksi (Rekap & HHI) | ✅ Aktif — 4 tahap: normalisasi → potongan sistem → kemiripan huruf → validasi konteks; lihat §5.2 |
+| Penyatuan varian penulisan lawan transaksi (Rekap & HHI) | ✅ Aktif — 4 tahap: normalisasi → potongan sistem → kemiripan huruf → validasi konteks; penggabungan butuh BUKTI, bukan nilai tinggi; FMR 0,00% diukur `tests/palsu.py`; lihat §5.2 |
 | Penyatuan lewat daftar alias singkatan (WKS → Wira Karya Sakti) | ❌ Belum ada (lihat §6.1) |
 | Histori hasil ekstraksi (bukan sekadar jejak audit) | ❌ Belum ada (lihat §6.2) |
 
@@ -282,9 +282,13 @@ calculate_entity_similarity(a, b)
 
 Tingkat keyakinannya bisa disetel tanpa menyentuh algoritmanya
 (`AmbangKemiripan`), dan **angka bawaannya hasil pengukuran, bukan
-selera** — titik awalnya `0.95 / 0.90 / 0.80`, disetel jadi `0.90 / 0.85 /
-0.80` setelah disapu dengan `python tests/ambang.py`: `>= 0.90` gabung ·
-`0.85` gabung bila konteks mendukung · `0.80` tinjau · di bawah itu pisah.
+selera** — titik awalnya `0.95 / 0.90 / 0.80`, sekarang `0.85 / 0.80 / 0.80`
+sesudah dua kali diukur (`tests/ambang.py`, lalu `tests/palsu.py`).
+
+Tapi yang lebih penting daripada angkanya: **ambang tidak lagi yang
+memutuskan.** Penggabungan butuh BUKTI (lihat di bawah), dan ambang hanya
+mengatur perhatian — batas bawah sebuah pasangan boleh dipertimbangkan dan
+batas bawah ia ikut dilaporkan sebagai kandidat.
 
 Lalu diukur pada 44 PDF referensi (3.523 nama unik, ±300 ribu pasangan), dan
 hasilnya menentukan seluruh rancangan di atas:
@@ -309,52 +313,183 @@ PT BARASENTOSA LESTARI
 ```
 
 Pasangan yang harus tetap terpisah bernilai **lebih tinggi** daripada
-potongan mesin yang benar-benar satu pihak. Jadi tahap 3 tidak bisa dipakai
-untuk memutuskan sendiri: pada ambang yang terbukti aman ia menggabungkan **3
-pasangan dari 44 laporan**. Manfaat utamanya bukan menggabungkan, melainkan
-**menunjukkan**: dari 175 kandidat yang dilaporkan atas 44 PDF referensi, **57
-berasal dari tahap ini** — pasangan mirip yang sebelumnya tidak terlihat sama
-sekali karena tidak punya relasi awalan. Ambangnya tetap dibiarkan bisa
-disetel, dan `tests/kemiripan.py` menjaga temuan "peringkat terbalik" ini
-supaya kalau suatu hari keadaannya berubah, itu ketahuan sebelum ambangnya
-diturunkan.
+potongan mesin yang benar-benar satu pihak. Dari situ seluruh sisanya
+mengikuti: **nilai kemiripan tidak boleh menjadi keputusan.** Ia dipakai
+untuk memilih apa yang layak diperhatikan; yang memutuskan penggabungan
+adalah bukti.
+
+#### Gabung karena BUKTI, bukan karena nilai tinggi
+
+Tahap 3 menggabungkan hanya kalau **empat** hal terpenuhi sekaligus:
+
+| | Syarat | Yang dijawabnya |
+|---|---|---|
+| 1 | nilainya mencapai ambang gabung | layak dipertimbangkan? |
+| 2 | **`bukti_potongan`** — ada bukti selisihnya kata TERPOTONG | benarkah ini varian penulisan? |
+| 3 | `validasi_konteks` — tidak ada bukti sebaliknya | ada tanda ini pihak berbeda? |
+| 4 | tidak MENJEMBATANI kelompok lain | apa akibat menggabungkannya? |
+
+Syarat 2 yang mengubah sifat sistemnya. Sebelum ada, yang memisahkan dua
+bentuk ini hanyalah selisih 0,04 dari ambang:
+
+```
+GARUDA INDONESI  ↔ PT GARUDA INDONESIA    0.846   → satu pihak
+MIRNA HASANAH    ↔ MIRNA HASANAH KOTO     0.802   → bisa dua orang
+```
+
+Yang sebenarnya membedakan bukan nilainya, melainkan **bentuk** selisihnya:
+`INDONESI` adalah `INDONESIA` yang terpotong, sedangkan `KOTO` kata baru
+yang utuh. Dua bentuk diterima sebagai bukti, keduanya dari cacat yang
+memang terlihat di data:
+
+- **potongan kata** — tiap kata yang berbeda wajib berpasangan dengan kata
+  di sisi lain yang saling berawalan (`INDONE` / `INDONESIA`). Syarat "tiap
+  kata" itu penting: kalau cukup satu pasangan, `PT ABC INDONESIA` dan `PT
+  XYZ INDONESI` lolos lewat `INDONESIA`/`INDONESI` padahal `ABC` dan `XYZ`
+  tidak ada hubungannya.
+- **spasi tersisip** — jumlah katanya berbeda, kuncinya beda paling banyak
+  satu huruf, dan sisi yang katanya lebih banyak kuncinya **tidak lebih
+  panjang**. Syarat terakhir yang memisahkannya dari gelar yang
+  ditambahkan: `DUDUNG MULYADI, M.` juga beda satu huruf dan beda jumlah
+  kata, tapi kuncinya **bertambah**. Huruf yang hilang = kata yang
+  terbelah; huruf yang bertambah = kata baru.
+
+Syarat 4 menutup hal yang tiga syarat pertama tidak lihat: penggabungan
+bersifat **menular**. A ke B dan B ke C membuat A dan C berakhir di satu
+baris Rekap, padahal pasangan A-C mungkin tidak pernah lolos apa pun. Tahap
+2 kebal karena tiap mata rantainya wajib relasi awalan; tahap 3 tidak, jadi
+di sana dua kelompok hanya menyatu kalau **seluruh pasangan silang** lolos
+sendiri-sendiri.
+
+Hasil bersihnya: tahap 3 menggabungkan **3 pasangan dari 44 laporan**, dan
+ketiganya potongan mesin berbukti. Manfaat utamanya tetap bukan
+menggabungkan melainkan **menunjukkan**: dari 174 kandidat yang dilaporkan,
+**57 berasal dari tahap ini** — pasangan mirip yang tidak punya relasi
+awalan, jadi tahap 2 tidak mungkin melihatnya.
+
+#### Angka yang bergerak: false-merge rate
+
+Semua keputusan di atas mula-mula diambil dengan **memeriksa pasangan satu
+per satu** — satu penilai, tanpa label independen, keterbatasan yang sama
+yang sudah dicatat untuk audit nama di §7.3/§7.4. Itu tidak bisa dipakai
+membandingkan dua usulan.
+
+`tests/palsu.py` menggantinya dengan angka. Nama-nama dari 44 PDF referensi
+disaring dulu sampai **pasti pihak berbeda** (tidak sekunci, tidak berelasi
+awalan, kemiripan di bawah 0.60), lalu diberi varian buatan menurut pola
+cacat yang memang ada di data — sehingga labelnya pasti karena kita yang
+membuatnya. Empat golongan pola, dan pemisahan inilah yang membuat angkanya
+bisa dibaca:
+
+| Golongan | Isi | Garis dasar |
+|---|---|---:|
+| DITARGETKAN | potong lebar tetap, spasi tersisip, badan usaha dibalik/dihapus, sapaan | **94,6%** recall |
+| BELUM DITANGANI | gelar akademik, salah ketik 1 huruf | 0% (mengukur celah) |
+| SENGAJA DITAHAN | ekor keterangan transaksi | 0% (memang ditahan) |
+| DISTRAKTOR | varian yang labelnya **pihak berbeda** | 0% (harus 0) |
+| | **FALSE-MERGE RATE** | **0,00%** |
+
+Distraktor itu yang memberi FMR gigi — tanpa varian yang sengaja dibuat
+sebagai pihak berbeda (satu kata di tengah diganti, angkanya diganti),
+populasi yang saling tidak mirip hampir mustahil salah digabung dan angka
+0% tidak membuktikan apa pun. Dengannya, efek syarat bukti langsung
+terbaca:
+
+| | Sebelum syarat bukti | Sesudah |
+|---|---:|---:|
+| FALSE-MERGE RATE | 0,47% | **0,00%** |
+| DISTRAKTOR | 0,8% | 0,0% |
+| DITARGETKAN (recall) | 95,0% | 94,6% |
+| BELUM DITANGANI | 20,5% | 0,0% |
+
+Lima penggabungan salah hilang seluruhnya, termasuk yang paling telanjang:
+`93497004099102 PT HAIER SALES INDONESIA - 087` dengan `...PT IRAWAN SALES
+INDONESIA - 087`. Harganya 0,4 poin recall (3 dari 738), dan golongan BELUM
+DITANGANI jatuh ke nol — yang hilang di situ justru penggabungan yang tidak
+punya dasar: gelar akademik dan salah ketik lolos sebelumnya hanya karena
+nilainya kebetulan tinggi.
+
+> **Yang tes ini tidak buktikan**, dan ditulis di docstring-nya: variannya
+> sintetis. Ia bisa membuktikan sebuah perubahan MERUSAK penanganan pola
+> yang diketahui, tapi tidak bisa membuktikan tidak ada pola kedelapan yang
+> belum pernah terlihat. Untuk itu tetap perlu data baru.
+
+> **Celah yang diketahui dan diukur.** Gelar akademik di ekor nama (`DUDUNG
+> MULYADI, M.`, `Lili Muniri S Si`, `SAGIRIN, ST`) sengaja **tidak**
+> digabung: bentuk selisihnya — kata utuh yang ditambahkan — tidak bisa
+> dibedakan dari `MIRNA HASANAH KOTO`, yang bisa dua orang. Yang
+> membedakannya hanya pengetahuan bahwa `S.Si` gelar dan `KOTO` nama
+> keluarga, dan pengetahuan itu belum ada di kode. Dijaga tes
+> `BELUM_DITANGANI_GELAR` supaya ketidaktanganannya tetap **disengaja**,
+> bukan terlupa.
+
+> **Diukur lalu ditolak: veto token umum.** Empat pasangan pernah lolos
+> hanya karena berbagi kata yang umum (`INDONESIA` muncul di 71 nama, `SITI`
+> di 28) — `AJL LOGISTIK INDONESIA` vs `PT TAPANULI LOGISTIK INDONESIA`,
+> `Siti Aminah` vs `Siti Alinah`, dan dua lagi. Dicoba satu veto berbasis
+> 77 token ber-`df >= 8`. Diukur pada 44 PDF di tiga setelan ambang, veto
+> itu membatalkan 0, 1, dan 2 penggabungan — dan **seluruhnya penggabungan
+> yang benar** (`GARUDA INDONESI` ↔ `PT GARUDA INDONESIA` cuma berbagi kata
+> `GARUDA`, yang tergolong umum). Keempat pasangan aslinya kini ditolak
+> aturan bukti. Jadi ia dibuang: **bentuk selisih adalah bukti yang lebih
+> kuat daripada kelangkaan kata.** Pembobotan IDF pada nilai juga diukur dan
+> ditolak — ia hanya memperbaiki margin dari −0,192 ke −0,171, dan membuat
+> nilai satu pasangan bergantung pada isi laporan lain.
 
 #### Efek menyetel ambang — disapu, bukan ditebak
 
 `tests/ambang.py` menjalankan penyatuan atas 44 laporan pada berbagai
 setelan. Dua pertanyaannya berbeda sifat, jadi disapu terpisah.
 
-**Ambang GABUNG** — pertanyaannya benar/salah, dan tiap penggabungan baru
-diperiksa satu per satu:
+**Ambang GABUNG, diukur SEBELUM ada syarat bukti** — waktu itu tiap
+penggabungan baru diperiksa satu per satu, dan di situlah batasnya terasa:
 
-| tinggi/mungkin | Menyatu dari tahap 3 | Penilaian |
+| tinggi/mungkin | Menyatu dari tahap 3 | Penilaian (pemeriksaan manual) |
 |---|---:|---|
 | 0.95 / 0.90 | 0 | tidak ada yang tersentuh |
-| **0.90 / 0.85** | **3** | **ketiganya benar** — dipakai sekarang |
+| 0.90 / 0.85 | 3 | ketiganya benar |
 | 0.85 / 0.80 | 11 | 8 tambahan; tebakan mulai masuk |
 | 0.80 / 0.75 | 30 | meleburkan dua badan usaha berbeda |
 | 0.70 / 0.65 | 114 | tidak bisa dipertanggungjawabkan |
 
-Tiga penggabungan pada 0.90/0.85 itu semuanya hal yang **aturan struktural
-memang tidak bisa jangkau**:
+Perhatikan dua dari tiga penggabungan pada 0.90/0.85: `DUDUNG MULYADI` ↔
+`DUDUNG MULYADI, M.` dan `Lili Muniri S` ↔ `Lili Muniri S Si` lolos bukan
+karena ambangnya tepat, melainkan karena namanya kebetulan panjang —
+bentuknya identik dengan `MIRNA HASANAH` ↔ `MIRNA HASANAH KOTO` yang ditolak
+di baris berikutnya. Yang menahan keduanya terpisah adalah selisih 0,04 dari
+garis, bukan alasan. **Itu yang mendorong syarat bukti**, dan sesudah syarat
+itu ada, keduanya memang tertahan.
+
+**Ambang GABUNG, diukur ULANG sesudah syarat bukti** — kali ini dengan
+`tests/palsu.py` sebagai penilai, bukan mata:
+
+| tinggi/mungkin | FMR | Recall (sintetis) | Menyatu tahap 3 (44 PDF) |
+|---|---:|---:|---:|
+| 0.95 / 0.90 | 0,00% | 94,6% | 0 |
+| 0.90 / 0.85 | 0,00% | 94,6% | 1 |
+| **0.85 / 0.80** | **0,00%** | **94,6%** | **3** ← dipakai |
+| 0.80 / 0.75 | 0,00% | 94,6% | 4 |
+
+Hasil paling penting dari tabel ini: **ambang tidak lagi mengubah apa pun**
+di harness sintetis — angkanya identik di keempat setelan, karena yang
+memutuskan stage 1-2 dan syarat bukti, bukan nilainya. Di data nyata ia
+masih berpengaruh, dan ke arah yang benar: ketiga penggabungan pada
+0.85/0.80 seluruhnya potongan mesin berbukti —
 
 ```
-DUDUNG MULYADI                ↔ DUDUNG MULYADI, M.        0.887  gelar terpotong
-Lili Muniri S                 ↔ Lili Muniri S Si          0.879  gelar terpotong
-INDOMOBIL FINANCE INDONE/BCA  ↔ PT INDOMOBIL FINANCE
-                                INDONESIA/BCA             0.853  potongan di TENGAH
+GARUDA INDONESI                 ↔ PT GARUDA INDONESIA        0.846
+INDOMOBIL FINANCE INDONE/BCA    ↔ PT INDOMOBIL FINANCE
+                                  INDONESIA/BCA              0.853
+PT AEROTRANS SERVICES I DONESIA ↔ PT AEROTRANS SERVICES
+                                  INDONESIA                  0.831
 ```
 
-Yang terakhir itu kuncinya: karena ada `/BCA` menempel, kunci potongannya
-bukan awalan dari kunci nama penuhnya — jadi tahap 2 tidak mungkin
-melihatnya. Inilah satu-satunya hal yang terbukti hanya bisa diberikan
-kemiripan huruf.
-
-Di 0.85/0.80, yang mulai ikut tergabung justru pola yang tahap 2 sengaja
-tolak: `Depari Mujeham Naska` ke `...Naska Pratama`, dan `MIRNA HASANAH` ke
-`MIRNA HASANAH KOTO` — dua-duanya berhenti di batas kata. Di 0.80/0.75 ia
-meleburkan `TIGA BERSAMA LOGISTIK PT` dengan `TIGA PERMATA LOGISTIK PT`.
-Ketiga pasangan itu kini dijaga sebagai tes.
+Yang kedua itu kuncinya: karena ada `/BCA` menempel, kunci potongannya bukan
+awalan dari kunci nama penuhnya — jadi tahap 2 tidak mungkin melihatnya.
+Inilah satu-satunya bentuk yang terbukti hanya bisa diberikan kemiripan
+huruf. Turun lagi ke 0.80/0.75 menambah satu penggabungan lagi yang juga
+benar, tapi ambang tinjaunya ikut turun dan di situ daftar kandidatnya mulai
+dipotong besar-besaran — lihat di bawah.
 
 **Ambang TINJAU** — pertanyaannya bukan benar/salah, tapi apakah daftarnya
 masih terbaca manusia:
@@ -368,12 +503,18 @@ masih terbaca manusia:
 | 0.70 | 3.872 | 2.148 | 4 |
 | 0.60 | 20.700 | — | 4 |
 
-0.80 tepat di lekuk kurva itu — dan tepat di batas cetak. Pada 0.75 ada satu
-laporan dengan 377 kandidat, yang berarti 352 di antaranya dipotong diam-diam
-oleh `MAKS_KANDIDAT_FUZZY`; daftar yang dipotong diam-diam lebih buruk
-daripada tidak punya daftar. Biayanya juga naik: penyatuan 44 laporan dari
-1,1 detik (0.80) jadi 33 detik (0.60), karena saringan batas-atas ikut
-melonggar.
+0.80 tepat di lekuk kurva itu. Diukur ulang dengan pemotongan daftar yang
+sekarang ikut dilaporkan: pada **0.80** hanya satu laporan yang daftarnya
+terpotong (1 kandidat), pada **0.78** sudah tiga laporan dengan **366**
+kandidat terpotong, dan pada **0.75** empat laporan dengan **605**. Daftar
+yang lebih banyak disembunyikan daripada ditampilkan bukan daftar. Biayanya
+juga naik: penyatuan 44 laporan dari 1,1 detik (0.80) jadi 33 detik (0.60),
+karena saringan batas-atas ikut melonggar.
+
+> **Pemotongan daftar tidak lagi senyap.** `MAKS_KANDIDAT_FUZZY` membatasi
+> daftar jadi 25 baris per laporan supaya terbaca, dan dulu memotongnya
+> tanpa jejak — persis kegagalan yang jadi alasan ambang tinjau ditahan.
+> Sekarang barisnya dicetak: `+41 kandidat lain tidak ditampilkan`.
 
 **Karena itu ada tahap 4.** Nilai kemiripan hanya tahu SEBERAPA BANYAK dua
 nama berbeda, bukan APA yang membedakannya — dan justru jenis perbedaannya
@@ -458,7 +599,8 @@ dicocokkan dengan baris TOTAL-nya.
 
 Sebelum tahap 1 diperluas (bentuk badan usaha di ekor + sapaan) dan tahap 2
 diperbaiki: 91 menyatu, 109 kandidat. Dari tambahan 12 baris yang menyatu, 9
-dari tahap 1 dan 2, dan 3 dari tahap 3 pada ambang hasil pengukuran. Pengaruhnya ke HHI
+dari tahap 1 dan 2, dan 3 dari tahap 3 — ketiganya berbukti. Satu kandidat
+terpotong oleh batas cetak, dan pemotongan itu ikut tercetak di laporannya. Pengaruhnya ke HHI
 terlihat pada dua berkas: `BNI_inquiry (4)` dari 2819 ke 2895 (61 pihak jadi
 57) dan `BCA_8180999800` dari 774 ke 775. Keduanya bergerak ke arah yang
 benar — konsentrasi yang sebelumnya dilaporkan lebih rendah daripada
@@ -712,6 +854,7 @@ Kalau salah satunya tiba:
   (`XR_TTL_HASIL`, bawaan 1 jam) sekaligus jadi kebijakan retensinya.
 - **Penyatuan varian penulisan lawan transaksi** (§5.2) — Rekap Kredit/Debit, Summary Rekap, dan HHI kini mengelompokkan lewat nama yang sudah disatukan, dihitung **sekali** di `create_excel` supaya keempatnya tidak bisa berbeda. Dua aturan deterministik (normalisasi + potongan di tengah kata), bukan fuzzy. 91 baris menyatu atas 44 PDF referensi, total rupiah tidak berubah satu pun. Dijaga `tests/penyatuan.py`, yang menguji **apa yang harus tetap terpisah** juga — bukan hanya apa yang digabung.
 - **Kemiripan entitas & empat tahap penyatuan** (§5.2) — `engine/kemiripan_entitas.py` baru: enam ukuran kemiripan dalam satu fungsi (`calculate_entity_similarity`), penggolongan COMPANY/PERSON/UNKNOWN yang mencegah nama orang dibandingkan dengan nama badan usaha, ambang keyakinan yang bisa disetel tanpa menyentuh algoritma, dan `validasi_konteks` yang membatalkan nilai tinggi tanpa bukti. Ambangnya disapu dengan `tests/ambang.py` (baru) dan disetel dari titik awal 0.95/0.90/0.80 ke **0.90/0.85/0.80** berdasarkan hasilnya: pada 0.95/0.90 tahap kemiripan huruf menggabungkan 0 pasangan, pada 0.90/0.85 muncul 3 dan ketiganya diperiksa satu per satu dan benar, pada 0.85/0.80 tebakan mulai masuk. Atas 44 PDF referensi: 91 → 103 baris menyatu (9 dari perluasan tahap 1 & perbaikan tahap 2, 3 dari tahap 3) dan 109 → 175 kandidat, 57 di antaranya dari tahap 3. Dijaga `tests/kemiripan.py` (termasuk pagar atas temuan "peringkat kemiripan terbalik terhadap kebenaran") dan `tests/penyatuan.py`.
+- **Penggabungan butuh BUKTI, dan ada angkanya** (§5.2) — `tests/palsu.py` baru: nama dari 44 PDF referensi disaring sampai pasti pihak berbeda, diberi varian buatan menurut pola cacat nyata, lalu diukur recall per pola dan **false-merge rate**. Distraktor (varian yang labelnya pihak berbeda) yang memberi FMR gigi. Dengan itu sebagai penilai: syarat `bukti_potongan` menurunkan **FMR 0,47% → 0,00%** dengan harga 0,4 poin recall; pagar anti-jembatan menutup risiko laten union-find di tahap 3; veto token umum diukur lalu **ditolak** karena hanya membatalkan penggabungan yang benar; ambang diukur ulang jadi 0.85/0.80/0.80 — dan hasil terpentingnya, ambang tidak lagi mengubah apa pun di harness (identik di empat setelan), karena yang memutuskan sekarang bukti. Pemotongan daftar kandidat tidak lagi senyap.
 - **Audit akurasi kolom nama BRI** — 4.131 baris, lihat §7.4. Skripnya (`tests/audit_nama.py`) bank-agnostik dan bisa dipakai untuk audit ulang format lain.
 - **Laporan Excel tidak lagi ditulis ke disk.** Dulu tiap laporan disimpan di `exports/` dan tidak pernah dihapus, sehingga nama pemilik, nomor rekening, dan seluruh mutasi menumpuk di server tanpa kedaluwarsa. Kini dibangun di `io.BytesIO` lalu dikirim langsung: tidak ada berkas yang perlu dijadwalkan hapus karena tidak ada berkas yang dibuat. Folder `exports/` tidak dibuat lagi. PDF yang diunggah tetap mendarat di disk (extractor membacanya lewat path) dan tetap dihapus di blok `finally`. Lihat catatan di §6.2 poin 2: begitu ada job queue, kebijakan retensi jadi perlu lagi.
 - **Tiga kelas cacat kolom nama BRI diperbaiki** (§7.4): kode kanal `ATMSTRPRM` kini digantikan nomor rekening tujuan yang tercetak di uraiannya — 40 baris yang tadinya menggumpal jadi satu entri Rekap kini terurai jadi 14 lawan transaksi berbeda; token `0` (12 baris) dan `;` (7 baris) kini ditandai `Tidak Teridentifikasi`. Penyaringan token sampah ditaruh di satu pagar (`_bermakna`) yang dilewati SEMUA cabang penguraian nama, bukan ditambal per cabang, supaya bentuk uraian baru tidak lolos lagi.
