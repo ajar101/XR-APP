@@ -102,12 +102,18 @@ SEED = 20260917
 # GARIS DASAR pada seed bawaan, sesudah empat tahap penyatuan dengan ambang
 # 0.85/0.80/0.80 (dicatat supaya "normal" itu punya angka):
 #
-#     DITARGETKAN      98.1%   (potong lebar 90.4% — yang paling lemah)
+#     DITARGETKAN      98.1%   736/750 — celah terbesar: potong lebar
+#                              130/143 = 90.9%
 #     BELUM DITANGANI  50.4%   (gelar 100%, salah ketik 0%)
 #     SENGAJA DITAHAN   0.0%
 #     DISTRAKTOR        0.0%
 #     FMR              0.00%
 #     AMBIGU           97.2%   keputusan tanpa bukti — DI LUAR FMR
+#
+# "Celah terbesar" itu menurut JUMLAH, bukan persentase: potong lebar
+# menyumbang 13 dari 14 kegagalan DITARGETKAN. Persentase terendah justru
+# "badan usaha dibalik" (8/9 = 88.9%), tapi n-nya sembilan dan sebabnya
+# sudah tercatat di docstring balik_badan — bukan celah yang perlu dikejar.
 #
 # Riwayat angkanya, supaya arah perubahan kelihatan: FMR pernah 0,47% dan
 # turun ke 0 begitu penggabungan tahap 3 butuh bukti potongan; recall pola

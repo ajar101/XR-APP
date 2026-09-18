@@ -363,8 +363,8 @@ sendiri-sendiri.
 
 Hasil bersihnya: tahap 3 menggabungkan **3 pasangan dari 44 laporan**, dan
 ketiganya potongan mesin berbukti. Manfaat utamanya tetap bukan
-menggabungkan melainkan **menunjukkan**: dari 174 kandidat yang dilaporkan,
-**57 berasal dari tahap ini** — pasangan mirip yang tidak punya relasi
+menggabungkan melainkan **menunjukkan**: dari 168 kandidat yang dilaporkan,
+**53 berasal dari tahap ini** — pasangan mirip yang tidak punya relasi
 awalan, jadi tahap 2 tidak mungkin melihatnya.
 
 #### Angka yang bergerak: false-merge rate
@@ -418,31 +418,45 @@ populasi yang saling tidak mirip hampir mustahil salah digabung dan angka
 0% tidak membuktikan apa pun. Dengannya, efek syarat bukti langsung
 terbaca:
 
-| | Sebelum syarat bukti | Sesudah |
-|---|---:|---:|
-| FALSE-MERGE RATE | 0,47% | **0,00%** |
-| DISTRAKTOR | 0,8% | 0,0% |
-| DITARGETKAN (recall) | 95,0% | 94,6% |
-| BELUM DITANGANI | 20,5% | 0,0% |
+| | Sebelum syarat bukti | Sesudah, saat itu | **Sekarang** |
+|---|---:|---:|---:|
+| FALSE-MERGE RATE | 0,47% | 0,00% | **0,00%** |
+| DISTRAKTOR | 0,8% | 0,0% | **0,0%** |
+| DITARGETKAN (recall) | 95,0% | 94,6% | **98,1%** |
+| BELUM DITANGANI | 20,5% | 0,0% | **50,4%** |
+
+Kolom ketiga perlu ada karena dua angka di kolom tengah **bukan** keadaan
+akhir: recall yang turun 0,4 poin itu dipulihkan dan dilampaui oleh tiga
+perbaikan sesudahnya, dan golongan BELUM DITANGANI naik kembali begitu
+daftar gelar masuk.
 
 Lima penggabungan salah hilang seluruhnya, termasuk yang paling telanjang:
 `93497004099102 PT HAIER SALES INDONESIA - 087` dengan `...PT IRAWAN SALES
-INDONESIA - 087`. Harganya 0,4 poin recall (3 dari 738), dan golongan BELUM
-DITANGANI jatuh ke nol — yang hilang di situ justru penggabungan yang tidak
-punya dasar: gelar akademik dan salah ketik lolos sebelumnya hanya karena
-nilainya kebetulan tinggi.
+INDONESIA - 087`. Harganya saat itu 0,4 poin recall (3 dari 738), dan
+golongan BELUM DITANGANI jatuh ke nol — yang hilang di situ justru
+penggabungan yang tidak punya dasar: gelar akademik dan salah ketik lolos
+sebelumnya hanya karena nilainya kebetulan tinggi. Keduanya sudah tidak
+berlaku lagi: recall kini 98,1% dan gelar akademik ditangani daftar
+tertutup, jadi yang tersisa di golongan itu hanya salah ketik satu huruf.
 
 > **Yang tes ini tidak buktikan**, dan ditulis di docstring-nya: variannya
 > sintetis. Ia bisa membuktikan sebuah perubahan MERUSAK penanganan pola
 > yang diketahui, tapi tidak bisa membuktikan tidak ada pola kedelapan yang
 > belum pernah terlihat. Untuk itu tetap perlu data baru.
 
-> **Celah yang diketahui dan diukur.** Gelar akademik di ekor nama (`DUDUNG
-> MULYADI, M.`, `Lili Muniri S Si`, `SAGIRIN, ST`) sengaja **tidak**
-> digabung: bentuk selisihnya — kata utuh yang ditambahkan — tidak bisa
-> dibedakan dari `MIRNA HASANAH KOTO`, yang bisa dua orang. Yang
-> membedakannya hanya pengetahuan bahwa `S.Si` gelar dan `KOTO` nama
-> keluarga, dan pengetahuan itu belum ada di kode. Dijaga tes
+> **Celah yang diketahui dan diukur.** Gelar akademik di ekor nama **sudah
+> ditangani**: daftar tertutup di `engine/kemiripan_entitas.py`, dan
+> `SAGIRIN, ST` menyatu dengan `Sagirin` di tahap 1 — recall pola "gelar
+> ditambah" di `tests/palsu.py` **100%**. Yang membedakan `S.Si` dari `KOTO`
+> memang pengetahuan, dan pengetahuan itu kini ada di kode sebagai
+> **daftar**, bukan sebagai aturan frekuensi — `MIRNA HASANAH KOTO` tetap
+> harus terpisah, dan ia tetap terpisah.
+>
+> Yang TERSISA, dan sengaja dibiarkan: gelar yang ikut **terpotong** sampai
+> tinggal satu huruf tanpa penanda apa pun. `Lili Muniri S` — sisa `S.Si`,
+> atau inisial nama? Tidak ada di teks yang bisa memutuskan. Di data
+> referensi ketiga penulisannya tetap menyatu karena ada `Lili Muniri Ssi`
+> yang menjembatani, tapi berdua saja mereka tidak bisa. Dijaga tes
 > `BELUM_DITANGANI_GELAR` supaya ketidaktanganannya tetap **disengaja**,
 > bukan terlupa.
 
@@ -488,10 +502,10 @@ itu ada, keduanya memang tertahan.
 
 | tinggi/mungkin | FMR | Recall (sintetis) | Menyatu tahap 3 (44 PDF) |
 |---|---:|---:|---:|
-| 0.95 / 0.90 | 0,00% | 94,6% | 0 |
-| 0.90 / 0.85 | 0,00% | 94,6% | 1 |
-| **0.85 / 0.80** | **0,00%** | **94,6%** | **3** ← dipakai |
-| 0.80 / 0.75 | 0,00% | 94,6% | 4 |
+| 0.95 / 0.90 | 0,00% | 98,1% | 0 |
+| 0.90 / 0.85 | 0,00% | 98,1% | 1 |
+| **0.85 / 0.80** | **0,00%** | **98,1%** | **3** ← dipakai |
+| 0.80 / 0.75 | 0,00% | 98,1% | 3 |
 
 Hasil paling penting dari tabel ini: **ambang tidak lagi mengubah apa pun**
 di harness sintetis — angkanya identik di keempat setelan, karena yang
@@ -500,19 +514,25 @@ masih berpengaruh, dan ke arah yang benar: ketiga penggabungan pada
 0.85/0.80 seluruhnya potongan mesin berbukti —
 
 ```
-GARUDA INDONESI                 ↔ PT GARUDA INDONESIA        0.846
 INDOMOBIL FINANCE INDONE/BCA    ↔ PT INDOMOBIL FINANCE
                                   INDONESIA/BCA              0.853
 PT AEROTRANS SERVICES I DONESIA ↔ PT AEROTRANS SERVICES
                                   INDONESIA                  0.831
+Lili Muniri Ssi                 ↔ Lili Muniri S              0.808
 ```
 
-Yang kedua itu kuncinya: karena ada `/BCA` menempel, kunci potongannya bukan
-awalan dari kunci nama penuhnya — jadi tahap 2 tidak mungkin melihatnya.
+`GARUDA INDONESI` ↔ `PT GARUDA INDONESIA` dulu ada di daftar ini dan
+sekarang tidak — bukan karena berhenti menyatu, melainkan karena perbaikan
+aturan leluhur bersama di tahap 2 membuatnya tuntas lebih awal. Tempatnya
+digantikan `Lili Muniri`, yang muncul justru karena daftar gelar
+memperkenalkan kunci kedua.
+
+Pasangan `INDOMOBIL` itu kuncinya: karena ada `/BCA` menempel, kunci
+potongannya bukan awalan dari kunci nama penuhnya — jadi tahap 2 tidak mungkin melihatnya.
 Inilah satu-satunya bentuk yang terbukti hanya bisa diberikan kemiripan
-huruf. Turun lagi ke 0.80/0.75 menambah satu penggabungan lagi yang juga
-benar, tapi ambang tinjaunya ikut turun dan di situ daftar kandidatnya mulai
-dipotong besar-besaran — lihat di bawah.
+huruf. Turun lagi ke 0.80/0.75 **tidak menambah penggabungan sama sekali**,
+sementara ambang tinjaunya ikut turun dan daftar kandidatnya melompat dari
+168 ke 246 — lihat di bawah.
 
 **Ambang TINJAU** — pertanyaannya bukan benar/salah, tapi apakah daftarnya
 masih terbaca manusia:
@@ -614,17 +634,19 @@ dicocokkan dengan baris TOTAL-nya.
 
 | | Nama unik | Menyatu | Kandidat |
 |---|---:|---:|---:|
-| BCA | 1.103 | 23 | 47 |
-| BNI | 1.021 | 28 | 20 |
-| BRI | 831 | 46 | 19 |
+| BCA | 1.103 | 23 | 45 |
+| BNI | 1.021 | 32 | 16 |
+| BRI | 831 | 47 | 18 |
 | Mandiri | 1.143 | 6 | 89 |
-| **Total** | **4.098** | **103** | **175** |
+| **Total** | **4.098** | **108** | **168** |
 
 Sebelum seluruh rangkaian ini: 91 menyatu, 109 kandidat. Tambahan 17 baris
 yang menyatu datang dari perluasan tahap 1 (bentuk badan usaha di ekor,
 sapaan, gelar akademik), perbaikan tahap 2 (rantai potongan, ambiguitas,
-angka terpotong), dan 2 dari tahap 3 — keduanya berbukti. Satu kandidat
-terpotong oleh batas cetak, dan pemotongan itu ikut tercetak di laporannya.
+angka terpotong), dan 3 dari tahap 3 — ketiganya berbukti. Pada setelan
+sekarang tidak ada satu pun kandidat yang terpotong batas cetak (laporan
+terpadat tepat berada di batas 25), dan kalau suatu saat terpotong,
+pemotongannya ikut tercetak di laporannya.
 
 **Satu nama boleh punya dua kunci.** Dokumen menulis gelar dengan ejaan yang
 tidak seragam, dan membuangnya hanya dari sebagian ejaan justru memecah
@@ -685,11 +707,13 @@ Satu tabel supaya tidak perlu membaca seluruh §6 untuk tahu apa yang belum bere
 | 7 | OCR / vision untuk PDF hasil scan | Belum ada — PDF scan ditolak dengan pesan jelas, bukan salah baca | Rendah | §6.1 |
 | 8 | Format tanpa extractor (Mandiri E-Banking, BNI & BRI format lain) | Ditolak 400 dengan pesan yang menyebut format terdeteksi | Rendah | §3 |
 | 9 | Singkatan belum disatukan (`WKS`, `PT BAP`, `PT BMH`) | Satu pihak masih pecah di Rekap bila dokumen memakai singkatan; HHI ikut terbaca lebih rendah | Sedang | §6.1 |
-| 10 | 109 kandidat penggabungan menunggu keputusan manusia | Tidak salah, tapi belum ada cara mencatat keputusannya supaya tidak ditanya ulang tiap laporan | Rendah | §6.1 |
-| 11 | `XR_UPLOAD_DIR` dibaca `worker.py` tapi diabaikan `app.py` | Belum merusak apa pun (keduanya kebetulan sama), tapi menyetel variabel itu akan membuat worker menyapu folder yang salah | Sedang | §6.1 |
-| 12 | Mode antrean menuntut `uploads/` dibagi antara web & worker | Belum jadi masalah karena keduanya masih satu proses/mesin; akan menggagalkan **seluruh** ekstraksi kalau dipisah container tanpa volume bersama | Sedang | §6.2 |
+| 10 | 168 kandidat penggabungan menunggu keputusan manusia | Tidak salah, tapi belum ada cara mencatat keputusannya supaya tidak ditanya ulang tiap laporan | Rendah | §6.1 |
+| 11 | Keterangan transaksi ikut terbawa ke kolom Nama (`… THR`, `… BB SPSI`, `… BI FAST`) | 42 nama Mandiri / 322 baris: satu pihak pecah dua karena sebagian transaksinya berlabel jenis pembayaran | Sedang | §6.1 |
+| 12 | Menjalankan di localhost terhalang `XR_SECRET_KEY`, dan jalan keluarnya justru menyalakan debug | Pemakai yang hanya ingin mencoba di mesin sendiri didorong ke `XR_DEBUG=1`, yang membuka halaman traceback berisi data rekening | **Tinggi** | §6.1 |
+| 13 | `XR_UPLOAD_DIR` dibaca `worker.py` tapi diabaikan `app.py` | Belum merusak apa pun (keduanya kebetulan sama), tapi menyetel variabel itu akan membuat worker menyapu folder yang salah | Sedang | §6.1 |
+| 14 | Mode antrean menuntut `uploads/` dibagi antara web & worker | Belum jadi masalah karena keduanya masih satu proses/mesin; akan menggagalkan **seluruh** ekstraksi kalau dipisah container tanpa volume bersama | Sedang | §6.2 |
 
-Butir 11 dan 12 baru ketahuan saat merancang Docker Compose, bukan dari pemakaian — keduanya laten dan tidak mempengaruhi hasil hari ini.
+Butir 13 dan 14 baru ketahuan saat merancang Docker Compose, bukan dari pemakaian — keduanya laten dan tidak mempengaruhi hasil hari ini.
 
 **Urutan yang disarankan** (per 16 September 2026, selaras dengan keputusan
 pilot di §6.2):
@@ -697,13 +721,14 @@ pilot di §6.2):
 | Tahap | Kerjakan | Kenapa sekarang |
 |---|---|---|
 | **Sedang berjalan** | Pilot di localhost, satu pengguna | Yang diuji akurasi ekstraksi, bukan ketahanan layanan |
-| **Berikutnya** | Butir 1 — pemasangan bunga & pajak lintas hari | Satu-satunya butir terbuka yang menghasilkan temuan **palsu** |
+| **Berikutnya** | Butir 12 — jalan menjalankan di localhost tanpa debug | Satu-satunya butir bertingkat **Tinggi**: jalan keluar yang tersedia sekarang justru membuka data rekening |
+| | Butir 1 — pemasangan bunga & pajak lintas hari | Satu-satunya butir terbuka yang menghasilkan temuan **palsu** |
 | | Butir 6 — audit ulang nama BCA/Mandiri/BNI dua lapis | Audit BRI membuktikan sampel saja melewatkan 2 dari 3 kelas cacat |
 | | Butir 2, 3 — jadwal biaya admin BRI & hari libur | Menunggu data dari luar (ketentuan BRI, kalender resmi) |
-| **Saat pilot naik ke tim** | Butir 9, 10 + Docker Compose, lalu §6.2 | Butir 10 akan menggagalkan seluruh ekstraksi kalau terlewat |
+| **Saat pilot naik ke tim** | Butir 9, 10, 13, 14 + Docker Compose, lalu §6.2 | Butir 14 akan menggagalkan seluruh ekstraksi kalau terlewat |
 | **Nanti, kalau perlu** | §6.3 migrasi | Prasyaratnya sudah terpenuhi; yang menahan tinggal nilainya |
 
-**Tidak ada butir terbuka yang membuat angka laporan salah tanpa diketahui.** Satu-satunya yang menghasilkan temuan keliru adalah butir 1, dan temuannya bertingkat Rendah. Butir 4–6 dan 9–10 menyentuh kolom Nama, bukan nominal; butir 11–12 laten dan baru berdampak pada susunan deployment tertentu. Total mutasi dan saldo akhir seluruh format tetap dijaga checksum extractor terhadap angka resmi yang tercetak di PDF-nya sendiri.
+**Tidak ada butir terbuka yang membuat angka laporan salah tanpa diketahui.** Satu-satunya yang menghasilkan temuan keliru adalah butir 1, dan temuannya bertingkat Rendah. Butir 4–6 dan 9–11 menyentuh kolom Nama, bukan nominal; butir 13–14 laten dan baru berdampak pada susunan deployment tertentu. Total mutasi dan saldo akhir seluruh format tetap dijaga checksum extractor terhadap angka resmi yang tercetak di PDF-nya sendiri.
 
 Butir keamanan & operasional yang dulu ada di sini (debug mode menyala, tidak ada autentikasi, ekstraksi menahan koneksi, laporan menumpuk di disk) **sudah selesai** — lihat §6.4 dan `DEPLOY.md`.
 
@@ -714,6 +739,74 @@ Butir keamanan & operasional yang dulu ada di sini (debug mode menyala, tidak ad
 Urut dari yang paling berdampak:
 
 - **Pemasangan bunga & pajak bunga masih per tanggal persis.** `_check_rasio_pajak_bunga` (`engine/anomaly_detector.py`) mengelompokkan bunga dan pajaknya berdasarkan kolom `Tanggal` yang sama. BRI untuk sebagian bulan mendebet "PAJAK BUNGA SIMPANAN" H+1 dari bunganya (bunga 20/11, pajak 21/11), sehingga muncul **dua temuan palsu bertingkat Rendah** ("bunga tanpa pasangan pajak" dan sebaliknya) — 2 kejadian dari 9 PDF referensi BRI. Tanggalnya sengaja **tidak** digeser extractor supaya laporan tetap sama dengan dokumennya; pemasangan lintas-hari harus diputuskan di engine dan menyentuh semua bank. Ini satu-satunya butir terbuka yang menghasilkan temuan palsu, jadi paling layak dikerjakan duluan.
+
+- **Jalan menjalankan aplikasi di localhost tanpa menyalakan debug.** Saat ini
+  `XR_SECRET_KEY` wajib, dan satu-satunya jalan keluarnya adalah `XR_DEBUG=1`
+  yang memakai kunci sementara — padahal itu **sekaligus menyalakan halaman
+  traceback Werkzeug yang menampilkan isi variabel**, yaitu hal yang sengaja
+  dimatikan justru karena variabel itu berisi data rekening. Jadi pemakai yang
+  hanya ingin mencoba di mesin sendiri didorong ke pilihan yang paling tidak
+  aman, dan itu masih berlaku apa adanya di `app.py` (cabang `XR_DEBUG` pada
+  penentuan `secret_key`). Ketahuan dari pemakaian nyata, bukan dari pengujian.
+
+  **Rancangan perbaikannya:** pisahkan kedua hal itu — kalau `XR_SECRET_KEY`
+  tidak disetel DAN aplikasi hanya mengikat ke localhost, buat kunci sekali
+  lalu simpan di `data/secret_key` (di luar git, izin berkas terbatas) supaya
+  sesi tetap awet antar restart tanpa perlu menyalakan debug. Penolakan tetap
+  berlaku begitu aplikasi mengikat ke alamat yang bisa dijangkau jaringan.
+
+- **Keterangan transaksi ikut terbawa ke kolom Nama.** Ditemukan saat menelaah
+  daftar kandidat penyatuan nama (§5.2). Sebagian "kandidat" sebenarnya pihak
+  yang SAMA, hanya saja sebagian transaksinya membawa label jenis pembayaran ke
+  kolom Nama: `BAHARMAN` vs `BAHARMAN BB SPSI`, `NUR SALIM` vs `NUR SALIM THR`.
+  Ini cacat di sisi **extractor**, bukan di penyatuan nama — penyatu benar
+  menolaknya, karena secara teks ia tidak bisa membedakan `BB SPSI` dari sebuah
+  marga.
+
+  **Hasil pemetaan atas 44 PDF referensi**, dibatasi pada pasangan yang memang
+  masih dipisahkan kode sekarang (ekor yang muncul pada ≥2 nama dasar berbeda,
+  di mana nama dasarnya juga berdiri sendiri di dokumen yang sama):
+
+  | Ekor | Nama dasar | Baris trx | Penilaian |
+  |---|---:|---:|---|
+  | `THR` | 17 | 17 | Keterangan — Tunjangan Hari Raya |
+  | `BB SPSI` | 12 | 18 | Keterangan — iuran serikat pekerja |
+  | `DP` | 4 | 8 | **Ragu** — Down Payment? atau bagian nama? |
+  | `KARTU DEBIT` | 4 | 10 | Keterangan — label instrumen |
+  | `BB` | 3 | 22 | Keterangan — kemungkinan `BB SPSI` yang terpotong |
+  | `BI FAST` | 2 | **247** | Keterangan — label kanal |
+  | `HARAHAP` | 2 | 9 | **Nama** — marga |
+  | `HJ` | 2 | 2 | **Nama** — gelar haji, di EKOR |
+
+  Di luar itu ada **63 ekor yang hanya muncul pada satu nama dasar**, dan untuk
+  itu memang tidak ada pola yang bisa dipegang.
+
+  **Aturan otomatis tidak aman.** Kalau ekor berulang dibuang berdasarkan
+  frekuensi, `HARAHAP` dan `HJ` ikut terbuang — yang satu marga, yang satu
+  gelar. Daftarnya karena itu HARUS dikurasi manusia; data hanya menyediakan
+  calonnya. Dua bentuk lain juga tidak lagi muncul di daftar ini karena
+  normalisasi §5.2 sudah menanganinya: bentuk badan usaha di ekor (`… PT`) dan
+  gelar (`… ST`).
+
+  **Dua catatan dari pemetaan ini:**
+
+  - `BI FAST` adalah dampak baris terbesar (247 baris) dan **sudah dikurasi
+    untuk BNI** — pembuangan `… BI FAST` di `extractors/bni_nama.py`.
+    Memperluasnya ke Mandiri bukan mekanisme baru, hanya daftar yang diperluas.
+  - `HJ` di BRI adalah sapaan di **ekor** nama, sedangkan normalisasi sekarang
+    hanya membuang sapaan di **depan**. Kecil (2 baris), tapi bentuknya berbeda
+    dari yang lain.
+
+  **Sebarannya sempit.** Seluruh 42 nama berekor keterangan itu ada di Mandiri —
+  58 dari 89 baris kandidat Mandiri. BCA, BNI, dan BRI **nol**; kandidat mereka
+  justru nama yang memang berbeda (`IDIN` vs `IDING ROHAEDI`, `KRIS` vs
+  `KRISTIN`), jadi mekanisme kandidat bekerja benar di sana.
+
+  **Rencana:** daftar ekor kurasi per bank, dikirim extractor sebagai metadata —
+  pola yang sama dengan `_biaya_admin`. Mulai dari Mandiri (`THR`, `BB SPSI`,
+  `BB`, `KARTU DEBIT` = 67 baris) ditambah `BI FAST` sebagai label kanal (247
+  baris). **Ditunda menunggu konfirmasi** apakah `DP` memang Down Payment, dan
+  apakah `THR` / `BB SPSI` benar jenis pembayaran di lingkungan pemakai.
 
 - **Daftar alias untuk singkatan.** Keempat tahap penyatuan nama (§5.2) tidak bisa menyentuh singkatan: `WKS` tidak punya kemiripan huruf apa pun dengan "Wira Karya Sakti", begitu pula `PT BAP KU`/`PT BAP AP152` dengan "PT Bumi Andalas Permai" dan `PT BMH MH175`. Tidak ada aturan yang bisa menyimpulkannya — ini pengetahuan yang harus diisi manusia, seperti `_biaya_admin`. Rancangannya: satu berkas daftar alias yang dipelihara pemakai, dibaca `engine/penyatu_nama.py` sebagai tahap tersendiri (tahap 1 sampai 4 sekarang sudah terpakai, lihat §5.2). Sekalian bisa menampung keputusan atas **kandidat** yang sekarang dilaporkan tiap laporan (butir 10) supaya tidak perlu diputuskan berulang.
 
@@ -727,10 +820,12 @@ Urut dari yang paling berdampak:
 
 - **Nama lawan transaksi pada BNI e-channel.** Untuk transfer keluar lewat e-channel, dokumen BNI memang tidak mencetak nama penerima sama sekali — yang ada hanya nomor rekening tujuan, dan nomor itulah yang dipakai sebagai identitas di kolom Nama. Untuk transfer masuk, nama pengirim dicetak menyatu dengan berita transaksi tanpa pemisah apa pun (tidak ada gap kolom — sudah diperiksa sampai ke koordinat glif), jadi pemisahannya bertumpu pada bentuk huruf: nama dicetak sistem dalam huruf besar, berita diketik nasabah. Berita yang kebetulan ditulis huruf besar semua masih ikut terbawa. Sebagian baris e-channel juga tidak memuat nama sama sekali, hanya kode terminal/agen yang berganti tiap transaksi (`S1ACIR9510 4095`) — kode semacam itu dikenali dan digantikan nomor rekening lawan, supaya satu pengirim tidak pecah jadi puluhan baris di Rekap. Label kanal yang ikut tercetak di ekor nama ("… BI FAST") dibuang, dari daftar label yang benar-benar terlihat di PDF referensi saja. Butuh lebih banyak sampel sebelum aturannya diperketat.
 
-- **Sisa ekor nama lawan transaksi** — tiap polanya hanya muncul 1–2 kali, jadi aturan untuknya akan lahir dari terlalu sedikit contoh. Dibiarkan apa adanya sampai ada lebih banyak sampel; keterangan lengkapnya tetap ada di Sheet Detail Transaksi.
+- **Sisa ekor nama lawan transaksi** — teks sisa yang sama sekali **bukan nama**: nomor kartu, nomor referensi kanal. Kelompoknya sedikit, tapi tidak semuanya kecil (top-up Flazz BCA sendirian 16 baris). Yang menahan aturan di sini bukan jumlah contohnya melainkan bentuknya: referensinya berganti tiap transaksi, jadi tidak ada pola tekstual yang bisa dipegang. Dibiarkan apa adanya; keterangan lengkapnya tetap ada di Sheet Detail Transaksi.
   - **Mandiri: 32 baris dari 6.892 (0,46%).**
   - **BCA: 18 baris.** Pipeline namanya terpisah (`extractors/bca.py`, bukan `mandiri_nama.py`). Kelompok terbesarnya top-up Flazz (16 baris) yang namanya masih berupa nomor kartu. Belum digarap.
   - **BRI: 22 baris dari 4.131 (0,53%).** Ini yang sudah ditandai `Tidak Teridentifikasi` — uraiannya memang tidak memuat nama siapa pun, hanya nomor referensi kanal yang berganti tiap transaksi (`456022#818808360513#9360000212470040874`). Dibiarkan sebagai tidak teridentifikasi, bukan diisi tebakan. **Bukan cacat** — lihat §7.4.
+
+  **Jangan tertukar dengan butir 11 — dua angkanya mengukur hal yang berbeda.** Di sini yang dihitung **baris yang namanya gagal terurai sama sekali** (Mandiri 32 dari 6.892 baris). Butir 11 menghitung **nama yang terurai BENAR tapi berekor label jenis pembayaran**, disusun per **nama dasar** (`THR` muncul pada 17 nama dasar berbeda). Karena itu kalimat "contohnya terlalu sedikit untuk dijadikan aturan" berlaku untuk butir 4 dan **tidak** berlaku untuk butir 11 — di sana polanya justru berulang banyak.
 
 - **OCR / Claude Vision untuk PDF hasil scan** — saat ini hanya terdeteksi & ditolak. Rekomendasi: langsung ke pendekatan vision model ketimbang OCR tradisional + regex, karena data finansial butuh akurasi tinggi dan OCR rentan salah baca digit pada tabel rapat. *(Belum digarap — dinilai jarang terjadi untuk saat ini.)*
 
@@ -893,7 +988,7 @@ Kalau salah satunya tiba:
   (`XR_TTL_HASIL`, bawaan 1 jam) sekaligus jadi kebijakan retensinya.
 - **Penyatuan varian penulisan lawan transaksi** (§5.2) — Rekap Kredit/Debit, Summary Rekap, dan HHI kini mengelompokkan lewat nama yang sudah disatukan, dihitung **sekali** di `create_excel` supaya keempatnya tidak bisa berbeda. Dua aturan deterministik (normalisasi + potongan di tengah kata), bukan fuzzy. 91 baris menyatu atas 44 PDF referensi, total rupiah tidak berubah satu pun. Dijaga `tests/penyatuan.py`, yang menguji **apa yang harus tetap terpisah** juga — bukan hanya apa yang digabung.
 - **Bukti mengalahkan ambang, dan celahnya diberi angka** (§5.2) — lanjutan langsung dari butir di bawah, dikerjakan dengan `tests/palsu.py` sebagai penilai: veto angka dikecualikan untuk angka yang TERPOTONG (`SPBU 34.1580` dari `34.15802`), perbedaan yang jatuh SESUDAH titik potong tidak lagi dihitung sebagai bukti pihak berbeda, daftar **gelar akademik** tertutup ditambahkan di tahap 1 dengan satu nama boleh membawa DUA kunci (`Sagirin` · `SAGIRIN, ST` · `SAGIRIN ST` jadi satu baris), dan golongan **AMBIGU** menutup titik buta tahap 2 dengan angka (97,2% keputusan tanpa bukti). Satu cacat yang saya perkenalkan sendiri ikut ketahuan karena FMR bergerak: penyaringan calon induk dengan validasi konteks menghapus sinyal ambiguitas, sehingga yang ambigu tampak tunggal lalu digabung. Hasil: recall pola yang ditargetkan 94,6% → **98,1%**, FMR tetap **0,00%**, 44 PDF referensi 103 → **108 baris menyatu**. Dua mitigasi diuji lalu dibuang karena harganya lebih besar daripada manfaatnya, dan alasannya ditulis di kode.
-- **Kemiripan entitas & empat tahap penyatuan** (§5.2) — `engine/kemiripan_entitas.py` baru: enam ukuran kemiripan dalam satu fungsi (`calculate_entity_similarity`), penggolongan COMPANY/PERSON/UNKNOWN yang mencegah nama orang dibandingkan dengan nama badan usaha, ambang keyakinan yang bisa disetel tanpa menyentuh algoritma, dan `validasi_konteks` yang membatalkan nilai tinggi tanpa bukti. Ambangnya disapu dengan `tests/ambang.py` (baru) dan disetel dari titik awal 0.95/0.90/0.80 ke **0.90/0.85/0.80** berdasarkan hasilnya: pada 0.95/0.90 tahap kemiripan huruf menggabungkan 0 pasangan, pada 0.90/0.85 muncul 3 dan ketiganya diperiksa satu per satu dan benar, pada 0.85/0.80 tebakan mulai masuk. Atas 44 PDF referensi: 91 → 103 baris menyatu (9 dari perluasan tahap 1 & perbaikan tahap 2, 3 dari tahap 3) dan 109 → 175 kandidat, 57 di antaranya dari tahap 3. Dijaga `tests/kemiripan.py` (termasuk pagar atas temuan "peringkat kemiripan terbalik terhadap kebenaran") dan `tests/penyatuan.py`.
+- **Kemiripan entitas & empat tahap penyatuan** (§5.2) — `engine/kemiripan_entitas.py` baru: enam ukuran kemiripan dalam satu fungsi (`calculate_entity_similarity`), penggolongan COMPANY/PERSON/UNKNOWN yang mencegah nama orang dibandingkan dengan nama badan usaha, ambang keyakinan yang bisa disetel tanpa menyentuh algoritma, dan `validasi_konteks` yang membatalkan nilai tinggi tanpa bukti. Ambangnya disapu dengan `tests/ambang.py` (baru) dan disetel dari titik awal 0.95/0.90/0.80 ke **0.90/0.85/0.80** berdasarkan hasilnya: pada 0.95/0.90 tahap kemiripan huruf menggabungkan 0 pasangan, pada 0.90/0.85 muncul 3 dan ketiganya diperiksa satu per satu dan benar, sementara pada 0.85/0.80 — dinilai dengan mata, sebelum syarat bukti ada — tebakan mulai masuk. **Kedua kesimpulan itu digantikan butir di atas:** sesudah penggabungan butuh bukti, ambang bawaan justru menjadi 0.85/0.80/0.80 dan penggabungannya seluruhnya berbukti. Angka tahap itu atas 44 PDF referensi: 91 → 103 baris menyatu (9 dari perluasan tahap 1 & perbaikan tahap 2, 3 dari tahap 3); keadaan sekarang ada di §5.2. Dijaga `tests/kemiripan.py` (termasuk pagar atas temuan "peringkat kemiripan terbalik terhadap kebenaran") dan `tests/penyatuan.py`.
 - **Penggabungan butuh BUKTI, dan ada angkanya** (§5.2) — `tests/palsu.py` baru: nama dari 44 PDF referensi disaring sampai pasti pihak berbeda, diberi varian buatan menurut pola cacat nyata, lalu diukur recall per pola dan **false-merge rate**. Distraktor (varian yang labelnya pihak berbeda) yang memberi FMR gigi. Dengan itu sebagai penilai: syarat `bukti_potongan` menurunkan **FMR 0,47% → 0,00%** dengan harga 0,4 poin recall; pagar anti-jembatan menutup risiko laten union-find di tahap 3; veto token umum diukur lalu **ditolak** karena hanya membatalkan penggabungan yang benar; ambang diukur ulang jadi 0.85/0.80/0.80 — dan hasil terpentingnya, ambang tidak lagi mengubah apa pun di harness (identik di empat setelan), karena yang memutuskan sekarang bukti. Pemotongan daftar kandidat tidak lagi senyap.
 - **Audit akurasi kolom nama BRI** — 4.131 baris, lihat §7.4. Skripnya (`tests/audit_nama.py`) bank-agnostik dan bisa dipakai untuk audit ulang format lain.
 - **Laporan Excel tidak lagi ditulis ke disk.** Dulu tiap laporan disimpan di `exports/` dan tidak pernah dihapus, sehingga nama pemilik, nomor rekening, dan seluruh mutasi menumpuk di server tanpa kedaluwarsa. Kini dibangun di `io.BytesIO` lalu dikirim langsung: tidak ada berkas yang perlu dijadwalkan hapus karena tidak ada berkas yang dibuat. Folder `exports/` tidak dibuat lagi. PDF yang diunggah tetap mendarat di disk (extractor membacanya lewat path) dan tetap dihapus di blok `finally`. Lihat catatan di §6.2 poin 2: begitu ada job queue, kebijakan retensi jadi perlu lagi.
