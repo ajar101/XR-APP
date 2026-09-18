@@ -28,7 +28,7 @@ from engine.categorizer import (
     KATEGORI_KREDIT_KEYWORDS,
 )
 from engine.anomaly_detector import detect_anomalies
-from engine.penyatu_nama import satukan
+from engine.penyatu_nama import MAKS_KANDIDAT_FUZZY, satukan
 from engine.report_catalog import (
     SHEETS,
     JUDUL_SHEET,
@@ -565,6 +565,13 @@ def _tulis_kandidat_penyatuan(ws, baris_mulai, kolom_akhir, penyatuan):
     salah ke arah sebaliknya — tanpa meninggalkan jejak di laporan. Jadi
     yang tidak bisa dipastikan tidak digabung, tapi juga tidak disembunyikan:
     ditampilkan di sini beserta alasannya supaya pemeriksa yang memutuskan.
+
+    Isinya datang dari keempat tahap penyatuan (engine/penyatu_nama.py):
+    awalan yang berhenti di batas kata, percabangan yang tidak bisa dipilih,
+    dan — sejak tahap kemiripan huruf ada — pasangan yang nilainya tinggi
+    tapi tidak lolos validasi konteks. Yang terakhir itu justru manfaat
+    kemiripan huruf yang terbukti pada data nyata: menunjukkan, bukan
+    memutuskan.
     """
     if penyatuan is None or not penyatuan.kandidat:
         return
@@ -577,18 +584,38 @@ def _tulis_kandidat_penyatuan(ws, baris_mulai, kolom_akhir, penyatuan):
     ws.row_dimensions[r].height = 22
     r += 1
 
-    for i, judul in enumerate(('Nama pendek', 'Kemungkinan sama dengan',
+    for i, judul in enumerate(('Nama', 'Kemungkinan sama dengan',
                                'Alasan tidak digabung otomatis')):
         style_header(ws.cell(row=r, column=1 + i, value=judul), bg_color='2E75B6')
     r += 1
 
-    for pendek, panjang, alasan in penyatuan.kandidat:
-        style_data(ws.cell(row=r, column=1, value=pendek), align='left',
+    for nama, pasangan, alasan in penyatuan.kandidat:
+        style_data(ws.cell(row=r, column=1, value=nama), align='left',
                    bg_color='FFF9E6')
-        style_data(ws.cell(row=r, column=2, value=panjang), align='left',
+        style_data(ws.cell(row=r, column=2, value=pasangan), align='left',
                    bg_color='FFF9E6')
         c = ws.cell(row=r, column=3, value=alasan)
         style_data(c, align='left', bg_color='FFF9E6')
+        ws.merge_cells(start_row=r, start_column=3, end_row=r,
+                       end_column=max(3, kolom_akhir))
+        r += 1
+
+    # Daftar kandidat kemiripan huruf dibatasi panjangnya supaya masih
+    # terbaca. Pemotongannya TIDAK boleh senyap: pemeriksa yang tidak tahu
+    # ada yang dipotong akan menyimpulkan daftar ini lengkap, dan itu
+    # kesimpulan yang salah.
+    dipotong = getattr(penyatuan, 'kandidat_dipotong', 0)
+    if dipotong:
+        c = ws.cell(row=r, column=1,
+                    value=f'+{dipotong} kandidat lain tidak ditampilkan')
+        style_data(c, align='left', bold=True, bg_color='FFE9A6')
+        c = ws.cell(row=r, column=2, value='')
+        style_data(c, align='left', bg_color='FFE9A6')
+        c = ws.cell(row=r, column=3,
+                    value=f'kemiripannya lebih rendah daripada {MAKS_KANDIDAT_FUZZY} '
+                          f'baris di atas; daftar ini dibatasi supaya tetap '
+                          f'terbaca — bukan berarti tidak ada lagi')
+        style_data(c, align='left', bg_color='FFE9A6')
         ws.merge_cells(start_row=r, start_column=3, end_row=r,
                        end_column=max(3, kolom_akhir))
         r += 1
