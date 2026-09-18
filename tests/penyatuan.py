@@ -53,6 +53,22 @@ HARUS_MENYATU = [
     (['CV CIPTA SAUDARA', 'CIPTA SAUDARA CV', 'CIPTA SAUDARA'], 2,
      'CV CIPTA SAUDARA'),
 
+    # Tahap 1 — gelar akademik di ekor nama, daftar tertutup.
+    (['DUDUNG MULYADI', 'DUDUNG MULYADI, M.'], 1, 'DUDUNG MULYADI, M.'),
+    (['Sagirin', 'SAGIRIN, ST'], 1, 'SAGIRIN, ST'),
+    (['IIN RAJUDIN', 'IIN RAJUDIN,S.PD', 'IIN RAJUDIN, S.PD, M.M'], 2,
+     'IIN RAJUDIN, S.PD, M.M'),
+
+    # Tahap 1 — SATU NAMA, DUA KUNCI. Ketiga penulisan ini ada di satu
+    # berkas referensi dan ketiganya satu orang. "SAGIRIN, ST" punya penanda
+    # koma sehingga gelarnya bisa dipastikan; "SAGIRIN ST" tidak punya
+    # penanda apa pun. Yang bergelar karena itu membawa dua kunci, dan ia
+    # yang menjembatani keduanya.
+    (['Sagirin', 'SAGIRIN, ST', 'SAGIRIN ST'], 2, 'SAGIRIN ST'),
+    (['DINA MAULIDAH, S', 'DINA MAULIDAH S'], 1, 'DINA MAULIDAH S'),
+    (['Lili Muniri S', 'Lili Muniri Ssi', 'Lili Muniri S Si'], 2,
+     'Lili Muniri Ssi'),
+
     # Tahap 1 — sapaan di depan nama orang. Pasangan "Ibu ANI ROHIMAH" ada
     # di data referensi; nama yang ditampilkan tetap apa adanya.
     (['Ibu ANI ROHIMAH', 'ANI ROHIMAH'], 1, 'Ibu ANI ROHIMAH'),
@@ -94,21 +110,20 @@ HARUS_TERPISAH = [
 ]
 
 # ── Celah yang DIKETAHUI dan diukur, bukan diabaikan ─────────────────────
-# Gelar akademik di ekor nama. Keduanya hampir pasti orang yang sama, tapi
-# bentuk selisihnya — kata utuh yang ditambahkan — tidak bisa dibedakan dari
-# "MIRNA HASANAH" vs "MIRNA HASANAH KOTO", yang bisa dua orang. Yang
-# membedakannya hanya pengetahuan bahwa "S.Si" itu gelar dan "KOTO" itu nama
-# keluarga, dan pengetahuan itu belum ada di kode.
+# Gelar akademik sudah ditangani (daftar tertutup di engine/kemiripan_entitas.py),
+# tapi hanya ketika gelarnya UTUH atau punya penanda. Yang tersisa: gelar
+# yang ikut TERPOTONG dokumennya sampai tinggal satu huruf tanpa penanda
+# apa pun.
 #
-# Jadi keduanya sengaja TIDAK digabung, dan dilaporkan sebagai kandidat.
-# Tes ini menjaga keadaan itu tetap DISENGAJA: kalau suatu hari daftar gelar
-# ditambahkan, tes ini yang gagal lebih dulu dan mengingatkan bahwa
-# keputusannya berubah. Besar celahnya terukur di tests/palsu.py (pola
-# "gelar ditambah").
+#     Lili Muniri S      ← "S" ini sisa "S.Si"? atau inisial nama?
+#     Lili Muniri S Si
+#
+# Membuang "S" di posisi itu berarti juga membuang ekor nama yang kebetulan
+# satu huruf, dan tidak ada di teks yang bisa memutuskan mana. Di data
+# referensi keduanya tetap menyatu karena ada penulisan ketiga ("Lili Muniri
+# Ssi") yang menjembatani — tapi berdua saja, mereka tidak bisa.
 BELUM_DITANGANI_GELAR = [
-    ['DUDUNG MULYADI', 'DUDUNG MULYADI, M.'],
     ['Lili Muniri S', 'Lili Muniri S Si'],
-    ['Sagirin', 'SAGIRIN, ST'],
 ]
 
 # ── Pasangan bernilai kemiripan TINGGI yang tetap harus terpisah ─────────
@@ -270,18 +285,38 @@ def periksa_uraian_asli_utuh() -> list:
 
 
 def periksa_celah_gelar() -> list:
-    """Gelar akademik belum ditangani — dan ketidaktanganannya disengaja."""
+    """
+    Gelar yang ikut terpotong sampai tinggal satu huruf belum ditangani —
+    dan ketidaktanganannya disengaja.
+    """
     masalah = []
     for nama in BELUM_DITANGANI_GELAR:
         h = satukan(nama)
         if h.jumlah_digabung:
             masalah.append(
-                f'{nama} TERGABUNG. Kalau daftar gelar memang baru '
-                f'ditambahkan, pindahkan kasus ini ke HARUS_MENYATU dan '
-                f'perbarui catatan celahnya di tests/palsu.py')
-        if not h.kandidat:
-            masalah.append(f'{nama} tidak digabung TAPI juga tidak '
-                           f'dilaporkan sebagai kandidat')
+                f'{nama} TERGABUNG. Kalau penanganan gelar satu huruf memang '
+                f'baru ditambahkan, pindahkan kasus ini ke HARUS_MENYATU dan '
+                f'perbarui garis dasar di tests/palsu.py')
+    return masalah
+
+
+def periksa_gelar_tidak_memakan_potongan() -> list:
+    """
+    Daftar gelar tidak boleh memakan ekor nama yang kebetulan sama.
+
+    "PT SUMBER SE" jauh lebih mungkin potongan "PT SUMBER SEJAHTERA"
+    daripada gelar Sarjana Ekonomi, dan membuang "SE" di situ memotong nama
+    pihak. Karena itu gelar dua huruf TANPA koma maupun titik sengaja tidak
+    dibuang — dan pasangan di bawah wajib tetap menyatu lewat aturan
+    potongan, bukan pecah karena normalisasi yang kelewat rajin.
+    """
+    masalah = []
+    for nama, harap in ((['PT SUMBER SE', 'PT SUMBER SEJAHTERA'], 1),
+                        (['MUHAMMAD ILHAM FA', 'MUHAMMAD ILHAM FAUZI'], 1)):
+        h = satukan(nama)
+        if h.jumlah_digabung != harap:
+            masalah.append(f'{nama} → {h.jumlah_digabung} menyatu, harusnya '
+                           f'{harap} — gelar memakan ekor nama?')
     return masalah
 
 
@@ -342,7 +377,9 @@ def main() -> int:
         ('nama yang harus menyatu', periksa_menyatu),
         ('nama yang harus tetap terpisah', periksa_terpisah),
         ('mirip tapi pihak berbeda', periksa_mirip_tapi_beda),
-        ('celah gelar akademik masih disengaja', periksa_celah_gelar),
+        ('celah gelar satu huruf masih disengaja', periksa_celah_gelar),
+        ('gelar tidak memakan ekor nama yang terpotong',
+         periksa_gelar_tidak_memakan_potongan),
         ('penggabungan tidak menjembatani', periksa_tidak_menjembatani),
         ('satu saudara asing tidak meracuni rantai potongan',
          periksa_rantai_tidak_teracuni),

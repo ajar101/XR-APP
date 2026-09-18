@@ -85,6 +85,7 @@ from engine.kemiripan_entitas import (   # noqa: E402
     AMBANG,
     AmbangKemiripan,
     BADAN_AWAL,
+    SAPAAN_AWAL,
     PERSON,
     batas_atas_kemiripan,
     calculate_entity_similarity,
@@ -101,18 +102,28 @@ SEED = 20260917
 # GARIS DASAR pada seed bawaan, sesudah empat tahap penyatuan dengan ambang
 # 0.85/0.80/0.80 (dicatat supaya "normal" itu punya angka):
 #
-#     DITARGETKAN      97.4%   (potong lebar 91.6% — yang paling lemah)
-#     BELUM DITANGANI   0.0%   (gelar 0%, salah ketik 0% — celah yang diukur)
+#     DITARGETKAN      98.1%   (potong lebar 90.4% — yang paling lemah)
+#     BELUM DITANGANI  50.4%   (gelar 100%, salah ketik 0%)
 #     SENGAJA DITAHAN   0.0%
 #     DISTRAKTOR        0.0%
 #     FMR              0.00%
-#     AMBIGU           98.1%   keputusan tanpa bukti — DI LUAR FMR
+#     AMBIGU           97.2%   keputusan tanpa bukti — DI LUAR FMR
 #
 # Riwayat angkanya, supaya arah perubahan kelihatan: FMR pernah 0,47% dan
 # turun ke 0 begitu penggabungan tahap 3 butuh bukti potongan; recall pola
-# yang ditargetkan naik 94,6% → 95,5% → 96,5% → 97,4% lewat tiga perbaikan
-# berurutan (pengecualian veto angka, ambiguitas tahap 2 yang kembali
-# terdeteksi, dan perbedaan sesudah titik potong).
+# yang ditargetkan naik 94,6% → 95,5% → 96,5% → 97,4% → 98,1% lewat empat
+# perbaikan berurutan (pengecualian veto angka, ambiguitas tahap 2 yang
+# kembali terdeteksi, perbedaan sesudah titik potong, dan daftar gelar).
+#
+# "BELUM DITANGANI" tinggal memuat salah ketik satu huruf, yang sengaja
+# dibiarkan: "Siti Aminah" lawan "Siti Alinah" tidak bisa dibedakan dari
+# salah ketik oleh aturan apa pun, dan salah gabung di situ merusak HHI.
+#
+# CATATAN METODE: populasi dibangun dari nama korpus yang disaring dengan
+# normalisasi yang sama dengan kode produksi. Jadi perubahan pada
+# NORMALISASI ikut menggeser populasi dan denominatornya — angka antar
+# versi tidak sepenuhnya sebanding kalau yang berubah normalisasinya.
+# Perubahan pada ATURAN PENGGABUNGAN tidak punya masalah itu.
 #
 # Batasnya diberi kelonggaran dari garis dasar itu — cukup lapang supaya
 # perubahan kecil tidak menimbulkan alarm palsu, cukup rapat supaya regresi
@@ -218,7 +229,16 @@ def sisip_spasi(nama, rng):
 
 
 def balik_badan(nama, rng):
-    """"PT X" → "X, PT" — satu pihak bisa muncul dua urutan di satu laporan."""
+    """
+    "PT X" → "X, PT" — satu pihak bisa muncul dua urutan di satu laporan.
+
+    Pola ini sengaja membalik bentuk badan usaha APA PUN yang ada di awal
+    nama, termasuk yang daftar ekornya di engine/kemiripan_entitas.py tidak
+    memuat (KOP, UD, PD). Jadi recall-nya memang tidak 100%, dan itu bukan
+    cacat melainkan celah yang disengaja: di ekor nama, singkatan dua-tiga
+    huruf lebih mungkin potongan nama daripada bentuk badan usaha, dan
+    membuangnya berarti memotong nama pihak.
+    """
     m = BADAN_AWAL.match(nama.strip().upper())
     if not m:
         return None
@@ -236,9 +256,13 @@ def hapus_badan(nama, rng):
 
 
 def tambah_sapaan(nama, rng):
-    if BADAN_AWAL.match(nama.strip().upper()):
+    # Nama yang SUDAH bersapaan dilewati: menumpuk sapaan ("Ibu Bpk WENDY")
+    # bukan bentuk yang dicetak bank mana pun, dan memasukkannya membuat
+    # angka pola ini mengukur hal yang tidak pernah terjadi.
+    teks = nama.strip()
+    if BADAN_AWAL.match(teks.upper()) or SAPAAN_AWAL.match(teks):
         return None
-    return rng.choice(SAPAAN_UJI) + nama.strip()
+    return rng.choice(SAPAAN_UJI) + teks
 
 
 def tambah_gelar(nama, rng):

@@ -110,6 +110,7 @@ dengan alasannya, supaya pemeriksa yang memutuskan.
 from engine.kemiripan_entitas import (
     AMBANG,
     BADAN_AWAL,
+    kunci_varian,
     GABUNG,
     GABUNG_BILA_KONTEKS,
     bukti_potongan,
@@ -505,11 +506,38 @@ def satukan(nama_unik, abaikan=frozenset(), ambang=AMBANG) -> Penyatuan:
     kandidat = []
 
     # ── TAHAP 1: kunci identik sesudah normalisasi ──
-    per_kunci = {}
+    #
+    # Satu nama bisa membawa lebih dari satu kunci kalau ia bergelar (lihat
+    # kunci_varian). Yang berbagi kunci apa pun masuk satu kelompok, dan
+    # kelompoknya diwakili kunci TERPENDEK — yaitu bentuk yang paling
+    # ternormalisasi, dan itu memang arti "kunci" di modul ini.
+    #
+    # Pilihan ini terukur, bukan selera. Memakai kunci terpanjang membuat
+    # kelompok bergelar berkunci "...SSI", dan potongan mesin dari nama
+    # dasarnya tidak lagi berelasi awalan dengannya — tahap 2 jadi buta
+    # terhadapnya. Diukur di tests/palsu.py, itu menurunkan penggabungan
+    # pasangan AMBIGU dari 98% ke 57%, yang terdengar bagus sampai
+    # disadari bahwa yang hilang juga potongan yang BENAR.
+    milik = {}
     for n in ikut:
-        k = kunci(n)
-        if k:
-            per_kunci.setdefault(k, []).append(n)
+        semua = [k for k in kunci_varian(n) if k]
+        if not semua:
+            continue
+        gabungan = {n}
+        kunci_gabungan = set(semua)
+        for k in semua:
+            lain = milik.get(k)
+            if lain is not None:
+                gabungan |= lain[0]
+                kunci_gabungan |= lain[1]
+        pasangan = (gabungan, kunci_gabungan)
+        for k in kunci_gabungan:
+            milik[k] = pasangan
+
+    per_kunci = {}
+    for gabungan, kunci_gabungan in {id(v): v for v in milik.values()}.values():
+        utama = min(kunci_gabungan, key=lambda k: (len(k), k))
+        per_kunci[utama] = sorted(gabungan, key=lambda n: (-len(n), n))
 
     # ── TAHAP 2: awalan yang terpotong di tengah kata (+ TAHAP 4) ──
     induk = _tahap2_potongan(per_kunci, kandidat)

@@ -383,11 +383,34 @@ bisa dibaca:
 
 | Golongan | Isi | Garis dasar |
 |---|---|---:|
-| DITARGETKAN | potong lebar tetap, spasi tersisip, badan usaha dibalik/dihapus, sapaan | **94,6%** recall |
-| BELUM DITANGANI | gelar akademik, salah ketik 1 huruf | 0% (mengukur celah) |
+| DITARGETKAN | potong lebar tetap, spasi tersisip, badan usaha dibalik/dihapus, sapaan | **98,1%** recall |
+| BELUM DITANGANI | salah ketik 1 huruf (gelar akademik: kini 100%) | 50,4% |
 | SENGAJA DITAHAN | ekor keterangan transaksi | 0% (memang ditahan) |
 | DISTRAKTOR | varian yang labelnya **pihak berbeda** | 0% (harus 0) |
+| AMBIGU | berelasi awalan **dan** pihak berbeda — tidak bisa dipastikan | 97,2% **di luar FMR** |
 | | **FALSE-MERGE RATE** | **0,00%** |
+
+Golongan **AMBIGU** yang menutup titik buta terpenting. Populasi harness
+sengaja tidak memuat pasangan berelasi awalan (syarat supaya labelnya sah),
+sehingga FMR 0,00% hanya berlaku untuk tahap 3 — bukan tahap 2. Golongan ini
+membuat pasangan yang persis berbentuk `SUKENDAR` lawan
+`SUKENDARININGTYAS`: berelasi awalan, terpotong di tengah kata, tapi pihak
+berbeda. Angkanya **97,2%**, dan ia dilaporkan **di luar FMR** dengan sengaja
+— menyebutnya salah akan mencampurkan "keliru" dengan "tidak mungkin
+diketahui", menyebutnya benar akan menyembunyikan bahwa sistem memutuskan
+tanpa dasar. Yang diukur adalah tingkat **keputusan tanpa bukti**.
+
+> **Satu mitigasi diuji lalu dibuang.** Mewajibkan potongan menyisakan
+> minimal satu kata utuh yang sama (`BARASENTOSA LES` menyisakan
+> `BARASENTOSA`; `SUKENDAR` tidak menyisakan apa pun) menurunkan keputusan
+> tanpa bukti dari 98,1% ke 87,2% — tapi ikut menghapus **enam
+> penggabungan yang benar** di 44 PDF referensi dan menurunkan recall
+> potongan 2,3 poin. Mayoritas pasangan ambigu tetap punya kata utuh yang
+> sama, jadi aturan itu hampir tidak menyentuh kasus yang dituju sementara
+> harganya nyata. Yang dipakai sebagai gantinya: **menampakkan, bukan
+> menebak** — `python tests/ambang.py` mencetak daftar audit kelompok yang
+> anggotanya paling tidak mirip, dan urutan teratasnya persis
+> `SUKENDARININGTYAS ↔ SUKENDAR` (0,491).
 
 Distraktor itu yang memberi FMR gigi — tanpa varian yang sengaja dibuat
 sebagai pihak berbeda (satu kata di tengah diganti, angkanya diganti),
@@ -597,10 +620,26 @@ dicocokkan dengan baris TOTAL-nya.
 | Mandiri | 1.143 | 6 | 89 |
 | **Total** | **4.098** | **103** | **175** |
 
-Sebelum tahap 1 diperluas (bentuk badan usaha di ekor + sapaan) dan tahap 2
-diperbaiki: 91 menyatu, 109 kandidat. Dari tambahan 12 baris yang menyatu, 9
-dari tahap 1 dan 2, dan 3 dari tahap 3 — ketiganya berbukti. Satu kandidat
-terpotong oleh batas cetak, dan pemotongan itu ikut tercetak di laporannya. Pengaruhnya ke HHI
+Sebelum seluruh rangkaian ini: 91 menyatu, 109 kandidat. Tambahan 17 baris
+yang menyatu datang dari perluasan tahap 1 (bentuk badan usaha di ekor,
+sapaan, gelar akademik), perbaikan tahap 2 (rantai potongan, ambiguitas,
+angka terpotong), dan 2 dari tahap 3 — keduanya berbukti. Satu kandidat
+terpotong oleh batas cetak, dan pemotongan itu ikut tercetak di laporannya.
+
+**Satu nama boleh punya dua kunci.** Dokumen menulis gelar dengan ejaan yang
+tidak seragam, dan membuangnya hanya dari sebagian ejaan justru memecah
+pihak yang sama. Ketiga penulisan ini ada di satu berkas referensi dan
+ketiganya satu orang:
+
+```
+Sagirin  ·  SAGIRIN, ST  ·  SAGIRIN ST
+```
+
+`SAGIRIN, ST` punya penanda koma sehingga gelarnya bisa dipastikan dan
+dibuang; `SAGIRIN ST` tidak punya penanda apa pun, dan membuang `ST` di situ
+berarti juga membuang ekor nama yang kebetulan dua huruf (`PT SUMBER SE`,
+yang jauh lebih mungkin potongan `SEJAHTERA`). Jadi nama bergelar membawa
+**dua** kunci — dengan dan tanpa gelar — dan ia yang menjembatani keduanya. Pengaruhnya ke HHI
 terlihat pada dua berkas: `BNI_inquiry (4)` dari 2819 ke 2895 (61 pihak jadi
 57) dan `BCA_8180999800` dari 774 ke 775. Keduanya bergerak ke arah yang
 benar — konsentrasi yang sebelumnya dilaporkan lebih rendah daripada
@@ -853,6 +892,7 @@ Kalau salah satunya tiba:
   (`tugas.py`) supaya isinya tidak pernah berbeda. Umur hasil di Redis
   (`XR_TTL_HASIL`, bawaan 1 jam) sekaligus jadi kebijakan retensinya.
 - **Penyatuan varian penulisan lawan transaksi** (§5.2) — Rekap Kredit/Debit, Summary Rekap, dan HHI kini mengelompokkan lewat nama yang sudah disatukan, dihitung **sekali** di `create_excel` supaya keempatnya tidak bisa berbeda. Dua aturan deterministik (normalisasi + potongan di tengah kata), bukan fuzzy. 91 baris menyatu atas 44 PDF referensi, total rupiah tidak berubah satu pun. Dijaga `tests/penyatuan.py`, yang menguji **apa yang harus tetap terpisah** juga — bukan hanya apa yang digabung.
+- **Bukti mengalahkan ambang, dan celahnya diberi angka** (§5.2) — lanjutan langsung dari butir di bawah, dikerjakan dengan `tests/palsu.py` sebagai penilai: veto angka dikecualikan untuk angka yang TERPOTONG (`SPBU 34.1580` dari `34.15802`), perbedaan yang jatuh SESUDAH titik potong tidak lagi dihitung sebagai bukti pihak berbeda, daftar **gelar akademik** tertutup ditambahkan di tahap 1 dengan satu nama boleh membawa DUA kunci (`Sagirin` · `SAGIRIN, ST` · `SAGIRIN ST` jadi satu baris), dan golongan **AMBIGU** menutup titik buta tahap 2 dengan angka (97,2% keputusan tanpa bukti). Satu cacat yang saya perkenalkan sendiri ikut ketahuan karena FMR bergerak: penyaringan calon induk dengan validasi konteks menghapus sinyal ambiguitas, sehingga yang ambigu tampak tunggal lalu digabung. Hasil: recall pola yang ditargetkan 94,6% → **98,1%**, FMR tetap **0,00%**, 44 PDF referensi 103 → **108 baris menyatu**. Dua mitigasi diuji lalu dibuang karena harganya lebih besar daripada manfaatnya, dan alasannya ditulis di kode.
 - **Kemiripan entitas & empat tahap penyatuan** (§5.2) — `engine/kemiripan_entitas.py` baru: enam ukuran kemiripan dalam satu fungsi (`calculate_entity_similarity`), penggolongan COMPANY/PERSON/UNKNOWN yang mencegah nama orang dibandingkan dengan nama badan usaha, ambang keyakinan yang bisa disetel tanpa menyentuh algoritma, dan `validasi_konteks` yang membatalkan nilai tinggi tanpa bukti. Ambangnya disapu dengan `tests/ambang.py` (baru) dan disetel dari titik awal 0.95/0.90/0.80 ke **0.90/0.85/0.80** berdasarkan hasilnya: pada 0.95/0.90 tahap kemiripan huruf menggabungkan 0 pasangan, pada 0.90/0.85 muncul 3 dan ketiganya diperiksa satu per satu dan benar, pada 0.85/0.80 tebakan mulai masuk. Atas 44 PDF referensi: 91 → 103 baris menyatu (9 dari perluasan tahap 1 & perbaikan tahap 2, 3 dari tahap 3) dan 109 → 175 kandidat, 57 di antaranya dari tahap 3. Dijaga `tests/kemiripan.py` (termasuk pagar atas temuan "peringkat kemiripan terbalik terhadap kebenaran") dan `tests/penyatuan.py`.
 - **Penggabungan butuh BUKTI, dan ada angkanya** (§5.2) — `tests/palsu.py` baru: nama dari 44 PDF referensi disaring sampai pasti pihak berbeda, diberi varian buatan menurut pola cacat nyata, lalu diukur recall per pola dan **false-merge rate**. Distraktor (varian yang labelnya pihak berbeda) yang memberi FMR gigi. Dengan itu sebagai penilai: syarat `bukti_potongan` menurunkan **FMR 0,47% → 0,00%** dengan harga 0,4 poin recall; pagar anti-jembatan menutup risiko laten union-find di tahap 3; veto token umum diukur lalu **ditolak** karena hanya membatalkan penggabungan yang benar; ambang diukur ulang jadi 0.85/0.80/0.80 — dan hasil terpentingnya, ambang tidak lagi mengubah apa pun di harness (identik di empat setelan), karena yang memutuskan sekarang bukti. Pemotongan daftar kandidat tidak lagi senyap.
 - **Audit akurasi kolom nama BRI** — 4.131 baris, lihat §7.4. Skripnya (`tests/audit_nama.py`) bank-agnostik dan bisa dipakai untuk audit ulang format lain.

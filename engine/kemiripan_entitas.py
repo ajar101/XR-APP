@@ -131,6 +131,58 @@ SAPAAN = ('SDR', 'SDRI', 'BPK', 'BP', 'BAPAK', 'IBU', 'SAUDARA', 'SAUDARI',
 SAPAAN_AWAL = re.compile(r'^(?:' + '|'.join(SAPAAN) + r')\s*\.?\s+',
                          re.IGNORECASE)
 
+# ── Gelar akademik di ekor nama ──────────────────────────────────────────
+# "SAGIRIN, ST" dan "Sagirin" orang yang sama, begitu pula "DUDUNG MULYADI,
+# M." dan "DUDUNG MULYADI" — keduanya ada di data referensi. Gelar dibuang
+# HANYA untuk membandingkan; nama yang ditampilkan tetap apa adanya, sama
+# seperti perlakuan terhadap sapaan.
+#
+# Daftarnya tertutup: gelar akademik Indonesia jumlahnya terbatas dan tidak
+# bertambah karena data baru — beda dari daftar alias singkatan, yang tidak
+# ada habisnya.
+GELAR = (
+    # Sarjana
+    'SPD', 'SSI', 'ST', 'SH', 'SE', 'SKOM', 'SSOS', 'SIP', 'SPSI', 'SKED',
+    'SFARM', 'SHUT', 'SP', 'SPT', 'SAG', 'STH', 'SKEP', 'SKM', 'SPDI', 'SST',
+    # Magister
+    'MM', 'MSI', 'MPD', 'MT', 'MH', 'MKOM', 'MSC', 'MAK', 'MBA', 'MPSI',
+    'MKES',
+    # Diploma & profesi
+    'AMD', 'AMDKEB', 'NS',
+)
+
+
+def _pola_gelar(g: str, pemisah: str) -> str:
+    """Satu gelar sebagai pola: huruf pertama, pemisah, sisanya."""
+    return g[0] + pemisah + g[1:]
+
+
+# BENTUK 1 — sesudah KOMA. Komanya sendiri yang menandai ini gelar, jadi di
+# sini huruf tunggal pun diterima: "DUDUNG MULYADI, M." (gelar yang ikut
+# terpotong dokumennya).
+GELAR_KOMA = re.compile(
+    r',\s*(?:' + '|'.join(
+        [_pola_gelar(g, r'\s*\.?\s*') for g in GELAR] + ['S', 'M', 'A']
+    ) + r')\s*\.?\s*$', re.IGNORECASE)
+
+# BENTUK 2 — bertitik, tanpa koma: "IIN RAJUDIN S.PD". Titiknya yang jadi
+# penanda.
+GELAR_TITIK = re.compile(
+    r'[\s,]+(?:' + '|'.join(_pola_gelar(g, r'\s*\.\s*') for g in GELAR
+                            if len(g) > 1) + r')\s*\.?\s*$', re.IGNORECASE)
+
+# BENTUK 3 — dipisah spasi: "Armanto S Pd", "Lili Muniri S Si".
+GELAR_SPASI = re.compile(
+    r'\s+(?:' + '|'.join(_pola_gelar(g, r'\s+') for g in GELAR
+                         if len(g) > 1) + r')\s*$', re.IGNORECASE)
+
+# SENGAJA TIDAK DITANGANI: gelar dua huruf tanpa koma maupun titik di ekor
+# nama badan usaha — "PT SUMBER SE". Bentuk itu jauh lebih mungkin POTONGAN
+# ("PT SUMBER SEJAHTERA" terpotong) daripada gelar, dan membuangnya berarti
+# memotong nama pihak. Sama alasannya dengan daftar bentuk badan usaha di
+# ekor nama yang sengaja hanya memuat PT/CV/PERSERO.
+POLA_GELAR = (GELAR_KOMA, GELAR_TITIK, GELAR_SPASI)
+
 BUKAN_ALFANUMERIK = re.compile(r'[^A-Z0-9]')
 PEMISAH_KATA = re.compile(r'[^A-Z0-9]+')
 
@@ -301,7 +353,7 @@ _TINDAKAN = {
 # ── Normalisasi ──────────────────────────────────────────────────────────
 
 @lru_cache(maxsize=UKURAN_INGATAN)
-def tanpa_hiasan(nama: str) -> str:
+def tanpa_hiasan(nama: str, buang_gelar: bool = True) -> str:
     """
     Nama dengan sapaan dan bentuk badan usaha dibuang, tapi kata-katanya
     masih utuh dan terpisah spasi.
@@ -312,13 +364,49 @@ def tanpa_hiasan(nama: str) -> str:
     dua tempat sekaligus.
     """
     teks = (nama or '').strip().upper()
-    teks = SAPAAN_AWAL.sub('', teks)
-    for pola in (BADAN_AWAL, BADAN_AKHIR):
+    # Berulang: dokumen bisa mencetak dua sapaan bertumpuk ("Sdr Bpk X").
+    sebelum = None
+    while sebelum != teks:
+        sebelum = teks
+        teks = SAPAAN_AWAL.sub('', teks).strip()
+    # Gelar dibuang lebih dulu supaya bentuk badan usaha di ekor tidak
+    # terhalang olehnya, dan berulang karena satu nama bisa memuat dua gelar
+    # ("IIN RAJUDIN, S.PD, M.M").
+    pola_gelar = POLA_GELAR if buang_gelar else ()
+    for pola in pola_gelar + (BADAN_AWAL, BADAN_AKHIR):
         sebelum = None
         while sebelum != teks:
             sebelum = teks
-            teks = pola.sub('' if pola is BADAN_AWAL else '', teks).strip()
+            teks = pola.sub('', teks).strip()
     return teks.strip()
+
+
+@lru_cache(maxsize=UKURAN_INGATAN)
+def kunci_varian(nama: str) -> tuple:
+    """
+    SEMUA kunci yang boleh dipakai mencocokkan satu nama — biasanya satu,
+    tapi dua kalau namanya bergelar.
+
+    Kenapa dua, dan bukan satu: dokumen menulis gelar dengan ejaan yang
+    tidak seragam, dan membuangnya HANYA dari sebagian ejaan justru
+    memecah pihak yang sama. Ketiga penulisan ini ada di satu berkas
+    referensi dan ketiganya satu orang:
+
+        Sagirin  ·  SAGIRIN, ST  ·  SAGIRIN ST
+
+    "SAGIRIN, ST" punya penanda koma sehingga gelarnya bisa dipastikan dan
+    dibuang; "SAGIRIN ST" tidak punya penanda apa pun, dan membuang "ST" di
+    situ berarti juga membuang ekor nama badan usaha yang kebetulan dua
+    huruf ("PT SUMBER SE", yang jauh lebih mungkin potongan "SEJAHTERA").
+
+    Jadi yang bergelar membawa DUA kunci — dengan dan tanpa gelar — dan dua
+    nama sekelompok kalau salah satu kuncinya bertemu. "SAGIRIN, ST"
+    menjembatani "Sagirin" (lewat kunci tanpa gelar) dan "SAGIRIN ST" (lewat
+    kunci dengan gelar), lalu ketiganya jadi satu baris Rekap.
+    """
+    dengan = BUKAN_ALFANUMERIK.sub('', tanpa_hiasan(nama, buang_gelar=False))
+    tanpa = BUKAN_ALFANUMERIK.sub('', tanpa_hiasan(nama))
+    return (tanpa,) if tanpa == dengan else (tanpa, dengan)
 
 
 @lru_cache(maxsize=UKURAN_INGATAN)
