@@ -21,6 +21,13 @@ dijawab dengan berpikir:
      keliru membuat HHI Score salah ke arah sebaliknya tanpa jejak apa pun
      di laporan.
 
+Sesudah dua sapuan itu, skrip ini mencetak DAFTAR AUDIT: kelompok yang
+anggotanya paling tidak mirip satu sama lain. Itu mitigasi untuk paparan
+yang tidak bisa dihilangkan aturan apa pun — aturan tahap 2 tidak bisa
+membedakan potongan mesin dari nama lain yang kebetulan berawalan sama
+("SUKENDAR" lawan "SUKENDARININGTYAS"). Yang bisa dilakukan bukan menebak
+lebih pintar, melainkan menaruh yang paling perlu dilihat manusia di atas.
+
 Datanya dari tests/snapshot/ — hasil ekstraksi 44 PDF referensi yang dijaga
 tests/regresi.py, jadi tidak perlu membaca PDF lagi dan angkanya tetap angka
 nyata, bukan sintetis.
@@ -41,7 +48,10 @@ SESAT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, SESAT)
 
 import engine.penyatu_nama as pn                              # noqa: E402
-from engine.kemiripan_entitas import AmbangKemiripan          # noqa: E402
+from engine.kemiripan_entitas import (                        # noqa: E402
+    AmbangKemiripan,
+    calculate_entity_similarity,
+)
 
 # Label kategori ("Biaya Administrasi", dst) dikecualikan persis seperti di
 # engine/excel_builder.py — kalau tidak, angkanya tidak sebanding dengan yang
@@ -174,6 +184,52 @@ def sapuan_gabung(data, rinci: bool) -> None:
               'seluruh setelan di atas)')
 
 
+def penggabungan_paling_renggang(data, rinci: bool) -> None:
+    """
+    Daftar audit: kelompok yang anggotanya paling TIDAK mirip satu sama lain.
+
+    Kenapa ini ada, dan kenapa bukan berupa ambang: aturan tahap 2 (relasi
+    awalan + potongan di tengah kata) tidak bisa membedakan potongan mesin
+    dari nama lain yang kebetulan lebih pendek dan berawalan sama —
+    "SUKENDAR" lawan "SUKENDARININGTYAS". tests/palsu.py mengukur paparannya
+    (golongan AMBIGU, 98%), dan satu mitigasi struktural sudah diuji lalu
+    dibuang karena harganya lebih besar daripada manfaatnya (lihat catatan
+    di engine/penyatu_nama.py).
+
+    Yang tersisa, dan yang benar: JANGAN menebak, TAMPAKKAN. Kemiripan
+    terendah antar-anggota satu kelompok adalah ukuran kasar seberapa jauh
+    penggabungan itu meregang, jadi daftar ini menaruh yang paling perlu
+    dilihat manusia di atas.
+
+    Perhatikan kemiripan rendah TIDAK otomatis berarti salah: potongan mesin
+    yang benar memang bisa sangat tidak mirip nama penuhnya ("RAMOT INTI S"
+    lawan "Ramot Inti Selaras Kargo" = 0,598). Daftar ini urutan
+    PEMERIKSAAN, bukan daftar tuduhan.
+    """
+    print('\n' + '=' * 72)
+    print('DAFTAR AUDIT — kelompok yang anggotanya paling tidak mirip')
+    print('=' * 72)
+    renggang = []
+    for nama_berkas, nama in data:
+        h = pn.satukan(nama, abaikan=ABAIKAN)
+        for wakil, anggota in h.varian.items():
+            pasangan = [(calculate_entity_similarity(x, y).overall_score, x, y)
+                        for i, x in enumerate(anggota)
+                        for y in anggota[i + 1:]]
+            if pasangan:
+                renggang.append(min(pasangan) + (nama_berkas, len(anggota)))
+    renggang.sort()
+    print(f'{len(renggang)} kelompok berisi lebih dari satu varian. '
+          f'{"Seluruhnya" if rinci else "15 paling renggang"}:')
+    for nilai, x, y, berkas, jml in (renggang if rinci else renggang[:15]):
+        print(f'  {nilai:.3f}  ({jml} varian, {berkas[:26]})\n'
+              f'          {x[:62]!r}\n       ↔  {y[:62]!r}')
+    if renggang:
+        bawah = [r for r in renggang if r[0] < 0.60]
+        print(f'\nkelompok dengan anggota terjauh di bawah 0.60: '
+              f'{len(bawah)}/{len(renggang)}')
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--rinci', action='store_true',
@@ -193,6 +249,7 @@ def main() -> int:
 
     sapuan_tinjau(data, args.rinci)
     sapuan_gabung(data, args.rinci)
+    penggabungan_paling_renggang(data, args.rinci)
     return 0
 
 

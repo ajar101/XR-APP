@@ -124,6 +124,35 @@ from engine.kemiripan_entitas import (
 # Awalan pendek cocok ke terlalu banyak nama untuk bisa dipercaya.
 PANJANG_KUNCI_MIN = 8
 
+# HARGA YANG DIBAYAR ATURAN TAHAP 2, DIUKUR
+#
+# Relasi awalan + potongan di tengah kata adalah satu-satunya sinyal yang
+# tersedia, dan ia TIDAK bisa membedakan potongan mesin dari nama lain yang
+# kebetulan lebih pendek dan berawalan sama:
+#
+#     SUKENDAR  ←  potongan "SUKENDARININGTYAS"?  atau nama tersendiri?
+#
+# Pasangan itu ada di data referensi, dan tidak ada aturan yang bisa
+# memastikan. tests/palsu.py mengukur seberapa besar paparannya lewat
+# golongan AMBIGU: pada pasangan berbentuk begitu, sistem memutuskan
+# menggabungkan 98% kasus. Angka itu BUKAN tingkat kesalahan — ia tingkat
+# "keputusan tanpa bukti", dan sengaja dilaporkan di luar FMR supaya
+# "keliru" tidak tercampur dengan "tidak mungkin diketahui".
+#
+# SATU MITIGASI DIUJI LALU DIBUANG: mewajibkan potongan menyisakan minimal
+# satu KATA UTUH yang sama ("BARASENTOSA LES" menyisakan "BARASENTOSA";
+# "SUKENDAR" tidak menyisakan apa pun). Diukur, ia menurunkan keputusan
+# tanpa bukti dari 98,1% ke 87,2% — tapi ikut menghapus 6 penggabungan yang
+# BENAR di 44 PDF referensi (105 → 99) dan menurunkan recall potongan dari
+# 97,4% ke 95,1%. Sebabnya: mayoritas pasangan ambigu tetap punya kata utuh
+# yang sama, jadi aturan itu hampir tidak menyentuh kasus yang dituju
+# sementara harganya nyata.
+#
+# Jadi paparan ini diterima secara sadar, dan ditangani dengan MENAMPAKKAN
+# alih-alih menebak: tiap baris Rekap mencantumkan kolom "Varian Nama
+# Digabung", dan `python tests/ambang.py` mencetak daftar penggabungan
+# paling renggang untuk diaudit manusia.
+
 # Berapa banyak kandidat dari tahap 3 yang ikut dilaporkan. Tahap 1 dan 2
 # melaporkan semuanya karena jumlahnya selalu sedikit dan tiap barisnya
 # menyangkut relasi awalan yang konkret. Kemiripan huruf lain ceritanya:

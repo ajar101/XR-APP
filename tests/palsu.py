@@ -99,19 +99,26 @@ SEED = 20260917
 # diisi dari garis dasar yang sudah diperiksa, lalu hanya boleh DIPERKETAT.
 #
 # GARIS DASAR pada seed bawaan, sesudah empat tahap penyatuan dengan ambang
-# 0.90/0.85/0.80 (dicatat supaya "normal" itu punya angka):
+# 0.85/0.80/0.80 (dicatat supaya "normal" itu punya angka):
 #
-#     DITARGETKAN      95.0%   (potong lebar 78.3% — yang paling lemah)
-#     BELUM DITANGANI  20.5%   (gelar 22.1%, salah ketik 18.6%)
-#     SENGAJA DITAHAN   0.7%
-#     DISTRAKTOR        0.8%
-#     FMR              0.47%   (5 dari 1.053 pasangan yang melebur)
+#     DITARGETKAN      97.4%   (potong lebar 91.6% — yang paling lemah)
+#     BELUM DITANGANI   0.0%   (gelar 0%, salah ketik 0% — celah yang diukur)
+#     SENGAJA DITAHAN   0.0%
+#     DISTRAKTOR        0.0%
+#     FMR              0.00%
+#     AMBIGU           98.1%   keputusan tanpa bukti — DI LUAR FMR
+#
+# Riwayat angkanya, supaya arah perubahan kelihatan: FMR pernah 0,47% dan
+# turun ke 0 begitu penggabungan tahap 3 butuh bukti potongan; recall pola
+# yang ditargetkan naik 94,6% → 95,5% → 96,5% → 97,4% lewat tiga perbaikan
+# berurutan (pengecualian veto angka, ambiguitas tahap 2 yang kembali
+# terdeteksi, dan perbedaan sesudah titik potong).
 #
 # Batasnya diberi kelonggaran dari garis dasar itu — cukup lapang supaya
 # perubahan kecil tidak menimbulkan alarm palsu, cukup rapat supaya regresi
 # nyata tidak lewat.
 FMR_MAKS = 0.01        # bagian penggabungan yang meleburkan dua pihak berbeda
-RECALL_MIN = 0.90      # recall gabungan seluruh pola yang DITARGETKAN
+RECALL_MIN = 0.93      # recall gabungan seluruh pola yang DITARGETKAN
 
 # Satu "laporan sintetis" dibuat sebesar laporan nyata (rata-rata 93 nama
 # unik per PDF referensi) supaya jumlah pasangan yang bersaing — dan karena
@@ -298,11 +305,42 @@ def ganti_angka(nama, rng, kolam):
     return nama[:i] + baru + nama[i + 1:]
 
 
+def perpanjang_kata_terakhir(nama, rng, kolam):
+    """
+    "SUKENDAR" → "SUKENDARINIGTYAS": kata terakhir diperpanjang, TANPA spasi.
+
+    Ini bentuk yang paling sulit di seluruh berkas ini, dan ia dibuat justru
+    untuk mengukur titik buta. Hasilnya berelasi awalan dengan sumbernya DAN
+    potongannya jatuh di tengah kata — dua syarat yang dipakai tahap 2 untuk
+    menyimpulkan potongan mesin. Padahal ia nama lain: pasangan ini ada di
+    data nyata sebagai "SUKENDARININGTYAS" lawan "SUKENDAR".
+
+    Tidak ada aturan yang bisa memastikan mana yang benar, dan karena itu
+    hasilnya TIDAK dihitung sebagai false merge — melainkan dilaporkan
+    sendiri sebagai "keputusan tanpa bukti". Menyebutnya salah akan
+    mencampurkan "keliru" dengan "tidak mungkin diketahui"; menyebutnya
+    benar akan menyembunyikan bahwa sistem memutuskan tanpa dasar.
+    """
+    kata = nama.strip().split()
+    if not kata or not kata[-1].isalpha() or len(kata[-1]) < 3:
+        return None
+    asing = _kata_asing(nama, rng, kolam)
+    if not asing:
+        return None
+    return ' '.join(kata[:-1] + [kata[-1] + asing.lower()])
+
+
 # Varian yang labelnya PIHAK BERBEDA, bukan varian penulisan. Setiap kali
 # salah satunya melebur dengan sumbernya, itu false merge.
 DISTRAKTOR = [
     ('kata tengah diganti', ganti_kata),
     ('angka diganti',       ganti_angka),
+]
+
+# Pihak berbeda JUGA, tapi pasangannya tidak bisa dipastikan oleh aturan
+# apa pun — dilaporkan sendiri, di luar FMR (lihat perpanjang_kata_terakhir).
+AMBIGU = [
+    ('kata terakhir diperpanjang', perpanjang_kata_terakhir),
 ]
 
 POLA = [
@@ -324,7 +362,8 @@ def satu_laporan(populasi, rng):
     Bangun satu laporan sintetis: nama asli + variannya.
 
     Returns:
-        (daftar string, {string -> id entitas}, [(pola, asli, varian)])
+        (daftar string, {string -> id entitas}, [(pola, asli, varian)],
+         {string ambigu})
     """
     label = {}
     varian_dibuat = []
@@ -333,6 +372,7 @@ def satu_laporan(populasi, rng):
     # id entitas dipakai ulang di bawah, jadi disusun sekali dan tetap
     label = {n: i for i, n in enumerate(populasi)}
     berikutnya = len(populasi)
+    ambigu = set()
 
     for idx, asli in enumerate(populasi):
         # Pola dibagi HANYA dari yang benar-benar berlaku untuk nama ini.
@@ -360,7 +400,17 @@ def satu_laporan(populasi, rng):
             berikutnya += 1
             varian_dibuat.append(('* ' + nama_pola, asli, hasil))
 
-    return list(label), label, varian_dibuat
+        # Pasangan ambigu, dihitung di luar FMR.
+        if idx % 3 == 0:
+            nama_pola, fungsi = AMBIGU[idx % len(AMBIGU)]
+            hasil = fungsi(asli, rng, populasi)
+            if hasil and hasil not in label:
+                label[hasil] = berikutnya
+                berikutnya += 1
+                ambigu.add(hasil)
+                varian_dibuat.append(('? ' + nama_pola, asli, hasil))
+
+    return list(label), label, varian_dibuat, ambigu
 
 
 def ukur(seed=SEED, ambang=None):
@@ -373,18 +423,23 @@ def ukur(seed=SEED, ambang=None):
     per_pola = defaultdict(lambda: [0, 0])      # pola -> [ketemu, total]
     salah = []                                  # penggabungan antar-entitas
     jumlah_gabung = 0
+    ambigu_diputus = [0, 0]                     # [diputuskan, total pasangan]
 
     for b in range(JUMLAH_LAPORAN):
         bagian = populasi[b * PER_LAPORAN:(b + 1) * PER_LAPORAN]
         if len(bagian) < 10:
             break
-        daftar, label, varian = satu_laporan(bagian, rng)
+        daftar, label, varian, ambigu = satu_laporan(bagian, rng)
         h = satukan(daftar, ambang=ambang)
 
         for nama_pola, asli, v in varian:
             per_pola[nama_pola][1] += 1
             if h(v) == h(asli):
                 per_pola[nama_pola][0] += 1
+            if v in ambigu:
+                ambigu_diputus[1] += 1
+                if h(v) == h(asli):
+                    ambigu_diputus[0] += 1
 
         # Semua pasangan yang BERAKHIR satu kelompok, dihitung per kelompok.
         kelompok = defaultdict(list)
@@ -395,11 +450,16 @@ def ukur(seed=SEED, ambang=None):
                 continue
             for i, x in enumerate(anggota):
                 for y in anggota[i + 1:]:
+                    # Pasangan ambigu tidak masuk FMR — ia bukan "keliru"
+                    # melainkan "tidak mungkin diketahui", dan mencampurkan
+                    # keduanya membuat angkanya tidak bisa dipakai.
+                    if x in ambigu or y in ambigu:
+                        continue
                     jumlah_gabung += 1
                     if label[x] != label[y]:
                         salah.append((b, x, y))
 
-    return populasi, per_pola, salah, jumlah_gabung
+    return populasi, per_pola, salah, jumlah_gabung, ambigu_diputus
 
 
 def main() -> int:
@@ -416,7 +476,8 @@ def main() -> int:
         tinggi, mungkin, tinjau = (float(x) for x in args.ambang.split(','))
         ambang = AmbangKemiripan(tinggi=tinggi, mungkin=mungkin, tinjau=tinjau)
 
-    populasi, per_pola, salah, jumlah_gabung = ukur(args.seed, ambang)
+    (populasi, per_pola, salah, jumlah_gabung,
+     ambigu_diputus) = ukur(args.seed, ambang)
     print(f'populasi: {len(populasi)} nama yang pasti pihak berbeda, '
           f'{JUMLAH_LAPORAN} laporan sintetis @{PER_LAPORAN} nama '
           f'(seed {args.seed}, ambang {ambang.tinggi}/{ambang.mungkin}/'
@@ -426,7 +487,8 @@ def main() -> int:
     print('-' * 66)
     ringkas = defaultdict(lambda: [0, 0])
     urut_pola = ([(n, g) for n, _f, g in POLA]
-                 + [('* ' + n, 'DISTRAKTOR') for n, _f in DISTRAKTOR])
+                 + [('* ' + n, 'DISTRAKTOR') for n, _f in DISTRAKTOR]
+                 + [('? ' + n, 'AMBIGU') for n, _f in AMBIGU])
     for nama_pola, gol in urut_pola:
         ketemu, total = per_pola[nama_pola]
         recall = ketemu / total if total else float('nan')
@@ -435,19 +497,31 @@ def main() -> int:
         print(f'{nama_pola:<24} {gol:<16} {ketemu:>7} {total:>6} {recall:>7.1%}')
     print('-' * 66)
     for gol in ('DITARGETKAN', 'BELUM DITANGANI', 'SENGAJA DITAHAN',
-                'DISTRAKTOR'):
+                'DISTRAKTOR', 'AMBIGU'):
         ketemu, total = ringkas[gol]
         if not total:
             continue
         arah = {'DITARGETKAN': 'harus tinggi',
                 'BELUM DITANGANI': 'mengukur celah',
                 'SENGAJA DITAHAN': 'harus RENDAH',
-                'DISTRAKTOR': 'pihak BERBEDA — harus 0%'}[gol]
+                'DISTRAKTOR': 'pihak BERBEDA — harus 0%',
+                'AMBIGU': 'DI LUAR FMR — lihat catatan'}[gol]
         print(f'{gol:<24} {ketemu:>24}/{total:<6} {ketemu/total:>6.1%}  ({arah})')
 
     fmr = len(salah) / jumlah_gabung if jumlah_gabung else 0.0
     print(f'\nFALSE-MERGE RATE: {len(salah)} dari {jumlah_gabung} pasangan yang '
           f'melebur = {fmr:.2%}')
+    if ambigu_diputus[1]:
+        print(f'KEPUTUSAN TANPA BUKTI: {ambigu_diputus[0]} dari '
+              f'{ambigu_diputus[1]} pasangan AMBIGU digabung = '
+              f'{ambigu_diputus[0] / ambigu_diputus[1]:.1%}')
+        print('  Pasangan ambigu berelasi awalan DAN terpotong di tengah kata,\n'
+              '  jadi tahap 2 menyimpulkannya potongan mesin — padahal ia bisa\n'
+              '  nama lain ("SUKENDAR" vs "SUKENDARININGTYAS", ada di data\n'
+              '  nyata). Tidak ada aturan yang bisa memastikan, jadi angka ini\n'
+              '  BUKAN kesalahan; ia mengukur seberapa sering sistem memutuskan\n'
+              '  tanpa dasar. Inilah titik buta yang tidak terlihat FMR, karena\n'
+              '  populasinya sengaja tidak memuat pasangan berelasi awalan.')
 
     if salah:
         print('\nPENGGABUNGAN SALAH (dua pihak berbeda jadi satu baris Rekap):')
