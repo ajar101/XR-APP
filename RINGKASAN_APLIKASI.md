@@ -779,11 +779,12 @@ Satu tabel supaya tidak perlu membaca seluruh §6 untuk tahu apa yang belum bere
 | 9 | Singkatan belum disatukan (`WKS`, `PT BAP`, `PT BMH`) | Satu pihak masih pecah di Rekap bila dokumen memakai singkatan; HHI ikut terbaca lebih rendah | Sedang | §6.1 |
 | 10 | 175 kandidat penggabungan menunggu keputusan manusia | Tidak salah, tapi belum ada cara mencatat keputusannya supaya tidak ditanya ulang tiap laporan | Rendah | §6.1 |
 | 11 | Keterangan transaksi ikut terbawa ke kolom Nama (`… THR`, `… BB SPSI`, `… BI FAST`) | 42 nama Mandiri / 322 baris: satu pihak pecah dua karena sebagian transaksinya berlabel jenis pembayaran | Sedang | §6.1 |
-| 12 | Menjalankan di localhost terhalang `XR_SECRET_KEY`, dan jalan keluarnya justru menyalakan debug | Pemakai yang hanya ingin mencoba di mesin sendiri didorong ke `XR_DEBUG=1`, yang membuka halaman traceback berisi data rekening | **Tinggi** | §6.1 |
-| 13 | `XR_UPLOAD_DIR` dibaca `worker.py` tapi diabaikan `app.py` | Belum merusak apa pun (keduanya kebetulan sama), tapi menyetel variabel itu akan membuat worker menyapu folder yang salah | Sedang | §6.1 |
-| 14 | Mode antrean menuntut `uploads/` dibagi antara web & worker | Belum jadi masalah karena keduanya masih satu proses/mesin; akan menggagalkan **seluruh** ekstraksi kalau dipisah container tanpa volume bersama | Sedang | §6.2 |
+| 12 | `XR_UPLOAD_DIR` dibaca `worker.py` tapi diabaikan `app.py` | Belum merusak apa pun (keduanya kebetulan sama), tapi menyetel variabel itu akan membuat worker menyapu folder yang salah | Sedang | §6.1 |
+| 13 | Mode antrean menuntut `uploads/` dibagi antara web & worker | Belum jadi masalah karena keduanya masih satu proses/mesin; akan menggagalkan **seluruh** ekstraksi kalau dipisah container tanpa volume bersama | Sedang | §6.2 |
 
-Butir 13 dan 14 baru ketahuan saat merancang Docker Compose, bukan dari pemakaian — keduanya laten dan tidak mempengaruhi hasil hari ini.
+Butir 12 dan 13 baru ketahuan saat merancang Docker Compose, bukan dari pemakaian — keduanya laten dan tidak mempengaruhi hasil hari ini.
+
+Butir `XR_SECRET_KEY` yang dulu nomor 12 dan satu-satunya bertingkat **Tinggi** kini **sudah selesai** — lihat §6.4.
 
 **Urutan yang disarankan** (per 16 September 2026, selaras dengan keputusan
 pilot di §6.2):
@@ -791,16 +792,15 @@ pilot di §6.2):
 | Tahap | Kerjakan | Kenapa sekarang |
 |---|---|---|
 | **Sedang berjalan** | Pilot di localhost, satu pengguna | Yang diuji akurasi ekstraksi, bukan ketahanan layanan |
-| **Berikutnya** | Butir 12 — jalan menjalankan di localhost tanpa debug | Satu-satunya butir bertingkat **Tinggi**: jalan keluar yang tersedia sekarang justru membuka data rekening |
-| | Butir 1 — pemasangan bunga & pajak lintas hari | Satu-satunya butir terbuka yang menghasilkan temuan **palsu** |
+| **Berikutnya** | Butir 1 — pemasangan bunga & pajak lintas hari | Satu-satunya butir terbuka yang menghasilkan temuan **palsu** |
 | | Butir 6 — audit ulang nama BCA/Mandiri/BNI dua lapis | Audit BRI membuktikan sampel saja melewatkan 2 dari 3 kelas cacat |
 | | Butir 2, 3 — jadwal biaya admin BRI & hari libur | Menunggu data dari luar (ketentuan BRI, kalender resmi) |
-| **Saat pilot naik ke tim** | Butir 9, 10, 13, 14 + Docker Compose, lalu §6.2 | Butir 14 akan menggagalkan seluruh ekstraksi kalau terlewat |
+| **Saat pilot naik ke tim** | Butir 9, 10, 12, 13 + Docker Compose, lalu §6.2 | Butir 13 akan menggagalkan seluruh ekstraksi kalau terlewat |
 | **Nanti, kalau perlu** | §6.3 migrasi | Prasyaratnya sudah terpenuhi; yang menahan tinggal nilainya |
 
-**Tidak ada butir terbuka yang membuat angka laporan salah tanpa diketahui.** Satu-satunya yang menghasilkan temuan keliru adalah butir 1, dan temuannya bertingkat Rendah. Butir 4–6 dan 9–11 menyentuh kolom Nama, bukan nominal; butir 13–14 laten dan baru berdampak pada susunan deployment tertentu. Total mutasi dan saldo akhir seluruh format tetap dijaga checksum extractor terhadap angka resmi yang tercetak di PDF-nya sendiri.
+**Tidak ada butir terbuka yang membuat angka laporan salah tanpa diketahui.** Satu-satunya yang menghasilkan temuan keliru adalah butir 1, dan temuannya bertingkat Rendah. Butir 4–6 dan 9–11 menyentuh kolom Nama, bukan nominal; butir 12–13 laten dan baru berdampak pada susunan deployment tertentu. Total mutasi dan saldo akhir seluruh format tetap dijaga checksum extractor terhadap angka resmi yang tercetak di PDF-nya sendiri.
 
-Butir keamanan & operasional yang dulu ada di sini (debug mode menyala, tidak ada autentikasi, ekstraksi menahan koneksi, laporan menumpuk di disk) **sudah selesai** — lihat §6.4 dan `DEPLOY.md`.
+Butir keamanan & operasional yang dulu ada di sini (debug mode menyala, tidak ada autentikasi, ekstraksi menahan koneksi, laporan menumpuk di disk, dan jalan menjalankan di localhost yang dulu memaksa debug) **sudah selesai** — lihat §6.4 dan `DEPLOY.md`.
 
 ---
 
@@ -809,21 +809,6 @@ Butir keamanan & operasional yang dulu ada di sini (debug mode menyala, tidak ad
 Urut dari yang paling berdampak:
 
 - **Pemasangan bunga & pajak bunga masih per tanggal persis.** `_check_rasio_pajak_bunga` (`engine/anomaly_detector.py`) mengelompokkan bunga dan pajaknya berdasarkan kolom `Tanggal` yang sama. BRI untuk sebagian bulan mendebet "PAJAK BUNGA SIMPANAN" H+1 dari bunganya (bunga 20/11, pajak 21/11), sehingga muncul **dua temuan palsu bertingkat Rendah** ("bunga tanpa pasangan pajak" dan sebaliknya) — 2 kejadian dari 9 PDF referensi BRI. Tanggalnya sengaja **tidak** digeser extractor supaya laporan tetap sama dengan dokumennya; pemasangan lintas-hari harus diputuskan di engine dan menyentuh semua bank. Ini satu-satunya butir terbuka yang menghasilkan temuan palsu, jadi paling layak dikerjakan duluan.
-
-- **Jalan menjalankan aplikasi di localhost tanpa menyalakan debug.** Saat ini
-  `XR_SECRET_KEY` wajib, dan satu-satunya jalan keluarnya adalah `XR_DEBUG=1`
-  yang memakai kunci sementara — padahal itu **sekaligus menyalakan halaman
-  traceback Werkzeug yang menampilkan isi variabel**, yaitu hal yang sengaja
-  dimatikan justru karena variabel itu berisi data rekening. Jadi pemakai yang
-  hanya ingin mencoba di mesin sendiri didorong ke pilihan yang paling tidak
-  aman, dan itu masih berlaku apa adanya di `app.py` (cabang `XR_DEBUG` pada
-  penentuan `secret_key`). Ketahuan dari pemakaian nyata, bukan dari pengujian.
-
-  **Rancangan perbaikannya:** pisahkan kedua hal itu — kalau `XR_SECRET_KEY`
-  tidak disetel DAN aplikasi hanya mengikat ke localhost, buat kunci sekali
-  lalu simpan di `data/secret_key` (di luar git, izin berkas terbatas) supaya
-  sesi tetap awet antar restart tanpa perlu menyalakan debug. Penolakan tetap
-  berlaku begitu aplikasi mengikat ke alamat yang bisa dijangkau jaringan.
 
 - **Keterangan transaksi ikut terbawa ke kolom Nama.** Ditemukan saat menelaah
   daftar kandidat penyatuan nama (§5.2). Sebagian "kandidat" sebenarnya pihak
@@ -1035,6 +1020,57 @@ Kalau salah satunya tiba:
 
 ### 6.4 Baru selesai — supaya tidak dikerjakan dua kali
 
+- **Menjalankan di localhost tidak lagi menuntut debug** (dulu butir 12 §6.0,
+  satu-satunya bertingkat **Tinggi**; ditemukan dari pemakaian nyata, bukan
+  dari pengujian). `XR_SECRET_KEY` wajib, dan satu-satunya jalan keluarnya
+  adalah `XR_DEBUG=1` — yang **sekaligus** menyalakan halaman traceback
+  Werkzeug berisi isi variabel lokal, yaitu nama pemilik rekening, nomor
+  rekening, dan baris mutasinya. Pemakai yang cuma ingin mencoba di mesinnya
+  sendiri karena itu didorong ke pilihan yang membuka data rekening.
+
+  Dua hal yang sebenarnya tidak berhubungan — "sesi harus awet" dan "halaman
+  error boleh menampilkan isi variabel" — kini dipisah. Di mesin sendiri kunci
+  dibuat sekali lalu disimpan di `data/secret_key` (bisa dipindah lewat
+  `XR_SECRET_FILE`), dengan izin `0600` sejak detik pertama: `os.open` memakai
+  `O_CREAT|O_EXCL` dan mode 0600 langsung, bukan `open()` lalu `chmod` — di
+  antara keduanya ada jeda saat kunci yang menandatangani seluruh sesi masih
+  terbaca pengguna lain di mesin yang sama.
+
+  **Arahnya tidak bisa terbalik, dan itu yang dijaga tes.** Berkas kunci hanya
+  dipakai kalau app.py dijalankan LANGSUNG **dan** alamat ikatnya loopback.
+  Lewat gunicorn/`wsgi.py` ia tidak pernah dibaca — sekalipun berkasnya ikut
+  tersalin dari percobaan lokal — sehingga daftar periksa `DEPLOY.md` tidak
+  bisa dilemahkan diam-diam. Alamat ikat dihitung satu kali di `_alamat_ikat()`
+  dan dipakai dua kali (memutuskan kunci, lalu benar-benar mengikat), supaya
+  keduanya tidak bisa berbeda.
+
+  `SESSION_COOKIE_SECURE` ikut mengenali mode lokal. Diukur, bukan diasumsikan:
+  dengan `Secure` pun login di `http://127.0.0.1` masih berhasil, karena curl
+  dan peramban modern memperlakukan loopback sebagai origin tepercaya. Jadi ini
+  pembetulan pernyataan, bukan perbaikan kerusakan yang terlihat — `Secure`
+  berarti "hanya lewat HTTPS" pada server yang tidak punya HTTPS, dan
+  menyandarkan sesi pada pengecualian loopback berarti ia diam-diam putus di
+  peramban lama. Diverifikasi ujung ke ujung: `POST /login` 302, `GET /` dengan
+  cookie 200, tanpa cookie 302. Dijaga `tests/kunci_sesi.py`, yang ketiga
+  pemeriksaannya diuji bergigi dengan menyuntikkan cacat lebih dulu.
+
+  **Dua cacat yang saya perkenalkan sendiri ikut ketahuan sebelum masuk**, dan
+  keduanya bentuk "berhasil jalan tapi salah" — jenis yang paling sulit
+  terlihat:
+
+  · `XR_HOST` kosong sempat masuk daftar alamat lokal. Socket yang di-bind ke
+    `''` mengikat ke **seluruh** antarmuka (`bind('')` → `0.0.0.0`), jadi
+    nilai kosong akan melayani jaringan memakai kunci yang dimaksudkan untuk
+    mesin sendiri. Sekarang kosong berarti "tidak disetel" dan jatuh ke
+    loopback.
+  · Berkas kunci yang ada tapi **kosong** — mis. penulisan sebelumnya terhenti
+    karena disk penuh — sempat dijawab dengan kunci acak. Itu persis kegagalan
+    senyap yang seluruh rancangan ini hindari: aplikasinya menyala, lalu
+    pemakai ter-logout tiap restart tanpa satu pun pesan galat. Sekarang ia
+    berhenti dan menyebut sebabnya.
+
+  Keduanya punya pemeriksaannya sendiri sekarang.
+
 - **Pemeriksaan jejak cetak jadi bank-agnostik** (sebelumnya tercatat di §6.1 sebagai "belum dikerjakan"). Gerbang `BANK_POLA_MENTAH` dan `_check_mutasi_hilang` sudah tidak ada di kode. Keempat pemeriksaan berbasis jejak cetak (running balance, nomor halaman, template halaman, format nominal) kini digerakkan metadata `_provenance` berupa *fakta*, bukan pola regex per bank. **Ketujuh extractor** mengirim `_provenance` dan `_checksum`; enam di antaranya (semua kecuali BCA) juga mengirim `_peringatan`. Cakupan tiap pemeriksaan kini mengikuti apa yang memang dicetak dokumennya: nomor halaman hanya ada di BCA, Mandiri Kopra, BNI Account Statement, dan BRI; header kolom per halaman ada di semua kecuali Mandiri Rekening Koran; `teks_mentah` hanya dikirim BCA. Penjelasan per indikator ada di sheet **Daftar Indikator** di dalam laporan Excel-nya sendiri.
 - **Katalog isi laporan jadi satu sumber kebenaran** (`engine/report_catalog.py`) — daftar sheet & indikator tidak lagi ditulis ulang di engine, UI, dan dokumen ini. Dijaga `tests/katalog.py`. Lihat §2.2.
 - **HTML/CSS/JS keluar dari `app.py`** (743 → 229 baris) ke `templates/` dan `static/`.
@@ -1056,6 +1092,7 @@ Kalau salah satunya tiba:
   berjalan seperti semula. Keduanya memakai jalur ekstraksi yang sama
   (`tugas.py`) supaya isinya tidak pernah berbeda. Umur hasil di Redis
   (`XR_TTL_HASIL`, bawaan 1 jam) sekaligus jadi kebijakan retensinya.
+- **Jalan menjalankan di localhost tanpa menyalakan debug** (§6.4) — dulu butir 12 §6.0 dan satu-satunya bertingkat **Tinggi**, ditemukan dari pemakaian nyata. `XR_SECRET_KEY` wajib dan satu-satunya jalan keluarnya `XR_DEBUG=1`, yang sekaligus menyalakan halaman traceback berisi nama pemilik rekening, nomor rekening, dan baris mutasinya — jadi pemakai yang cuma ingin mencoba didorong ke pilihan yang membuka data rekening. "Sesi harus awet" dan "halaman error boleh menampilkan isi variabel" kini dipisah: di mesin sendiri kunci dibuat sekali lalu disimpan di `data/secret_key` (bisa dipindah lewat `XR_SECRET_FILE`) dengan izin `0600` sejak detik pertama lewat `os.open(O_CREAT|O_EXCL, 0o600)`, bukan `open()` lalu `chmod` yang menyisakan jeda terbaca. Arahnya tidak bisa terbalik: berkas kunci hanya berlaku kalau app.py dijalankan LANGSUNG **dan** alamat ikatnya loopback, jadi jalur gunicorn tetap menuntut `XR_SECRET_KEY` sekalipun berkasnya ikut tersalin. `_alamat_ikat()` menjadi satu-satunya sumber alamat, dipakai untuk memutuskan kunci sekaligus untuk benar-benar mengikat. `SESSION_COOKIE_SECURE` ikut mengenali mode lokal — dan itu pembetulan pernyataan, bukan perbaikan kerusakan yang terlihat: diukur, dengan `Secure` pun login di `http://127.0.0.1` masih berhasil karena loopback diperlakukan origin tepercaya. Diverifikasi ujung ke ujung (POST /login 302, GET / dengan cookie 200, tanpa cookie 302) dan dijaga `tests/kunci_sesi.py` baru, yang pemeriksaannya diuji bergigi dengan menyuntikkan cacat lebih dulu. Dua cacat yang saya perkenalkan sendiri ikut ketahuan sebelum masuk — `XR_HOST` kosong yang sempat dianggap alamat lokal padahal `bind('')` mengikat ke seluruh antarmuka, dan berkas kunci kosong yang sempat dijawab kunci acak sehingga pemakai ter-logout tiap restart tanpa pesan galat. `DEPLOY.md` §4.1 dapat bagian localhost dan perintah PowerShell yang sebelumnya tidak ada sama sekali.
 - **Cacat dokumen dimodelkan, bukan ditebak: karakter ke-24 yang dikosongkan** (§5.2) — satu berkas BNI baru memunculkan empat ejaan untuk satu pihak (`PT HINO FINANCE INDONESIA` · `PT HINO FINANCE INDONES A` · `HINO FINANCE INDONESIA PT` · `HINO FINANCE INDONESIA T`), dan tiga di antaranya berakhir sebagai kandidat tanpa satu pun tergabung. Ditelusuri sampai level glif PDF, penyebabnya bukan pembacaan melainkan dokumennya: karakter ke-24 diganti **spasi literal** yang lebarnya persis selebar huruf yang hilang. Posisinya absolut, khas batas kolom pada field lebar tetap. **Tahap 1b** baru memodelkannya (`rusak_posisi24`) dan memulihkannya dengan menuntut rekonstruksi yang cocok PERSIS terhadap ejaan utuh di laporan yang sama — hipotesis tunggal, jadi tempatnya di tahap yang pasti, bukan di kemiripan huruf. Diuji pada kolam gabungan 3.794 nama lintas bank: menyala 4 kali, seluruhnya benar, nol kasus ambigu. Salah satunya `PT AEROTRANS SERVICES I DONESIA`, yang sebelumnya bersandar pada kemiripan 0,831 — jadi tahap 3 turun dari 3 ke 2 pasangan bukan karena kehilangan, melainkan karena mekanismenya sudah ketahuan. `_wakil` ikut diperbaiki supaya ejaan yang cacat tidak pernah jadi nama resmi kelompoknya: tanpa itu kelompok HINO diwakili `HINO FINANCE INDONESIA T`, karena huruf yang hilang justru membuat kuncinya paling panjang. Yang rusak tanpa ejaan utuh pembanding tidak ditebak melainkan **dilaporkan** (`BRI MULTIFINANCE INDONE IA`); syaratnya diperketat tiga kali, dari 13 laporan yang nyaris seluruhnya keliru menjadi 2. Hasil atas 45 PDF: **120 → 124 baris menyatu, 179 → 175 kandidat**, FMR tetap **0,00%**, pola baru di `tests/palsu.py` recall **11/11**. Ikut ketahuan dan diperbaiki: `tests/ambang.py` sudah rusak sejak ambang bawaan turun ke 0.85/0.80/0.80 — sapuannya menyusun ambang yang melanggar urutan menurun dan berhenti dengan `ValueError`.
 - **Penyatuan varian penulisan lawan transaksi** (§5.2) — Rekap Kredit/Debit, Summary Rekap, dan HHI kini mengelompokkan lewat nama yang sudah disatukan, dihitung **sekali** di `create_excel` supaya keempatnya tidak bisa berbeda. Dua aturan deterministik (normalisasi + potongan di tengah kata), bukan fuzzy. 91 baris menyatu atas 44 PDF referensi, total rupiah tidak berubah satu pun. Dijaga `tests/penyatuan.py`, yang menguji **apa yang harus tetap terpisah** juga — bukan hanya apa yang digabung.
 - **Bukti mengalahkan ambang, dan celahnya diberi angka** (§5.2) — lanjutan langsung dari butir di bawah, dikerjakan dengan `tests/palsu.py` sebagai penilai: veto angka dikecualikan untuk angka yang TERPOTONG (`SPBU 34.1580` dari `34.15802`), perbedaan yang jatuh SESUDAH titik potong tidak lagi dihitung sebagai bukti pihak berbeda, daftar **gelar akademik** tertutup ditambahkan di tahap 1 dengan satu nama boleh membawa DUA kunci (`Sagirin` · `SAGIRIN, ST` · `SAGIRIN ST` jadi satu baris), dan golongan **AMBIGU** menutup titik buta tahap 2 dengan angka (97,2% keputusan tanpa bukti). Satu cacat yang saya perkenalkan sendiri ikut ketahuan karena FMR bergerak: penyaringan calon induk dengan validasi konteks menghapus sinyal ambiguitas, sehingga yang ambigu tampak tunggal lalu digabung. Hasil: recall pola yang ditargetkan 94,6% → **98,1%**, FMR tetap **0,00%**, 44 PDF referensi 103 → **108 baris menyatu**. Dua mitigasi diuji lalu dibuang karena harganya lebih besar daripada manfaatnya, dan alasannya ditulis di kode.
