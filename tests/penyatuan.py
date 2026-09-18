@@ -48,6 +48,21 @@ HARUS_MENYATU = [
     # dalam dua urutan di satu rekening koran yang sama.
     (['PT HINO FINANCE INDONESIA', 'HINO FINANCE INDONESIA PT'], 1,
      'PT HINO FINANCE INDONESIA'),
+
+    # Tahap 1b — karakter ke-24 dikosongkan dokumen. Keempat ejaan ini nyata,
+    # dari satu berkas BNI: dua utuh, dua rusak di posisi yang sama. Yang
+    # diuji bukan cuma mereka menyatu, tapi WAKILNYA ejaan yang utuh —
+    # "HINO FINANCE INDONESIA T" punya kunci terpanjang justru karena huruf
+    # yang hilang, jadi tanpa pagar ia yang menang.
+    (['PT HINO FINANCE INDONESIA', 'PT HINO FINANCE INDONES A',
+      'HINO FINANCE INDONESIA PT', 'HINO FINANCE INDONESIA T'], 3,
+     'PT HINO FINANCE INDONESIA'),
+    (['CV. SURYA SUMATERA SEJATI', 'CV. SURYA SUMATERA SEJA I'], 1,
+     'CV. SURYA SUMATERA SEJATI'),
+    (['PT MANDIRI CIPTA SOLUTION', 'PT MANDIRI CIPTA SOLUTI N'], 1,
+     'PT MANDIRI CIPTA SOLUTION'),
+    (['PT AEROTRANS SERVICES INDONESIA', 'PT AEROTRANS SERVICES I DONESIA'], 1,
+     'PT AEROTRANS SERVICES INDONESIA'),
     (['PT. AEROFOOD INDONESIA', 'AEROFOOD INDONESIA, PT'], 1,
      'PT. AEROFOOD INDONESIA'),
     (['CV CIPTA SAUDARA', 'CIPTA SAUDARA CV', 'CIPTA SAUDARA'], 2,
@@ -347,6 +362,42 @@ def periksa_pemotongan_kandidat_dilaporkan() -> list:
     return masalah
 
 
+def periksa_rusak_tanpa_pasangan_dilaporkan() -> list:
+    """
+    Bentuk rusak yang tidak bisa dipulihkan wajib MUNCUL di daftar kandidat.
+
+    Huruf yang hilang tidak tersimpan di mana pun, jadi tanpa ejaan utuh
+    sebagai pembanding ia memang tidak bisa dipulihkan. Yang tidak boleh
+    adalah diam: dibiarkan senyap, pemeriksa membaca "BRI MULTIFINANCE
+    INDONE IA" sebagai nama yang memang begitu.
+
+    Diuji sekalian kebalikannya — batas kata yang sah di posisi ke-24 TIDAK
+    boleh ikut dilaporkan, karena daftar yang penuh alarm palsu berhenti
+    dibaca.
+    """
+    masalah = []
+
+    h = satukan(['BRI MULTIFINANCE INDONE IA', 'PT LAIN YANG TIDAK TERKAIT'])
+    dilaporkan = [a for a, b, _ in h.kandidat if not b]
+    if 'BRI MULTIFINANCE INDONE IA' not in dilaporkan:
+        masalah.append('bentuk rusak tanpa pasangan tidak dilaporkan: '
+                       f'{h.kandidat}')
+
+    # Spasi di posisi ke-24 yang memang batas kata.
+    h = satukan(['SIMSEM GI RTGS/ KLIRING CAB', 'SIMSEM ONLINE TRANSFER BNID'])
+    palsu = [a for a, b, r in h.kandidat if not b and 'karakter ke-24' in r]
+    if palsu:
+        masalah.append(f'batas kata yang sah ikut dilaporkan rusak: {palsu}')
+
+    # Sudah punya pasangan → pertanyaannya sudah terjawab, jangan dilaporkan.
+    h = satukan(['PT MANDIRI CIPTA SOLUTION', 'PT MANDIRI CIPTA SOLUTI N'])
+    ganda = [a for a, b, r in h.kandidat if not b and 'karakter ke-24' in r]
+    if ganda:
+        masalah.append(f'yang sudah menyatu masih dilaporkan rusak: {ganda}')
+
+    return masalah
+
+
 def periksa_label() -> list:
     """Label kategori harus lolos apa adanya, walau mirip satu sama lain."""
     nama = sorted(LABEL_UJI) + ['Biaya Administrasi Bulanan']
@@ -386,6 +437,8 @@ def main() -> int:
         ('uraian asli tetap utuh', periksa_uraian_asli_utuh),
         ('pemotongan daftar kandidat dilaporkan',
          periksa_pemotongan_kandidat_dilaporkan),
+        ('bentuk rusak tanpa pasangan dilaporkan',
+         periksa_rusak_tanpa_pasangan_dilaporkan),
         ('label kategori tidak tersentuh', periksa_label),
         ('hasil stabil apa pun urutan masukannya', periksa_stabil),
         ('normalisasi bentuk badan usaha', periksa_kunci),
