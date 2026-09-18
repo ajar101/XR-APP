@@ -340,9 +340,10 @@ def periksa_veto_konteks() -> list:
         # Nomor kontrak berbeda.
         ('DEXTRATAMA NITYA SANJAYA PT - HT002',
          'DEXTRATAMA NITYA SANJAYA PT - HT003'),
-        # Keterangan transaksi menempel di ekor nama.
-        ('ERWINSYAH HARAHAP', 'ERWINSYAH HARAHAP THR'),
-        ('PANUSUNAN ALAMSAH SRG', 'PANUSUNAN ALAMSAH SRG DP'),
+        # Keterangan transaksi menempel di ekor nama, dan bukan di luar
+        # titik potong: kunci kedua nama TIDAK saling berawalan, jadi
+        # "PINBUK" memang perbedaan di dalam nama, bukan kata yang
+        # terpotong habis.
         ('AEROTRANS SERVICES INDON PINBUK KE BNI OPS',
          'PT AEROTRANS SERVICES INDONESIA'),
         # Inisial satu huruf — bisa orang yang sama, bisa dua orang.
@@ -355,6 +356,16 @@ def periksa_veto_konteks() -> list:
         ('Sdr ROLAND GAROS HUTABARAT', 'ROLAND GAROS HUTABARAT'),
         # Huruf tunggal yang ternyata sisa kata terpotong, bukan inisial.
         ('PT TEBO MULTI A', 'PT TEBO MULTI AGRO'),
+        # Kata yang jatuh SESUDAH titik potong bukan bukti pihak berbeda:
+        # "DP" tidak mungkin muncul di nama yang sudah terpotong sebelum
+        # sampai ke situ. Yang menahan pasangan semacam ini tetap terpisah
+        # ketika ia memang harus terpisah bukan veto ini, melainkan aturan
+        # potong-di-tengah-kata (tahap 2) dan bukti potongan (tahap 3) —
+        # dan itu diuji di tests/penyatuan.py (MIRIP_TAPI_BEDA), tempat
+        # 'ERWINSYAH HARAHAP' vs '... THR' dan 'PANUSUNAN ALAMSAH SRG' vs
+        # '... DP' dijaga tetap TIDAK menyatu.
+        ('PT TAPANULI LOGISTIK IND', 'PT TAPANULI LOGISTIK INDONESIA DP'),
+        ('2701134698 Tran', '2701134698 Transfer'),
     ]
     masalah = [f'{a!r} vs {b!r} LOLOS validasi konteks, padahal harus ditolak'
                for a, b in harus_ditolak if validasi_konteks(a, b)[0]]

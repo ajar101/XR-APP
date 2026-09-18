@@ -828,6 +828,32 @@ def validasi_konteks(a: str, b: str):
     set_a, set_b = himpunan_token(a), himpunan_token(b)
     tambahan = (set_a | set_b) - (set_a & set_b)
 
+    # PERBEDAAN YANG JATUH SESUDAH TITIK POTONG BUKAN BUKTI PERBEDAAN PIHAK.
+    #
+    # Kalau kunci nama pendek adalah awalan kunci nama panjang, bentuknya
+    # potongan: seluruh kepala namanya sama persis dan ekornya hilang. Kata
+    # yang HANYA ada di sisi panjang berarti kata yang terpotong habis — ia
+    # bukti PEMOTONGAN, bukan bukti dua pihak berbeda:
+    #
+    #     PT TAPANULI LOGISTIK IND   dari  PT TAPANULI LOGISTIK INDONESIA DP
+    #
+    # Tanpa pengecualian ini, "DP" di ekor nama panjang membatalkan
+    # penggabungan padahal ia jatuh jauh sesudah titik potong dan tidak
+    # mungkin muncul di nama yang terpotong. Diukur dengan tests/palsu.py:
+    # 7 dari 26 potongan yang tidak ketemu induknya tertahan karena ini.
+    #
+    # Pengecualian ini aman karena TIDAK berdiri sendiri. "ERWINSYAH HARAHAP"
+    # lawan "ERWINSYAH HARAHAP THR" juga berbentuk awalan dan "THR" juga cuma
+    # di sisi panjang — tapi pasangan itu tetap tidak digabung, karena
+    # potongannya jatuh di BATAS KATA (tahap 2) dan selisihnya kata utuh yang
+    # ditambahkan (tahap 3). Yang dilonggarkan di sini hanya vetonya; syarat
+    # bentuk potongan tetap dijaga pemanggilnya.
+    ka, kb = kunci_banding(a), kunci_banding(b)
+    if ka != kb and (ka.startswith(kb) or kb.startswith(ka)):
+        besar, kecil = ((set_a, set_b) if len(ka) > len(kb)
+                        else (set_b, set_a))
+        tambahan -= (besar - kecil)
+
     # Kata keterangan transaksi yang menempel di ekor nama.
     ekor = sorted(tambahan & KETERANGAN_EKOR)
     if ekor:
