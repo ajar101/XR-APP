@@ -43,35 +43,176 @@ print("="*60 + "\n")
 
 app = Flask(__name__)
 
-# Kunci penanda tangan cookie sesi. Tanpa kunci yang rahasia dan TETAP,
-# siapa pun bisa membuat cookie sesi palsu dan masuk sebagai pengguna mana
-# pun — jadi kuncinya tidak boleh punya nilai bawaan yang bisa ditebak.
+# ── Kunci penanda tangan cookie sesi ─────────────────────────────────────
 #
-# Kunci acak yang dibuat saat proses mulai juga tidak memadai di produksi:
-# tiap worker gunicorn akan punya kunci berbeda sehingga sesi pemakai putus
+# Tanpa kunci yang rahasia dan TETAP, siapa pun bisa membuat cookie sesi
+# palsu dan masuk sebagai pengguna mana pun — jadi kuncinya tidak boleh
+# punya nilai bawaan yang bisa ditebak.
+#
+# Kunci acak yang dibuat ulang tiap proses mulai juga tidak memadai: tiap
+# worker gunicorn akan punya kunci berbeda sehingga sesi pemakai putus
 # bergantian, dan semua orang ter-logout tiap kali aplikasi di-restart.
-# Karena itu di produksi ketiadaan XR_SECRET_KEY membuat aplikasi MENOLAK
-# jalan, bukan diam-diam memakai kunci sementara.
-_kunci = os.environ.get('XR_SECRET_KEY')
-if not _kunci:
-    if os.environ.get('XR_DEBUG') == '1':
-        _kunci = secrets.token_hex(32)
-        print('⚠️  XR_SECRET_KEY tidak disetel — memakai kunci sementara '
-              '(hanya boleh untuk pengembangan).')
-    else:
+#
+# DULU SATU-SATUNYA JALAN KELUARNYA JUSTRU YANG PALING TIDAK AMAN. Kalau
+# XR_SECRET_KEY tidak disetel, aplikasi menolak jalan kecuali XR_DEBUG=1 —
+# dan XR_DEBUG=1 sekaligus menyalakan halaman traceback Werkzeug yang
+# menampilkan isi variabel lokal, yaitu nama pemilik rekening, nomor
+# rekening, dan baris mutasinya. Jadi pemakai yang cuma ingin mencoba di
+# mesin sendiri didorong ke pilihan yang membuka data rekening. Itu cacat
+# rancangan, bukan kelalaian pemakai, dan ditemukan dari pemakaian nyata.
+#
+# Perbaikannya memisahkan dua hal yang tidak ada hubungannya: "sesi harus
+# awet" dan "halaman error boleh menampilkan isi variabel". Di mesin
+# sendiri, kunci dibuat SEKALI lalu disimpan di data/secret_key dengan izin
+# 0600 — sesi tetap awet antar restart, tanpa menyalakan debug apa pun.
+# Letaknya bisa disetel lewat XR_SECRET_FILE, mengikuti pola XR_DB: bawaan
+# ada di data/ (sudah di .gitignore karena memuat PII), tapi deployment yang
+# memisahkan volume rahasia bisa memindahkannya — dan tesnya bisa memakai
+# berkas sementara alih-alih menimpa kunci yang sedang dipakai.
+KUNCI_BERKAS = os.environ.get('XR_SECRET_FILE') or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), 'data', 'secret_key')
+
+# Alamat yang hanya bisa dijangkau dari mesin ini sendiri. Berkas kunci
+# HANYA dipakai kalau aplikasi mengikat ke salah satunya.
+#
+# String kosong SENGAJA tidak ada di sini, dan itu bukan kelalaian: socket
+# yang di-bind ke '' mengikat ke SELURUH antarmuka (`bind('')` menghasilkan
+# 0.0.0.0), jadi memasukkannya berarti XR_HOST= yang kosong akan melayani
+# jaringan memakai kunci yang dimaksudkan untuk mesin sendiri. Nilai kosong
+# ditangani `_alamat_ikat` sebagai "tidak disetel".
+ALAMAT_LOKAL = frozenset({'127.0.0.1', 'localhost', '::1'})
+
+PESAN_TANPA_KUNCI = (
+    'XR_SECRET_KEY belum disetel. Buat sekali dengan:\n'
+    "    python -c \"import secrets; print(secrets.token_hex(32))\"\n"
+    'lalu simpan sebagai variabel lingkungan:\n'
+    '    Linux/macOS : export XR_SECRET_KEY="..."\n'
+    '    PowerShell  : $env:XR_SECRET_KEY="..."   (sesi ini saja)\n'
+    '                  setx XR_SECRET_KEY "..."   (tetap, buka terminal baru)\n'
+    'Lihat DEPLOY.md §4.1.\n'
+    '\n'
+    'Untuk mencoba di mesin sendiri, jalankan `python app.py` tanpa menyetel '
+    f'XR_HOST — kuncinya akan dibuat sekali dan disimpan di {KUNCI_BERKAS}.'
+)
+
+
+def _baca_kunci_berkas():
+    """Kunci yang tersimpan, atau None kalau belum ada."""
+    try:
+        with open(KUNCI_BERKAS, encoding='ascii') as fh:
+            return fh.read().strip() or None
+    except FileNotFoundError:
+        return None
+
+
+def _buat_kunci_berkas() -> str:
+    """
+    Buat kunci sekali, simpan dengan izin 0600, kembalikan isinya.
+
+    Dibuat lewat os.open dengan O_CREAT|O_EXCL dan mode 0600 sejak DETIK
+    PERTAMA, bukan open() biasa lalu chmod: di antara keduanya ada jeda saat
+    berkasnya masih bisa dibaca pengguna lain di mesin yang sama, dan yang
+    bocor di jeda itu adalah kunci yang menandatangani seluruh sesi.
+    O_EXCL menutup lomba yang sama dari sisi lain — kalau dua proses mulai
+    bersamaan, satu membuat dan yang lain membaca, bukan saling menimpa.
+    """
+    folder = os.path.dirname(KUNCI_BERKAS)
+    if folder:                      # XR_SECRET_FILE boleh nama berkas saja
+        os.makedirs(folder, exist_ok=True)
+    kunci = secrets.token_hex(32)
+    try:
+        fd = os.open(KUNCI_BERKAS, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        # Berkasnya sudah ada padahal pembacaan barusan tidak menghasilkan
+        # apa-apa: proses lain baru saja membuatnya (dan isinya terbaca
+        # sekarang), atau berkasnya KOSONG — mis. penulisan sebelumnya
+        # terhenti karena disk penuh.
+        #
+        # Kasus kedua TIDAK boleh dijawab dengan kunci acak. Kunci acak di
+        # sini berarti proses ini menandatangani dengan kunci yang berbeda
+        # dari yang lain dan berubah lagi tiap restart — persis kegagalan
+        # senyap yang seluruh rancangan ini hindari, dan bentuknya cuma
+        # "kok saya ter-logout terus". Jadi lebih baik berhenti dan bilang.
+        tersimpan = _baca_kunci_berkas()
+        if tersimpan:
+            return tersimpan
         raise RuntimeError(
-            'XR_SECRET_KEY belum disetel. Buat sekali dengan:\n'
-            "    python -c \"import secrets; print(secrets.token_hex(32))\"\n"
-            'lalu simpan sebagai variabel lingkungan. Lihat DEPLOY.md.'
-        )
-app.secret_key = _kunci
+            f'{KUNCI_BERKAS} ada tapi kosong. Hapus berkasnya supaya dibuat '
+            'ulang, atau setel XR_SECRET_KEY.')
+    with os.fdopen(fd, 'w') as fh:
+        fh.write(kunci + '\n')
+    return kunci
+
+
+def _kunci_sesi(boleh_pakai_berkas: bool) -> str:
+    """
+    XR_SECRET_KEY kalau disetel; kalau tidak, berkas kunci — tapi HANYA di
+    mesin sendiri.
+
+    `boleh_pakai_berkas` sengaja diputuskan pemanggilnya, bukan ditebak di
+    sini, karena yang menentukan aman atau tidaknya adalah ALAMAT IKAT — dan
+    itu hal yang cuma diketahui titik masuknya. Lewat gunicorn/wsgi.py
+    alamatnya ditentukan gunicorn dan tidak terlihat dari sini sama sekali,
+    jadi di sana jawabannya selalu "tidak boleh" dan XR_SECRET_KEY tetap
+    wajib. Dengan begitu daftar periksa DEPLOY.md tidak pernah dilemahkan
+    diam-diam oleh berkas yang kebetulan tertinggal dari percobaan lokal.
+    """
+    kunci = os.environ.get('XR_SECRET_KEY')
+    if kunci:
+        return kunci
+    if not boleh_pakai_berkas:
+        raise RuntimeError(PESAN_TANPA_KUNCI)
+    return _baca_kunci_berkas() or _buat_kunci_berkas()
+
+
+def _alamat_ikat() -> str:
+    """
+    Alamat yang akan diikat server pengembangan di blok __main__.
+
+    Satu-satunya sumber, dipakai DUA kali: di sini untuk memutuskan boleh
+    tidaknya berkas kunci, dan di bawah untuk benar-benar mengikat. Kalau
+    keduanya menghitung sendiri-sendiri, keduanya bisa berbeda — dan
+    perbedaan yang mungkin justru yang berbahaya: menyimpulkan "lokal" lalu
+    mengikat ke alamat yang terjangkau jaringan.
+    """
+    if os.environ.get('XR_DEBUG') == '1':
+        return '127.0.0.1'          # debug selalu dikurung ke localhost
+    # XR_HOST yang kosong berarti "tidak disetel", BUKAN alamat kosong:
+    # meneruskan '' ke app.run mengikat ke seluruh antarmuka.
+    return os.environ.get('XR_HOST', '').strip() or '127.0.0.1'
+
+
+# Berkas kunci hanya boleh dipakai kalau app.py dijalankan LANGSUNG (server
+# pengembangan) DAN alamat ikatnya lokal. `__name__` yang membedakan
+# `python app.py` dari impor oleh wsgi.py.
+_lokal = __name__ == '__main__' and _alamat_ikat().strip() in ALAMAT_LOKAL
+app.secret_key = _kunci_sesi(_lokal)
 
 # Cookie sesi: tidak bisa dibaca JavaScript, tidak ikut terkirim ke situs
 # lain, dan hanya lewat HTTPS kecuali sedang dikembangkan di mesin sendiri.
+#
+# `_lokal` ikut di sini, bukan cuma XR_DEBUG. Sebelumnya satu-satunya cara
+# menjalankan tanpa XR_SECRET_KEY adalah XR_DEBUG=1, yang sekaligus
+# mematikan syarat HTTPS — jadi jalur "melayani http di localhost" selalu
+# datang bersama SECURE=False. Berkas kunci membuat jalur itu bisa dipakai
+# TANPA debug, jadi syaratnya harus ikut pindah, bukan tertinggal di
+# XR_DEBUG.
+#
+# Diukur, bukan diasumsikan: dengan SECURE=True pun login di
+# http://127.0.0.1 masih berhasil (POST /login 302, lalu GET / 200) —
+# `curl` dan peramban modern memperlakukan loopback sebagai origin
+# tepercaya, sehingga cookie ber-flag Secure tetap dikirim. Jadi ini bukan
+# perbaikan kerusakan yang terlihat, melainkan pembetulan pernyataan:
+# SECURE=True berarti "hanya kirim lewat HTTPS" pada server yang sama
+# sekali tidak punya HTTPS. Yang membuatnya jalan adalah pengecualian
+# loopback di peramban, dan menyandarkan sesi pada pengecualian itu berarti
+# ia diam-diam putus di peramban lama, atau begitu alamat ikatnya bukan
+# loopback lagi — putus tanpa pesan galat apa pun, cuma halaman login yang
+# kembali terus.
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE='Lax',
-    SESSION_COOKIE_SECURE=os.environ.get('XR_DEBUG') != '1',
+    SESSION_COOKIE_SECURE=not (_lokal or os.environ.get('XR_DEBUG') == '1'),
 )
 
 # PDF yang diunggah harus mendarat di disk karena extractor membacanya
@@ -339,7 +480,7 @@ if __name__ == '__main__':
     # itu pun hanya mengikat ke localhost supaya tidak terjangkau dari
     # jaringan.
     debug = os.environ.get('XR_DEBUG') == '1'
-    host = '127.0.0.1' if debug else os.environ.get('XR_HOST', '127.0.0.1')
+    host = _alamat_ikat()
     port = int(os.environ.get('XR_PORT', '5000'))
 
     print("\n" + "=" * 50)
@@ -347,10 +488,18 @@ if __name__ == '__main__':
     print("=" * 50)
     print(f"\n📍 Akses aplikasi di: http://{host}:{port}")
     print(f"\n🏦 Bank tersedia: {', '.join(get_enabled_banks().keys())}")
+    if not os.environ.get('XR_SECRET_KEY'):
+        print(f"\n🔑 Kunci sesi dibaca dari {os.path.relpath(KUNCI_BERKAS)} "
+              "(dibuat sekali, izin 0600).")
+        print("   Sesi tetap awet antar restart tanpa menyalakan debug.")
+        print("   Untuk melayani pemakai lain, setel XR_SECRET_KEY — lihat "
+              "DEPLOY.md §4.1.")
     if debug:
         print("\n⚠️  MODE DEBUG AKTIF — halaman error akan menampilkan isi")
         print("    variabel, termasuk data rekening. Jangan dipakai untuk")
         print("    melayani orang lain. Hanya mengikat ke localhost.")
+        print("    Debug TIDAK lagi diperlukan untuk menjalankan tanpa")
+        print("    XR_SECRET_KEY — jangan pakai kalau itu alasannya.")
     else:
         print("\n💡 Untuk melayani pemakai lain, jangan pakai server ini —")
         print("   jalankan lewat gunicorn (lihat DEPLOY.md).")

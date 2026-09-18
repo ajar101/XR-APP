@@ -137,6 +137,7 @@ produksi.
 | `XR_LOG_LEVEL` | `info` | |
 | `XR_DEBUG` | *(mati)* | **Jangan dinyalakan di server.** Lihat §6 |
 | `XR_SECRET_KEY` | — | **Wajib.** Aplikasi menolak jalan tanpa ini. Lihat §4.1 |
+| `XR_SECRET_FILE` | `data/secret_key` | Tempat kunci sesi disimpan **saat dijalankan di mesin sendiri**. Tidak pernah dipakai lewat gunicorn — lihat §4.1 |
 | `XR_DB` | `data/xr-app.db` | Basis data pengguna & jejak audit. **Butuh volume awet** |
 | `XR_REDIS_URL` | *(kosong)* | Disetel → mode antrean. Kosong → mode langsung. Lihat §4.2 |
 | `XR_TTL_HASIL` | `3600` | Detik. Umur berkas hasil di mode antrean — inilah kebijakan retensinya |
@@ -151,12 +152,44 @@ Buat kunci sesi **sekali saja**, lalu simpan sebagai variabel lingkungan
 python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
+Di Windows/PowerShell:
+
+```powershell
+$env:XR_SECRET_KEY = "..."     # sesi terminal ini saja
+setx XR_SECRET_KEY "..."       # tetap; berlaku di terminal yang dibuka SESUDAHNYA
+```
+
 Kunci ini menandatangani cookie sesi. Tanpa kunci yang rahasia dan **tetap**,
 cookie login bisa dipalsukan. Kunci acak yang dibuat tiap kali proses mulai
 juga tidak memadai: tiap worker gunicorn akan punya kunci berbeda sehingga
 sesi pemakai putus bergantian, dan semua orang ter-logout tiap restart.
 Karena itu di produksi ketiadaannya membuat aplikasi **menolak jalan**, bukan
 diam-diam memakai kunci sementara.
+
+#### Mencoba di mesin sendiri
+
+Untuk sekadar mencoba di laptop, `XR_SECRET_KEY` **tidak perlu disetel**:
+
+```bash
+python app.py
+```
+
+Kuncinya dibuat sekali lalu disimpan di `data/secret_key` dengan izin `0600`,
+sehingga sesi tetap awet antar restart. Letaknya bisa dipindah lewat
+`XR_SECRET_FILE`.
+
+**Jangan** memakai `XR_DEBUG=1` untuk ini. Dulu itu satu-satunya jalan
+menjalankan tanpa `XR_SECRET_KEY`, dan harganya mahal: `XR_DEBUG=1`
+menyalakan halaman traceback Werkzeug yang menampilkan isi variabel lokal —
+pada aplikasi ini berarti nama pemilik rekening, nomor rekening, dan baris
+mutasinya. Sejak berkas kunci ada, debug tidak lagi diperlukan untuk alasan
+itu.
+
+Jalan pintas ini **hanya** berlaku kalau kedua syarat terpenuhi: dijalankan
+langsung sebagai `python app.py`, **dan** alamat ikatnya loopback. Lewat
+gunicorn (`wsgi:app`) berkas kunci tidak pernah dibaca, dan menyetel
+`XR_HOST` ke alamat yang terjangkau jaringan mengembalikan penolakan —
+sekalipun berkasnya ada. Dijaga `tests/kunci_sesi.py`.
 
 Admin pertama dibuat dari baris perintah, bukan lewat halaman pendaftaran:
 
@@ -280,6 +313,9 @@ server {
 - [ ] Memori container/VM ≥ `XR_WORKERS` × ~1 GB.
 - [ ] `XR_SECRET_KEY` disetel dari nilai yang **tetap** dan rahasia, bukan
       dibuat ulang tiap deploy (kalau berubah, semua pemakai ter-logout).
+      Berkas `data/secret_key` yang mungkin ikut tersalin dari percobaan
+      lokal **tidak** memenuhi syarat ini dan memang tidak akan terpakai:
+      jalur gunicorn tidak pernah membacanya.
 - [ ] `XR_DB` menunjuk ke volume yang awet, dan volumenya **ikut dicadangkan**.
       Isinya akun pengguna serta jejak audit — termasuk nomor rekening yang
       pernah diproses, jadi cadangannya perlu perlakuan yang sama dengan data
