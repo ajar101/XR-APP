@@ -264,47 +264,56 @@ def _tahap2_potongan(per_kunci, kandidat):
                   f'dipastikan')
             continue
 
-        # TAHAP 4, dijalankan LEBIH DULU di sini: yang terbukti bukan varian
-        # nama disingkirkan dari daftar kecocokan, bukan cuma ditolak
-        # digabung. Inilah yang memperbaiki kasus AEROTRANS di docstring
-        # modul — satu saudara berekor keterangan transaksi ("...INDON
-        # PINBUK KE BNI OPS") dulu membatalkan seluruh keluarganya.
-        sekeluarga = []
+        # Hanya kecocokan yang MENYELESAIKAN kata terpotong yang dianggap
+        # satu keluarga. Yang menyambung di batas kata adalah hal lain —
+        # nama berekor keterangan transaksi, atau pihak yang memang berbeda.
+        # Itulah yang memperbaiki kasus AEROTRANS di docstring modul: satu
+        # saudara berekor keterangan ("...INDON| PINBUK KE BNI OPS") dulu
+        # membatalkan seluruh keluarganya.
+        #
+        # Penyaringnya HARUS aturan potong-di-tengah-kata, bukan validasi
+        # konteks. Pernah dicoba memakai validasi konteks di sini, dan
+        # akibatnya terukur sebagai salah gabung di tests/palsu.py:
+        # menyingkirkan satu dari dua calon induk MENGHAPUS sinyal
+        # ambiguitasnya, sehingga yang ambigu jadi tampak tunggal lalu
+        # digabung. Validasi konteks kembali ke tempatnya sebagai VETO di
+        # bawah, bukan penyaring di sini.
+        sekeluarga = [p for p in cocok
+                      if terpotong_di_tengah_kata(len(pendek),
+                                                  _wakil(per_kunci[p]))]
         for p in cocok:
-            lolos, alasan = validasi_konteks(contoh_pendek,
-                                             _wakil(per_kunci[p]))
-            if lolos:
-                sekeluarga.append(p)
-            else:
-                catat(p, alasan)
+            if p not in sekeluarga:
+                catat(p, 'berhenti di batas kata, bukan terpotong di tengah '
+                         'kata — bisa jadi memang pihak yang berbeda')
         if not sekeluarga:
             continue
 
-        # Beberapa kecocokan boleh digabung SELAMA seluruhnya satu rantai
-        # potongan: tiap langkah harus menyambung di TENGAH KATA, termasuk
-        # langkah antar-kecocokan. "GARUDAINDON → GARUDAINDONESIA" menyambung
-        # di tengah kata, tapi "GARUDAINDONESIA → GARUDAINDONESIA CARGO"
-        # menyambung di batas kata — jadi rantainya putus di situ, dan si
-        # potongan punya dua induk yang sama-sama masuk akal. Tidak ada dasar
-        # memilih, jadi tidak dipilih.
+        # Induknya adalah kecocokan TERDEKAT, dan ia hanya sah kalau seluruh
+        # kecocokan lain merupakan perpanjangan darinya — artinya ia leluhur
+        # bersama, dan percabangan apa pun terjadi lebih dalam (di sana ia
+        # dinilai lagi sebagai simpulnya sendiri).
+        #
+        # Kalau ada dua kecocokan yang langsung bercabang, potongan ini punya
+        # dua induk yang sama-sama masuk akal dan tidak ada dasar memilih:
+        # "PT GARUDA INDON" cocok ke "...INDONESIA TBK" dan "...INDONESIA
+        # CARGO", dan "129001286730" cocok ke dua nomor rekening yang sama
+        # panjang tapi berbeda ekornya.
         sekeluarga.sort(key=len)
-        rantai = [pendek] + sekeluarga
-        putus = next(
-            (j for j in range(len(rantai) - 1)
-             if not (rantai[j + 1].startswith(rantai[j])
-                     and terpotong_di_tengah_kata(
-                         len(rantai[j]), _wakil(per_kunci[rantai[j + 1]])))),
-            None)
-        if putus is not None:
+        terdekat = sekeluarga[0]
+        if not all(p.startswith(terdekat) for p in sekeluarga[1:]):
             catat(sekeluarga[-1],
-                  'berhenti di batas kata, bukan terpotong di tengah kata — '
-                  'bisa jadi memang pihak yang berbeda'
-                  if len(sekeluarga) == 1 else
-                  f'awalan cocok ke {len(sekeluarga)} nama yang tidak '
-                  f'serantai — tidak ada dasar memilih induknya')
+                  f'awalan cocok ke {len(sekeluarga)} nama yang langsung '
+                  f'bercabang — tidak ada dasar memilih induknya')
             continue
 
-        induk[pendek] = sekeluarga[0]
+        # TAHAP 4 sebagai veto, atas induk yang sudah terpilih.
+        lolos, alasan = validasi_konteks(contoh_pendek,
+                                         _wakil(per_kunci[terdekat]))
+        if not lolos:
+            catat(terdekat, alasan)
+            continue
+
+        induk[pendek] = terdekat
 
     return induk
 

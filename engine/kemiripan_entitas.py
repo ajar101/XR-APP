@@ -728,6 +728,49 @@ def _token_berangka(nama: str) -> set:
     return {t for t in token(nama) if RE_BERANGKA.search(t)}
 
 
+def _saling_berawalan(x: str, y: str) -> bool:
+    return x != y and (x.startswith(y) or y.startswith(x))
+
+
+def _angka_terpotong(a: str, b: str, angka_a: set, angka_b: set) -> bool:
+    """
+    Benarkah selisih angka kedua nama ini karena angkanya TERPOTONG?
+
+    Syarat pertama, dan yang paling menentukan: kunci nama yang PENDEK harus
+    merupakan awalan kunci nama yang panjang. Artinya seluruh kepala namanya
+    sama persis dan hanya ekornya yang hilang — bentuk potongan, bukan
+    penggantian. Ini yang menolak "200,000.00" lawan "300,000.00" dan
+    "HT002" lawan "HT003": angkanya berbeda di tengah, jadi kuncinya tidak
+    saling berawalan.
+
+    Sesudah itu, angka yang berbeda di sisi PENDEK wajib punya pasangan yang
+    saling berawalan di sisi panjang — angka yang setengah tertulis:
+
+        329011051625   dari  32901105162505
+
+    Angka yang hanya ada di sisi PANJANG tidak perlu berpasangan, karena ia
+    memang jatuh SESUDAH titik potong dan karena itu hilang seluruhnya:
+
+        PT.SILKARGO IND   dari  PT.SILKARGO INDONESIA - 022
+
+    Perlu diingat pengecualian ini tidak berdiri sendiri: pemanggilnya sudah
+    lebih dulu menuntut potongan di tengah kata (tahap 2) atau bukti
+    potongan (tahap 3). Jadi "GARUDA INDONESIA" lawan "GARUDA INDONESIA
+    2026" tetap tidak digabung — bukan oleh aturan ini, melainkan karena
+    potongannya jatuh di batas kata.
+    """
+    ka, kb = kunci_banding(a), kunci_banding(b)
+    pendek, panjang = ((a, b) if len(ka) <= len(kb) else (b, a))
+    k_pendek, k_panjang = ((ka, kb) if len(ka) <= len(kb) else (kb, ka))
+    if not k_panjang.startswith(k_pendek):
+        return False
+
+    beda_pendek = _token_berangka(pendek) - _token_berangka(panjang)
+    beda_panjang = _token_berangka(panjang) - _token_berangka(pendek)
+    return all(any(_saling_berawalan(x, y) for y in beda_panjang)
+               for x in beda_pendek)
+
+
 def validasi_konteks(a: str, b: str):
     """
     Apakah ada alasan KONKRET untuk tidak menggabungkan sepasang nama yang
@@ -752,8 +795,32 @@ def validasi_konteks(a: str, b: str):
     # Angka di dalam nama hampir selalu membedakan: nominal, nomor kontrak,
     # nomor rekening, kode cabang. Beda angka = beda hal, walau seluruh sisa
     # namanya sama persis.
+    #
+    # KECUALI angkanya sendiri yang TERPOTONG. Pemotongan lebar tetap tidak
+    # peduli isi kolomnya, jadi ia memotong angka sama saja dengan memotong
+    # kata:
+    #
+    #     329011051625   dari  32901105162505              (nomor rekening)
+    #     SPBU 34.1580   dari  SPBU 34.15802,CURUG TANGERANG SLTID
+    #
+    # Diukur dengan tests/palsu.py, veto tanpa pengecualian ini menolak 19
+    # dari 33 potongan yang tidak ketemu induknya — penyebab tunggal
+    # terbesar celah recall pola potongan lebar tetap.
+    #
+    # Pengecualiannya sengaja sempit: angka yang berbeda harus SALING
+    # BERAWALAN, dan kunci kedua namanya juga harus saling berawalan. Yang
+    # kedua itu memastikan bentuknya benar-benar potongan (seluruh kepala
+    # nama sama persis, ekornya hilang) dan bukan penggantian — "200,000.00"
+    # lawan "300,000.00" dan "HT002" lawan "HT003" tetap ditolak, karena
+    # angkanya tidak saling berawalan.
+    #
+    # RISIKO YANG DITERIMA: angka yang memang berbeda tapi kebetulan saling
+    # berawalan — "INV 100" lawan "INV 1001" — kini digabung. Bentuk itu
+    # tidak muncul di 44 PDF referensi, sedangkan bentuk yang muncul
+    # (potongan nomor rekening dan kode SPBU) memang satu pihak. Kalau suatu
+    # hari bentuk itu muncul, di sinilah tempat memperketatnya.
     angka_a, angka_b = _token_berangka(a), _token_berangka(b)
-    if angka_a != angka_b:
+    if angka_a != angka_b and not _angka_terpotong(a, b, angka_a, angka_b):
         beda = sorted((angka_a | angka_b) - (angka_a & angka_b))[:3]
         return False, ('memuat angka yang berbeda (' + ', '.join(beda) +
                        ') — nominal/nomor, bukan varian penulisan')
