@@ -102,24 +102,32 @@ SEED = 20260917
 # GARIS DASAR pada seed bawaan, sesudah empat tahap penyatuan dengan ambang
 # 0.85/0.80/0.80 (dicatat supaya "normal" itu punya angka):
 #
-#     DITARGETKAN      98.1%   736/750 — celah terbesar: potong lebar
-#                              130/143 = 90.9%
-#     BELUM DITANGANI  50.4%   (gelar 100%, salah ketik 0%)
+#     DITARGETKAN      97.4%   705/724 — celah terbesar: potong lebar
+#                              119/137 = 86.9%
+#     BELUM DITANGANI  52.8%   (gelar 100%, salah ketik 0%)
 #     SENGAJA DITAHAN   0.0%
 #     DISTRAKTOR        0.0%
 #     FMR              0.00%
-#     AMBIGU           97.2%   keputusan tanpa bukti — DI LUAR FMR
+#     AMBIGU           98.0%   keputusan tanpa bukti — DI LUAR FMR
 #
 # "Celah terbesar" itu menurut JUMLAH, bukan persentase: potong lebar
-# menyumbang 13 dari 14 kegagalan DITARGETKAN. Persentase terendah justru
-# "badan usaha dibalik" (8/9 = 88.9%), tapi n-nya sembilan dan sebabnya
-# sudah tercatat di docstring balik_badan — bukan celah yang perlu dikejar.
+# menyumbang 18 dari 19 kegagalan DITARGETKAN. Pola lain yang belum 100%
+# hanya "spasi tersisip" (279/280), dan satu kegagalan bukan celah.
+#
+# GARIS DASAR INI TIDAK SEBANDING DENGAN YANG SEBELUMNYA, dan sebabnya
+# justru yang sudah tertulis di CATATAN METODE di bawah: populasi tumbuh
+# dari 44 ke 45 PDF referensi. Diukur apple-to-apple pada populasi 45 yang
+# sama, kode sebelum perubahan ini mendapat 703/720 = 97,6% — jadi
+# penurunan dari 98,1% seluruhnya pergeseran populasi, bukan regresi.
+# Pola "karakter ke-24 hilang" sendiri 11/11 = 100%, dan FMR tetap 0,00%.
 #
 # Riwayat angkanya, supaya arah perubahan kelihatan: FMR pernah 0,47% dan
 # turun ke 0 begitu penggabungan tahap 3 butuh bukti potongan; recall pola
 # yang ditargetkan naik 94,6% → 95,5% → 96,5% → 97,4% → 98,1% lewat empat
 # perbaikan berurutan (pengecualian veto angka, ambiguitas tahap 2 yang
-# kembali terdeteksi, perbedaan sesudah titik potong, dan daftar gelar).
+# kembali terdeteksi, perbedaan sesudah titik potong, dan daftar gelar) —
+# seluruhnya pada populasi 44 PDF, jadi hanya bisa dibandingkan satu sama
+# lain, bukan dengan garis dasar 45 PDF di atas.
 #
 # "BELUM DITANGANI" tinggal memuat salah ketik satu huruf, yang sengaja
 # dibiarkan: "Siti Aminah" lawan "Siti Alinah" tidak bisa dibedakan dari
@@ -130,6 +138,13 @@ SEED = 20260917
 # NORMALISASI ikut menggeser populasi dan denominatornya — angka antar
 # versi tidak sepenuhnya sebanding kalau yang berubah normalisasinya.
 # Perubahan pada ATURAN PENGGABUNGAN tidak punya masalah itu.
+#
+# Dua hal lain menggeser undian dengan cara yang sama, dan keduanya sudah
+# terjadi: MENAMBAH PDF REFERENSI (populasinya tumbuh) dan MENAMBAH POLA
+# CACAT (urutan rng bergeser, sehingga denominator tiap pola ikut berubah).
+# Karena itu angka PER POLA hanya boleh dibandingkan dalam satu
+# pengukuran; untuk membandingkan antar versi, jalankan versi lamanya pada
+# populasi yang sama — itu yang dilakukan untuk angka 703/720 di atas.
 #
 # Batasnya diberi kelonggaran dari garis dasar itu — cukup lapang supaya
 # perubahan kecil tidak menimbulkan alarm palsu, cukup rapat supaya regresi
@@ -232,6 +247,23 @@ def sisip_spasi(nama, rng):
     potong = rng.randint(1, len(kata[i]) - 2)
     kata[i] = kata[i][:potong] + ' ' + kata[i][potong:]
     return ' '.join(kata)
+
+
+def karakter_ke24_hilang(nama, rng):
+    """
+    Karakter ke-24 diganti spasi — cacat cetak yang terbukti di dokumen BNI.
+
+    Bukan pemotongan dan bukan sisipan: satu huruf di posisi TETAP hilang,
+    dan panjangnya tidak berubah ("INDONESIA" jadi "INDONES A"). Kalau huruf
+    itu bertetangga dengan spasi, keduanya menyatu dan nama justru memendek
+    satu karakter — bentuk yang paling mudah disalahartikan sebagai potongan.
+
+    Lihat engine/penyatu_nama.rusak_posisi24 untuk buktinya di level glif.
+    """
+    teks = nama.strip()
+    if len(teks) <= 24 or not teks[23].isalnum():
+        return None
+    return re.sub(r'\s+', ' ', teks[:23] + ' ' + teks[24:]).strip()
 
 
 def balik_badan(nama, rng):
@@ -376,6 +408,7 @@ AMBIGU = [
 POLA = [
     ('potong lebar tetap',    potong_lebar,    'DITARGETKAN'),
     ('spasi tersisip',        sisip_spasi,     'DITARGETKAN'),
+    ('karakter ke-24 hilang', karakter_ke24_hilang, 'DITARGETKAN'),
     ('badan usaha dibalik',   balik_badan,     'DITARGETKAN'),
     ('badan usaha dihapus',   hapus_badan,     'DITARGETKAN'),
     ('sapaan ditambah',       tambah_sapaan,   'DITARGETKAN'),

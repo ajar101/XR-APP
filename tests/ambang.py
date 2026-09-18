@@ -142,8 +142,16 @@ def sapuan_tinjau(data, rinci: bool) -> None:
     print(f'{"tinjau":>7} | {"kandidat tahap 3":>16} | {"menyatu tahap 3":>15} '
           f'| {"waktu":>7}')
     print('-' * 60)
+    # Ambang gabung dipatok eksplisit di 0.95/0.90, bukan diambil dari
+    # nilai bawaan. Sejak bawaannya turun ke 0.85/0.80/0.80, memakai
+    # bawaan membuat sapuan ini menyusun ambang yang MELANGGAR urutan
+    # menurun begitu tinjau melewati 0.80 — dan `AmbangKemiripan` benar
+    # menolaknya, sehingga skripnya berhenti dengan ValueError. Judul
+    # sapuan ini memang sudah menyebut 0.95/0.90 sejak awal; yang keliru
+    # kodenya, bukan judulnya.
     for tinjau in SAPUAN_TINJAU:
-        h = jalankan(data, AmbangKemiripan(tinjau=tinjau))
+        h = jalankan(data, AmbangKemiripan(tinggi=0.95, mungkin=0.90,
+                                           tinjau=tinjau))
         print(f'{tinjau:>7.2f} | {h["kandidat_tahap3"]:>16} '
               f'| {h["menyatu_tahap3"]:>15} | {h["durasi"]:>6.2f}s')
     print(f'\nCatatan: kolom kandidat adalah jumlah SEBENARNYA. Yang tercetak '

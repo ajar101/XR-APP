@@ -42,12 +42,12 @@ diserahkan pada tebakan:
            berbeda, bukan APA yang membedakannya — dan di rekening koran
            justru jenis perbedaannya yang memutuskan.
 
-APA YANG DIUKUR PADA DATA NYATA (44 PDF REFERENSI, 3.523 NAMA)
+APA YANG DIUKUR PADA DATA NYATA (45 PDF REFERENSI, 3.794 NAMA)
 
 Angka ini yang menentukan urutan di atas, bukan sebaliknya:
 
   · Tahap 1 dan 2 menuntaskan seluruh penggabungan yang benar.
-  · Di seluruh 3.523 nama, hanya SATU pasangan mencapai kemiripan >= 0.95 —
+  · Di seluruh 3.794 nama, hanya SATU pasangan mencapai kemiripan >= 0.95 —
     dan pasangan itu ("ANI ROHIMAH" vs "Ibu ANI ROHIMAH") sudah tuntas di
     tahap 1 lewat normalisasi sapaan. Rentang 0.90-0.949: KOSONG.
   · Sebaliknya, pasangan bernilai TERTINGGI di rentang 0.80-an justru
@@ -106,6 +106,8 @@ sebaliknya — dan tidak ada jejaknya di laporan. Yang tidak memenuhi syarat
 karena itu tidak dibuang melainkan dilaporkan sebagai KANDIDAT, lengkap
 dengan alasannya, supaya pemeriksa yang memutuskan.
 """
+
+import re
 
 from engine.kemiripan_entitas import (
     AMBANG,
@@ -205,9 +207,159 @@ def terpotong_di_tengah_kata(panjang_kunci_pendek: int, nama_panjang: str) -> bo
     return False
 
 
-def _wakil(varian) -> str:
+# Posisi karakter yang dikosongkan dokumen BNI tertentu. Angkanya absolut —
+# tidak tergantung panjang nama — karena sebabnya batas kolom pada field
+# lebar tetap di sistem penerbitnya, bukan pemotongan.
+POSISI_HILANG = 23          # indeks 0, yaitu karakter ke-24
+
+
+def rusak_posisi24(nama: str) -> str:
+    """
+    Bentuk yang muncul kalau karakter ke-24 sebuah nama dikosongkan.
+
+    CACAT YANG DIMODELKAN. Pada sebagian transaksi BNI, karakter ke-24 nama
+    lawan transaksi diganti spasi di dokumennya sendiri — bukan oleh
+    pembacaan PDF. Diperiksa sampai level glif: spasi itu ada di content
+    stream, lebarnya 2,78pt, persis selebar glif "I" yang hilang di
+    tempatnya:
+
+        'S'  x0=422.56 x1=429.23
+        ' '  x0=429.23 x1=432.01    <- spasi literal selebar satu huruf
+        'A'  x0=432.01 x1=438.68
+
+    Jadi "PT HINO FINANCE INDONESIA" tercetak "PT HINO FINANCE INDONES A" —
+    sama panjang, satu huruf hilang di posisi tetap.
+
+    Kalau karakter yang terhapus itu bertetangga dengan spasi yang sudah
+    ada, keduanya menyatu dan nama justru MEMENDEK satu karakter: "HINO
+    FINANCE INDONESIA PT" menjadi "HINO FINANCE INDONESIA T". Bentuk itulah
+    yang paling menyesatkan — ia tampak seperti potongan padahal bukan, dan
+    tahap 2 benar menolaknya karena memang tidak berelasi awalan.
+
+    KENAPA INI BUKTI, BUKAN KEMIRIPAN. Fungsi ini dipakai dengan menuntut
+    kecocokan PERSIS terhadap nama lain yang benar-benar muncul di laporan
+    yang sama. Artinya 23 karakter pertama harus identik, seluruh ekor
+    sesudah posisi 24 harus identik, dan satu-satunya yang tidak diketahui —
+    karakter yang terhapus — dipasok oleh nama utuhnya. Hipotesisnya
+    tunggal, jadi tempatnya di tahap yang PASTI, bukan di tahap kemiripan.
+
+    Diukur pada 3.794 nama dari 45 PDF referensi yang sengaja digabung jadi
+    satu kolam lintas bank dan lintas dokumen — jauh lebih keras daripada
+    keadaan nyata, karena pasangan yang tidak pernah bertemu di satu laporan
+    pun ikut diuji: aturan ini menyala TEPAT SEKALI, pada "PT AEROTRANS
+    SERVICES I DONESIA" lawan "PT AEROTRANS SERVICES INDONESIA", dan nol
+    kasus ambigu. Pasangan itu sebelumnya digabung tahap 3 dengan kemiripan
+    0,831 — jadi aturan ini bukan cuma menambah penggabungan, ia MENUKAR
+    satu penggabungan berbasis kemiripan dengan penggabungan berbasis
+    mekanisme.
+    """
+    if len(nama) <= POSISI_HILANG:
+        return ''
+    return re.sub(r'\s+', ' ',
+                  nama[:POSISI_HILANG] + ' ' + nama[POSISI_HILANG + 1:]).strip()
+
+
+def mungkin_rusak(nama: str) -> bool:
+    """
+    Benarkah nama ini BERBENTUK seperti korban cacat posisi-24?
+
+    Dipakai hanya untuk MELAPORKAN, tidak pernah untuk menggabungkan. Tanpa
+    ejaan utuh sebagai pembanding, tidak ada yang bisa MEMASTIKAN huruf apa
+    yang terhapus — jadi yang dicari di sini bukan kepastian melainkan
+    bentuk yang khas.
+
+    Spasi di posisi ke-24 saja tidak cukup: "SIMSEM GI RTGS/ KLIRING CAB"
+    memenuhinya dan sama sekali tidak rusak. Diukur, syarat selonggar itu
+    menyala pada 12 dari 12 nama sintetis di tes pemotongan kandidat —
+    seluruhnya keliru, dan daftarnya membengkak sampai melewati batas cetak.
+
+    Syarat selanjutnya dibaca dari bentuk sisa yang ditinggalkan cacat ini:
+    kata sesudah spasi itu tinggal SATU ATAU DUA HURUF dan merupakan kata
+    TERAKHIR ("INDONE IA", "SEJA I", "SOLUTI N"), sementara kata
+    sebelumnya masih utuh — minimal empat huruf, seluruhnya huruf.
+
+    Tiap syarat itu ditambahkan karena ada yang disaringnya, dan semuanya
+    diukur di 44 PDF referensi. Tanpa ketiganya, laporan ini menghasilkan
+    13 baris yang nyaris seluruhnya keliru:
+
+      kata terakhir      membuang "SETIAWA BB SPSI" dan "Sifa Ul Qulub" —
+                         di situ potongan pendeknya masih diikuti kata lain,
+                         jadi ia kata sungguhan, bukan sisa
+      seluruhnya huruf   membuang "PBB P2", "CG 897376-897425",
+                         "SOLIKHIN, ST" (koma penanda gelar ikut terbawa)
+      kiri minimal 4     membuang "- 032" dan "CK 459654-..."
+
+    Sesudah ketiganya: 1 laporan dari 44 PDF ("The Negotiator Services D"),
+    dan "BRI MULTIFINANCE INDONE IA" di berkas BNI baru tetap tertangkap.
+
+    Yang tetap bisa keliru: nama orang berinisial di ekor yang inisialnya
+    kebetulan jatuh persis di posisi ke-24. Itu diterima — ia memang
+    ambigu, dan ambigu adalah alasan MELAPORKAN, bukan alasan diam. Salah
+    lapor di sini harganya satu baris yang perlu dibaca pemeriksa; ia
+    tidak bisa merusak HHI, karena fungsi ini tidak pernah menggabungkan.
+    """
+    if len(nama) <= POSISI_HILANG + 1 or nama[POSISI_HILANG] != ' ':
+        return False
+    kiri = nama[:POSISI_HILANG].rsplit(' ', 1)[-1]
+    ekor = nama[POSISI_HILANG + 1:].split(' ')
+    return (len(ekor) == 1 and len(ekor[0]) <= 2 and ekor[0].isalpha()
+            and len(kiri) >= 4 and kiri.isalpha())
+
+
+def _tahap1b_karakter_hilang(per_kunci, kandidat):
+    """
+    Tahap 1b — karakter yang terhapus di posisi tetap.
+
+    Masih tahap PASTI: yang digabung hanya yang rekonstruksinya cocok
+    persis, dan percabangan diserahkan ke pemeriksa alih-alih ditebak.
+
+    Mengembalikan (induk, rusak):
+        induk   {kunci kelompok rusak -> kunci kelompok utuh}
+        rusak   himpunan nama yang TERBUKTI bentuk rusak — dipakai `_wakil`
+                supaya ejaan yang cacat tidak pernah jadi nama resmi
+                kelompoknya.
+    """
+    dari_nama = {n: k for k, anggota in per_kunci.items() for n in anggota}
+
+    # Arahnya dari nama UTUH ke bentuk rusaknya, bukan sebaliknya: yang
+    # hilang tidak bisa ditebak dari bentuk rusaknya sendiri, hanya bisa
+    # dicocokkan dari kandidat utuh yang memang ada di laporan ini.
+    calon = {}
+    for utuh in dari_nama:
+        r = rusak_posisi24(utuh)
+        if r and r != utuh and r in dari_nama:
+            calon.setdefault(r, []).append(utuh)
+
+    induk, rusak = {}, set()
+    for bentuk_rusak, daftar in sorted(calon.items()):
+        if len(daftar) > 1:
+            # Dua ejaan utuh berbeda menghasilkan bentuk rusak yang sama.
+            # Tidak ada di data referensi (nol kasus dari 3.794 nama), tapi
+            # kalau terjadi ia harus tampak, bukan dipilih sembarang.
+            kandidat.append((
+                bentuk_rusak, ' / '.join(sorted(daftar)),
+                'karakter ke-24 tampak terhapus, tapi lebih dari satu ejaan '
+                'utuh cocok — tidak bisa dipastikan yang mana'))
+            continue
+
+        utuh = daftar[0]
+        ka, kb = dari_nama[bentuk_rusak], dari_nama[utuh]
+        rusak.add(bentuk_rusak)
+        if _akar(ka, induk) != _akar(kb, induk):
+            induk[_akar(ka, induk)] = _akar(kb, induk)
+
+    return induk, rusak
+
+
+def _wakil(varian, rusak=frozenset()) -> str:
     """
     Penulisan mana yang mewakili satu kelompok.
+
+    Ejaan yang TERBUKTI rusak (lihat `rusak_posisi24`) selalu kalah lebih
+    dulu, apa pun panjang kuncinya. Tanpa aturan ini kelompok HINO diwakili
+    "HINO FINANCE INDONESIA T": hilangnya "P" menyisakan "T" yang bukan
+    bentuk badan usaha, sehingga kuncinya justru paling panjang dan ejaan
+    yang cacat menang — nama resmi di Rekap jadi salah cetak.
 
     Diurutkan menurut panjang KUNCI lebih dulu, bukan panjang teks mentah.
     Keduanya bisa berbeda kesimpulan: "SRI NOFITHA TARIGA" dan
@@ -227,7 +379,8 @@ def _wakil(varian) -> str:
     harus menghasilkan berkas yang sama.
     """
     def urutan(n):
-        return (-len(kunci(n)),
+        return (1 if n in rusak else 0,
+                -len(kunci(n)),
                 0 if BADAN_AWAL.match(n.strip().upper()) else 1,
                 -len(n),
                 n)
@@ -539,6 +692,21 @@ def satukan(nama_unik, abaikan=frozenset(), ambang=AMBANG) -> Penyatuan:
         utama = min(kunci_gabungan, key=lambda k: (len(k), k))
         per_kunci[utama] = sorted(gabungan, key=lambda n: (-len(n), n))
 
+    # ── TAHAP 1B: karakter yang terhapus di posisi tetap ──
+    #
+    # Masih tahap pasti, dan dijalankan SEBELUM tahap 2 justru karena bentuk
+    # rusaknya bisa menyamar jadi potongan: "HINO FINANCE INDONESIA T"
+    # memendek satu karakter, persis seperti nama yang terpangkas kanal.
+    # Kalau tahap 2 yang menanganinya lebih dulu, yang didapat penggabungan
+    # tanpa bukti; di sini ia dapat bukti rekonstruksi yang persis.
+    induk_hilang, rusak = _tahap1b_karakter_hilang(per_kunci, kandidat)
+    if induk_hilang:
+        digabung = {}
+        for k, anggota in per_kunci.items():
+            digabung.setdefault(_akar(k, induk_hilang), []).extend(anggota)
+        per_kunci = {k: sorted(v, key=lambda n: (-len(n), n))
+                     for k, v in digabung.items()}
+
     # ── TAHAP 2: awalan yang terpotong di tengah kata (+ TAHAP 4) ──
     induk = _tahap2_potongan(per_kunci, kandidat)
 
@@ -557,7 +725,7 @@ def satukan(nama_unik, abaikan=frozenset(), ambang=AMBANG) -> Penyatuan:
     # ── Susun kelompok akhir ──
     peta, varian = {}, {}
     for anggota in kelompok.values():
-        w = _wakil(anggota)
+        w = _wakil(anggota, rusak)
         for n in anggota:
             peta[n] = w
         if len(anggota) > 1:
@@ -565,5 +733,28 @@ def satukan(nama_unik, abaikan=frozenset(), ambang=AMBANG) -> Penyatuan:
 
     for n in nama_unik:
         peta.setdefault(n, n)
+
+    # ── Rusak tanpa pasangan: dilaporkan, tidak digabung ──
+    #
+    # Nama yang berbentuk korban cacat posisi-24 tapi ejaan utuhnya tidak
+    # ada di laporan ini. Tidak ada yang bisa memulihkannya — huruf yang
+    # hilang tidak tersimpan di mana pun — jadi yang bisa dilakukan hanya
+    # memberitahu. Dibiarkan senyap, pemeriksa akan membaca "BRI
+    # MULTIFINANCE INDONE IA" sebagai nama yang memang begitu.
+    #
+    # Yang disembunyikan HANYA yang sudah terbukti rusak lalu dipulihkan
+    # (`rusak`) — di situ pertanyaannya sudah terjawab dan nama resminya
+    # sudah ejaan yang utuh. Menyatu dengan ejaan lain saja TIDAK cukup:
+    # "BRI MULTIFINANCE INDONE IA" menyatu dengan potongannya "BRI
+    # MULTIFINANCE IND", tapi ia tetap ejaan paling lengkap di kelompok
+    # itu — jadi nama yang tercetak di Rekap tetap kehilangan satu huruf,
+    # dan itu justru yang perlu diketahui pemeriksa.
+    for n in sorted(ikut):
+        if mungkin_rusak(n) and n not in rusak:
+            kandidat.append((
+                n, '',
+                'ada spasi tepat di karakter ke-24 — bisa jadi huruf di posisi '
+                'itu terhapus dokumen (lihat rusak_posisi24), tapi ejaan utuhnya '
+                'tidak muncul di laporan ini; bisa juga batas kata yang sah'))
 
     return Penyatuan(peta, varian, kandidat, dipotong)
