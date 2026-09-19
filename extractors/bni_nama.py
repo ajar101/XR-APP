@@ -15,6 +15,7 @@ Setara dengan extractors/mandiri_nama.py untuk keluarga dokumen Mandiri.
 """
 
 import re
+from collections import Counter
 
 
 class NamaLawanBNI:
@@ -72,6 +73,94 @@ class NamaLawanBNI:
     # pernah muncul berisiko memotong nama pihak yang kebetulan mirip.
     RE_EKOR_KANAL = re.compile(r'\s+BI[\s-]?FAST\s*$', re.IGNORECASE)
 
+    # Nama yang isinya nomor belaka. Untuk transfer keluar lewat e-channel,
+    # dokumen BNI memang tidak mencetak nama penerima sama sekali — yang ada
+    # hanya nomor rekening tujuan, dan nomor itulah yang dipakai sebagai
+    # identitas. Terukur: 28,7% baris BNI di 45 PDF referensi (623 nomor
+    # unik), sementara BCA dan Mandiri nol.
+    RE_NOMOR_SAJA = re.compile(r'^[\d\s.\-]+$')
+
+    # Berita yang tidak memberi tahu apa pun tentang keperluannya: label
+    # kanal, atau nomor lagi.
+    BERITA_KOSONG = {'BNI DIRECT'}
+
+    @classmethod
+    def keperluan(cls, keterangan: str) -> str:
+        """
+        Berita yang diketik nasabah, dari segmen TERAKHIR keterangan.
+
+        BUKAN nama pihak, dan tidak boleh dipakai sebagai nama. Terukur pada
+        satu berkas referensi: rekening 1050017365861 punya 12 transaksi
+        dengan 7 berita berbeda ("PEMBELIAN BBM ZONA", "CICIL BBM ZONA 1",
+        "PELUNASAN BBM ZONA 1", …), dan 37 dari 67 nomor yang bertransaksi
+        >=3 kali beritanya berganti-ganti. Memakainya sebagai nama memecah
+        satu pihak jadi sebanyak beritanya — penyakit yang justru sedang
+        diobati sheet Rekap.
+
+        Gunanya lain: untuk baris yang namanya nomor belaka, berita adalah
+        SATU-SATUNYA petunjuk terbaca manusia tentang urusan apa itu. Karena
+        itu ia dilaporkan sebagai keterangan pendamping, bukan sebagai nama.
+
+        Bentuk segmen terakhirnya "<nomor rekening> <berita>", jadi nomor di
+        depannya dibuang. Mengembalikan '' kalau tidak ada berita yang
+        berguna — pemanggilnya yang memutuskan apa yang ditampilkan.
+        """
+        segmen = [x.strip() for x in (keterangan or '').split('|') if x.strip()]
+        if len(segmen) < 2:
+            return ''
+        berita = re.sub(r'^[\d\s]+', '', segmen[-1]).strip()
+        if not berita or berita.upper() in cls.BERITA_KOSONG:
+            return ''
+        if cls.RE_NOMOR_SAJA.match(berita):
+            return ''
+        return berita
+
+    @classmethod
+    def keperluan_per_nomor(cls, baris) -> dict:
+        """
+        {nomor rekening -> berita yang PALING SERING} untuk baris yang
+        namanya nomor belaka.
+
+        Yang paling sering, bukan yang pertama atau gabungan semuanya:
+        beritanya berganti tiap transaksi, jadi satu sel tidak bisa mewakili
+        semuanya dengan jujur. Jumlah berita lainnya ikut dikembalikan supaya
+        laporan bisa menyatakan bahwa yang ditampilkan hanya satu dari
+        beberapa, alih-alih berpura-pura tunggal.
+
+        Hasilnya {nomor: (berita, jumlah_berita_lain)}.
+        """
+        hitung = {}
+        for b in baris:
+            nama = str(b.get('nama') or '').strip()
+            if not nama or not cls.RE_NOMOR_SAJA.match(nama):
+                continue
+            berita = cls.keperluan(b.get('keterangan') or '')
+            if not berita:
+                continue
+            hitung.setdefault(nama, Counter())[berita] += 1
+
+        hasil = {}
+        for nomor, c in hitung.items():
+            # Urutan kedua menurut abjad, supaya seri tidak membuat laporan
+            # yang sama menghasilkan berkas berbeda tiap dijalankan.
+            berita = min(c.items(), key=lambda kv: (-kv[1], kv[0]))[0]
+            hasil[nomor] = (berita, len(c) - 1)
+        return hasil
+
+    def _nama_dari_pemindahan(self, segmen: str) -> str:
+        """
+        Nama pihak dari klausa "PEMINDAHAN KE/DARI <rekening> <nama>".
+
+        Mengembalikan '' kalau segmennya bukan klausa pemindahan, atau kalau
+        sisanya tidak terbaca sebagai nama — pemanggilnya yang memutuskan apa
+        yang dipakai sebagai gantinya.
+        """
+        m = self.RE_PEMINDAHAN.match(segmen)
+        if not m:
+            return ''
+        nama = self._rapikan(self._potong_berita(m.group(2).strip()))
+        return nama if self._terbaca_sebagai_nama(nama) else ''
+
     def _nama_lawan(self, keterangan: str, arah: str) -> str:
         """
         Nama pihak lawan transaksi dari kolom Transaction Description.
@@ -95,9 +184,27 @@ class NamaLawanBNI:
             return self.LABEL_BANK[kepala.upper()]
         for awalan, label in self.LABEL_WARKAT:
             if kepala.upper().startswith(awalan):
-                # "SETOR TUNAI | DAENG AJAM NURJAMIL | <berita>"
+                # Warkat bisa membawa nama pihak dalam DUA bentuk, dan
+                # keduanya ada di data referensi:
+                #
+                #   SETOR TUNAI | DAENG AJAM NURJAMIL | <berita>
+                #   TARIK CHQ/BG BN668833 | PEMINDAHAN KE 84705582 PT SHINHAN
+                #
+                # Yang kedua harus diupas dulu klausa pemindahannya. Dulu
+                # cabang ini mengembalikan segmen[1] UTUH asal tidak dimulai
+                # angka, sehingga bentuk kedua menghasilkan "PEMINDAHAN KE
+                # 84705582 PT SHINHAN INDO FINANCE" sebagai nama pihak — dan
+                # akibatnya bukan cuma salah cetak: dengan prefiks menempel,
+                # nama itu tidak akan pernah menyatu dengan ejaan lain dari
+                # pihak yang sama. "PT SHINHAN INDO FINANCE" muncul di dua
+                # berkas referensi dengan nomor rekening berbeda.
+                #
+                # Pengupasannya memakai jalur yang sama dengan bentuk
+                # berkepala "TRANSFER KE" di bawah, bukan aturan kedua yang
+                # bisa menyimpang darinya.
                 if len(segmen) > 1 and not segmen[1][:1].isdigit():
-                    return self._rapikan(segmen[1])
+                    nama = self._nama_dari_pemindahan(segmen[1])
+                    return nama or self._rapikan(segmen[1])
                 return label
 
         # "TRANSFER KE | PEMINDAHAN KE 327655583 DAPENSI DWIKARYA | ..."
@@ -107,9 +214,9 @@ class NamaLawanBNI:
             m = self.RE_PEMINDAHAN.match(seg)
             if not m:
                 continue
-            rekening, ekor = m.group(1), m.group(2).strip()
-            nama = self._rapikan(self._potong_berita(ekor))
-            if self._terbaca_sebagai_nama(nama):
+            rekening = m.group(1)
+            nama = self._nama_dari_pemindahan(seg)
+            if nama:
                 return nama
 
             # Nama tidak menempel di klausa pemindahan. Sebelum melirik

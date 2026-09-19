@@ -359,9 +359,35 @@ def _build_sheet2_transaksi(wb, transaksi_per_bulan, bulan_list):
 # HELPER — REKAP PIVOT (dipakai Sheet 3 & 4)
 # ============================================================
 
+# Nama yang isinya nomor belaka — nomor rekening yang dipakai sebagai
+# identitas karena dokumennya tidak mencetak nama pihak.
+_RE_NAMA_NOMOR = re.compile(r'^[\d\s.\-]+$')
+
+
+def _teks_keperluan(nama, keperluan) -> str:
+    """
+    Isi kolom "Keperluan" untuk satu baris Rekap, atau None kalau kosong.
+
+    Baris yang identitasnya nomor SELALU diberi isi, bahkan kalau beritanya
+    tidak ada — karena separuh gunanya kolom ini adalah menandai bahwa
+    dokumen tidak mencetak nama. Kalau sel dibiarkan kosong untuk baris
+    semacam itu, ia tidak bisa dibedakan dari baris bernama, dan penandanya
+    hilang justru di kasus yang paling perlu ditandai.
+    """
+    if not _RE_NAMA_NOMOR.match(str(nama or '').strip()):
+        return None
+    isi = (keperluan or {}).get(str(nama).strip())
+    if not isi:
+        return 'dokumen tidak mencetak nama maupun berita'
+    berita, lain = (isi if isinstance(isi, (tuple, list)) else (isi, 0))
+    if lain:
+        return f'{berita}  (+{lain} berita lain)'
+    return str(berita)
+
+
 def _build_rekap_sheet(ws, transaksi_per_bulan, bulan_list,
                        jenis_filter, label_total, show_concentration=False,
-                       penyatuan=None):
+                       penyatuan=None, keperluan=None):
     ws.sheet_view.showGridLines = False
 
     # bulan_list sudah urut kronologis (tahun lalu bulan); cukup disaring,
@@ -453,6 +479,35 @@ def _build_rekap_sheet(ws, transaksi_per_bulan, bulan_list,
     ws.merge_cells(start_row=1, start_column=col, end_row=2, end_column=col)
     style_header(ws.cell(row=1, column=col, value='Varian Nama Digabung'),
                  bg_color='7D6608')
+    col += 1
+
+    # Kolom keperluan: HANYA terisi untuk baris yang identitasnya nomor
+    # rekening belaka, karena dokumennya tidak mencetak nama pihak sama
+    # sekali (transfer keluar lewat e-channel BNI — 28,7% baris BNI di 45 PDF
+    # referensi, dan nol di BCA/Mandiri).
+    #
+    # Dua hal sekaligus ditangani satu kolom ini. Pertama, ia PENANDA:
+    # tanpanya "1050017365861" di Rekap terbaca seperti pihak yang namanya
+    # kebetulan angka, padahal artinya "dokumen tidak menyebut namanya".
+    # Kedua, berita nasabah adalah satu-satunya petunjuk terbaca manusia
+    # tentang urusan apa itu.
+    #
+    # Yang ditampilkan berita PALING SERING, dan jumlah berita lainnya ikut
+    # dicantumkan — beritanya berganti tiap transaksi, jadi menampilkan satu
+    # saja tanpa memberi tahu ada yang lain adalah pernyataan yang tidak
+    # benar. Beritanya TIDAK boleh dipakai sebagai nama: lihat
+    # extractors/bni_nama.NamaLawanBNI.keperluan.
+    #
+    # Untuk baris yang SUDAH bernama kolom ini sengaja dibiarkan kosong.
+    # Rekap itu per-pihak, sementara berita itu per-transaksi: satu pihak
+    # punya banyak keperluan ("KAS KABANJAHE", "PEMBELIAN TERPAL BSL", …),
+    # jadi memilih salah satunya menyatakan sesuatu yang tidak benar.
+    # Tempatnya yang benar — per transaksi — sudah ada di sheet Detail.
+    kolom_keperluan = col
+    ws.merge_cells(start_row=1, start_column=col, end_row=2, end_column=col)
+    style_header(ws.cell(row=1, column=col,
+                         value='Keperluan (nama tidak dicetak)'),
+                 bg_color='7D6608')
 
     ws.merge_cells(start_row=1, start_column=1, end_row=2, end_column=1)
 
@@ -514,6 +569,10 @@ def _build_rekap_sheet(ws, transaksi_per_bulan, bulan_list,
                     value=' · '.join(lain) if lain else None)
         style_data(c, align='left', bg_color='FFF9E6' if lain else bg)
 
+        teks_kep = _teks_keperluan(nama, keperluan)
+        c = ws.cell(row=r, column=kolom_keperluan, value=teks_kep)
+        style_data(c, align='left', bg_color='FFF9E6' if teks_kep else bg)
+
     # ---- Baris total ----
     total_row = len(pivot_nom) + 3
     c = ws.cell(row=total_row, column=1, value=label_total)
@@ -553,8 +612,9 @@ def _build_rekap_sheet(ws, transaksi_per_bulan, bulan_list,
         ws.column_dimensions[get_column_letter(kolom_pct)].width = 15
         ws.column_dimensions[get_column_letter(kolom_kum)].width = 15
     ws.column_dimensions[get_column_letter(kolom_varian)].width = 46
+    ws.column_dimensions[get_column_letter(kolom_keperluan)].width = 38
 
-    _tulis_kandidat_penyatuan(ws, total_row + 2, kolom_varian, penyatuan)
+    _tulis_kandidat_penyatuan(ws, total_row + 2, kolom_keperluan, penyatuan)
 
 
 def _tulis_kandidat_penyatuan(ws, baris_mulai, kolom_akhir, penyatuan):
@@ -819,18 +879,19 @@ def _build_sheet_daftar_indikator(wb):
 
 
 def _build_sheet3_rekap_kredit(wb, transaksi_per_bulan, bulan_list,
-                               penyatuan=None):
+                               penyatuan=None, keperluan=None):
     ws = wb.create_sheet(title='Rekap Kredit')
     _build_rekap_sheet(ws, transaksi_per_bulan, bulan_list,
                        'Kredit', 'Total Mutasi Kredit', show_concentration=True,
-                       penyatuan=penyatuan)
+                       penyatuan=penyatuan, keperluan=keperluan)
 
 
 def _build_sheet4_rekap_debit(wb, transaksi_per_bulan, bulan_list,
-                              penyatuan=None):
+                              penyatuan=None, keperluan=None):
     ws = wb.create_sheet(title='Rekap Debit')
     _build_rekap_sheet(ws, transaksi_per_bulan, bulan_list,
-                       'Debit', 'Total Mutasi Debit', penyatuan=penyatuan)
+                       'Debit', 'Total Mutasi Debit', penyatuan=penyatuan,
+                       keperluan=keperluan)
 
 
 # ============================================================
@@ -1632,9 +1693,11 @@ _BUILDER = {
     'detail_transaksi':     lambda c: _build_sheet2_transaksi(
         c['wb'], c['transaksi'], c['bulan_list']),
     'rekap_kredit':         lambda c: _build_sheet3_rekap_kredit(
-        c['wb'], c['transaksi'], c['bulan_list'], c['penyatuan']),
+        c['wb'], c['transaksi'], c['bulan_list'], c['penyatuan'],
+        (c['saldo'] or {}).get('_keperluan')),
     'rekap_debit':          lambda c: _build_sheet4_rekap_debit(
-        c['wb'], c['transaksi'], c['bulan_list'], c['penyatuan']),
+        c['wb'], c['transaksi'], c['bulan_list'], c['penyatuan'],
+        (c['saldo'] or {}).get('_keperluan')),
     'summary_rekap_kredit': lambda c: _build_sheet_summary_rekap_kredit(
         c['wb'], c['transaksi'], c['bulan_list'], c['penyatuan']),
     'summary_rekap_debit':  lambda c: _build_sheet_summary_rekap_debit(

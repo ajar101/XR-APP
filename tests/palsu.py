@@ -102,24 +102,24 @@ SEED = 20260917
 # GARIS DASAR pada seed bawaan, sesudah empat tahap penyatuan dengan ambang
 # 0.85/0.80/0.80 (dicatat supaya "normal" itu punya angka):
 #
-#     DITARGETKAN      97.4%   705/724 — celah terbesar: potong lebar
-#                              119/137 = 86.9%
-#     BELUM DITANGANI  52.8%   (gelar 100%, salah ketik 0%)
+#     DITARGETKAN      98.3%   739/752 — celah terbesar: potong lebar
+#                              136/149 = 91.3%
+#     BELUM DITANGANI  53.5%   (gelar 100%, salah ketik 0%)
 #     SENGAJA DITAHAN   0.0%
 #     DISTRAKTOR        0.0%
 #     FMR              0.00%
-#     AMBIGU           98.0%   keputusan tanpa bukti — DI LUAR FMR
+#     AMBIGU           99.0%   keputusan tanpa bukti — DI LUAR FMR
 #
 # "Celah terbesar" itu menurut JUMLAH, bukan persentase: potong lebar
-# menyumbang 18 dari 19 kegagalan DITARGETKAN. Pola lain yang belum 100%
-# hanya "spasi tersisip" (279/280), dan satu kegagalan bukan celah.
+# menyumbang 13 dari 13 kegagalan DITARGETKAN — pola lain seluruhnya 100%.
 #
-# GARIS DASAR INI TIDAK SEBANDING DENGAN YANG SEBELUMNYA, dan sebabnya
-# justru yang sudah tertulis di CATATAN METODE di bawah: populasi tumbuh
-# dari 44 ke 45 PDF referensi. Diukur apple-to-apple pada populasi 45 yang
-# sama, kode sebelum perubahan ini mendapat 703/720 = 97,6% — jadi
-# penurunan dari 98,1% seluruhnya pergeseran populasi, bukan regresi.
-# Pola "karakter ke-24 hilang" sendiri 11/11 = 100%, dan FMR tetap 0,00%.
+# ANGKA INI IKUT BERGESER SETIAP KALI NAMA DI KORPUS BERUBAH, dan sebabnya
+# yang sudah tertulis di CATATAN METODE di bawah. Garis dasar sebelumnya
+# 705/724 = 97,4% pada populasi yang sama besarnya; yang menggesernya
+# perbaikan 14 nama BNI (prefiks "PEMINDAHAN KE" diupas di kepala warkat),
+# karena nama yang berubah ikut mengubah penyaringan populasi dan undian
+# rng-nya. Jadi kenaikan ke 98,3% BUKAN klaim bahwa aturan penggabungan
+# jadi lebih baik — yang bisa dibandingkan hanya FMR, yang tetap 0,00%.
 #
 # Riwayat angkanya, supaya arah perubahan kelihatan: FMR pernah 0,47% dan
 # turun ke 0 begitu penggabungan tahap 3 butuh bukti potongan; recall pola
