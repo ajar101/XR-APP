@@ -596,6 +596,13 @@ class BNIStatementExtractor(NamaLawanBNI, PencatatPeringatan, BaseExtractor):
                 hasil[f'_saldo_awal_{nama_bulan}'] = awal_bulan[(tahun, bulan)]
 
         hasil['_biaya_admin'] = self._jadwal_biaya_admin(doc)
+        # Berita nasabah untuk baris yang namanya nomor rekening belaka.
+        # Dikirim sebagai METADATA, bukan sebagai nama: ia berganti tiap
+        # transaksi, jadi memakainya sebagai nama memecah satu pihak (lihat
+        # NamaLawanBNI.keperluan). Sheet Rekap menampilkannya sebagai
+        # keterangan pendamping — sekaligus penanda bahwa dokumen memang
+        # tidak mencetak nama untuk baris itu.
+        hasil['_keperluan'] = self.keperluan_per_nomor(transaksi)
         # Bunga giro & pajaknya dicetak dengan keterangan persis ini, tanpa
         # ekor kode apa pun — jadi kolom Keterangan yang dipakai, dicocokkan
         # persis sama supaya transaksi lain tidak ikut terhitung.

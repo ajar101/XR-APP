@@ -42,12 +42,12 @@ diserahkan pada tebakan:
            berbeda, bukan APA yang membedakannya — dan di rekening koran
            justru jenis perbedaannya yang memutuskan.
 
-APA YANG DIUKUR PADA DATA NYATA (45 PDF REFERENSI, 3.794 NAMA)
+APA YANG DIUKUR PADA DATA NYATA (45 PDF REFERENSI, 3.792 NAMA)
 
 Angka ini yang menentukan urutan di atas, bukan sebaliknya:
 
   · Tahap 1 dan 2 menuntaskan seluruh penggabungan yang benar.
-  · Di seluruh 3.794 nama, hanya SATU pasangan mencapai kemiripan >= 0.95 —
+  · Di seluruh 3.792 nama, hanya SATU pasangan mencapai kemiripan >= 0.95 —
     dan pasangan itu ("ANI ROHIMAH" vs "Ibu ANI ROHIMAH") sudah tuntas di
     tahap 1 lewat normalisasi sapaan. Rentang 0.90-0.949: KOSONG.
   · Sebaliknya, pasangan bernilai TERTINGGI di rentang 0.80-an justru
@@ -243,7 +243,7 @@ def rusak_posisi24(nama: str) -> str:
     karakter yang terhapus — dipasok oleh nama utuhnya. Hipotesisnya
     tunggal, jadi tempatnya di tahap yang PASTI, bukan di tahap kemiripan.
 
-    Diukur pada 3.794 nama dari 45 PDF referensi yang sengaja digabung jadi
+    Diukur pada 3.792 nama dari 45 PDF referensi yang sengaja digabung jadi
     satu kolam lintas bank dan lintas dokumen — jauh lebih keras daripada
     keadaan nyata, karena pasangan yang tidak pernah bertemu di satu laporan
     pun ikut diuji: aturan ini menyala TEPAT SEKALI, pada "PT AEROTRANS
@@ -334,7 +334,7 @@ def _tahap1b_karakter_hilang(per_kunci, kandidat):
     for bentuk_rusak, daftar in sorted(calon.items()):
         if len(daftar) > 1:
             # Dua ejaan utuh berbeda menghasilkan bentuk rusak yang sama.
-            # Tidak ada di data referensi (nol kasus dari 3.794 nama), tapi
+            # Tidak ada di data referensi (nol kasus dari 3.792 nama), tapi
             # kalau terjadi ia harus tampak, bukan dipilih sembarang.
             kandidat.append((
                 bentuk_rusak, ' / '.join(sorted(daftar)),
