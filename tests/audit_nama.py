@@ -46,6 +46,7 @@ AWALAN_BANK = {
     'mandiri': ('mandiri_',),
     'bni': ('bni_', 'BNI_'),
     'bri': ('BRI ',),
+    'mestika': ('Mestika',),
 }
 
 SEED_BAWAAN = 20260916          # tanggal audit BRI pertama

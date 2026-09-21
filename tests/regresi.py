@@ -51,6 +51,7 @@ AWALAN_BANK = {
     'BNI_': 'bni',
     'BNI ': 'bni',
     'BRI ': 'bri',
+    'Mestika': 'mestika',
 }
 
 

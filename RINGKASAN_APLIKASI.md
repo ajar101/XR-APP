@@ -2,9 +2,9 @@
 
 Ringkasan arsitektur, fitur, input/output, dan rencana pengembangan aplikasi ekstraktor rekening koran.
 
-> Dibuat: 2 September 2026 · Diperbarui: 16 September 2026
+> Dibuat: 2 September 2026 · Diperbarui: 21 September 2026
 >
-> **Bank aktif:** BCA, Mandiri (Kopra + e-Statement + Rekening Koran), BNI (Account Statement + Transaction Inquiry), BRI (Laporan Transaksi Finansial) — 4 bank, 7 format
+> **Bank aktif:** BCA, Mandiri (Kopra + e-Statement + Rekening Koran), BNI (Account Statement + Transaction Inquiry), BRI (Laporan Transaksi Finansial), Mestika (Rekening Koran / Account Statement) — 5 bank, 8 format
 >
 > **Tahap:** pilot di localhost dengan satu pengguna. Deployment untuk tim ditunda; fokus sementara di perbaikan akurasi (§6.1, §6.2)
 
@@ -56,6 +56,8 @@ XR-APP/
 │   ├── bni_nama.py              #   Pipeline nama lawan transaksi, dipakai bersama kedua format BNI
 │   ├── bri.py                   #   Dispatcher format BRI (auto-detect)
 │   ├── bri_statement.py         #   Sub-extractor BRI LAPORAN TRANSAKSI FINANSIAL (tabel bergaris)
+│   ├── mestika.py               #   Dispatcher format Mestika (auto-detect)
+│   ├── mestika_statement.py     #   Sub-extractor Mestika REKENING KORAN / ACCOUNT STATEMENT (tabel lebar-tetap)
 │   ├── mandiri.py               #   Dispatcher format Mandiri (auto-detect)
 │   ├── mandiri_kopra.py         #   Sub-extractor Mandiri Kopra
 │   ├── mandiri_statement.py     #   Sub-extractor Mandiri e-Statement (Livin'/Mandiri Online)
@@ -149,6 +151,8 @@ Laporan Excel tidak pernah ditulis ke disk.
 | Bank Mandiri — format **E-Banking** | ❌ Belum ada extractor — ditolak dengan pesan yang menyebut formatnya |
 | Bank BRI — format **Laporan Transaksi Finansial** (e-statement BRImo/Internet Banking) | ✅ Aktif — satu format untuk SEMUA jenis rekening (Giro Umum, BritAma, BritAma Bisnis/X, Simpedes, beserta varian SME-nya); divalidasi 100% terhadap 22 blok laporan (4.131 transaksi) dari 9 PDF riil (total mutasi Debet/Kredit & saldo akhir dicocokkan dengan kaki ringkasan tiap blok, plus rantai saldo berjalan per baris) |
 | Bank BRI — format lain (mis. cetakan teller cabang) | ❌ Belum ada extractor — ditolak dengan pesan yang menyebut format yang didukung |
+| Bank Mestika — format **Rekening Koran / Account Statement** (e-statement PT Bank Mestika Dharma Tbk) | ✅ Aktif — Giro & Giro PRK; divalidasi 100% terhadap 3 blok laporan (1.180 transaksi) dari 1 PDF riil (SALDO AWAL, MUTASI DEBET, MUTASI KREDIT & SALDO AKHIR dicocokkan dengan kaki ringkasan tiap blok, plus rantai saldo berjalan per baris DAN saldo pindahan antar halaman) |
+| Bank Mestika — format lain (mis. cetakan teller cabang) | ❌ Belum ada extractor — ditolak dengan pesan yang menyebut format yang didukung |
 | OCR / ekstraksi PDF hasil scan | ❌ Belum diimplementasikan (lihat §6) |
 | Autentikasi (login) & otorisasi dua peran (admin/pemakai) | ✅ Aktif — lihat `auth.py` |
 | Jejak audit: siapa memproses rekening apa, kapan, hasilnya | ✅ Aktif — mencatat keberhasilan MAUPUN seluruh kegagalan |
@@ -165,7 +169,7 @@ Laporan Excel tidak pernah ditulis ke disk.
 
 ### 4.1 Yang diterima
 
-- **Format**: PDF rekening koran dari **4 bank / 7 format** — BCA, Mandiri (Kopra, e-Statement, Rekening Koran), BNI (Account Statement, Transaction Inquiry), BRI (Laporan Transaksi Finansial) — dengan **layer teks** (bukan hasil scan/foto kamera). Daftar format yang aktif ada di `extractors/registry.py` (kunci `formats`), dan jumlahnya ikut ditampilkan di halaman depan.
+- **Format**: PDF rekening koran dari **5 bank / 8 format** — BCA, Mandiri (Kopra, e-Statement, Rekening Koran), BNI (Account Statement, Transaction Inquiry), BRI (Laporan Transaksi Finansial), Mestika (Rekening Koran / Account Statement) — dengan **layer teks** (bukan hasil scan/foto kamera). Daftar format yang aktif ada di `extractors/registry.py` (kunci `formats`), dan jumlahnya ikut ditampilkan di halaman depan.
 - **Jumlah file**: 1 atau lebih PDF sekaligus dalam satu upload.
 - **Total periode**: maksimum **6 bulan mutasi gabungan** dari seluruh file yang diupload.
 - **Ukuran**: maks 64 MB per request.

@@ -18,6 +18,7 @@ from extractors.bca import BCAExtractor
 from extractors.mandiri import MandiriExtractor
 from extractors.bni import BNIExtractor
 from extractors.bri import BRIExtractor
+from extractors.mestika import MestikaExtractor
 
 BANK_REGISTRY = {
     'bca': {
@@ -59,6 +60,16 @@ BANK_REGISTRY = {
         'description': 'Rekening Giro, BritAma & Simpedes BRI (Laporan Transaksi Finansial)',
         'formats':     ['Laporan Transaksi Finansial'],
         'enabled':     True,   # ✓ Aktif — parser Laporan Transaksi Finansial sudah divalidasi checksum
+    },
+    'mestika': {
+        'name':        'Bank Mestika Dharma',
+        'short_name':  'MESTIKA',
+        'extractor':   MestikaExtractor,
+        'color':       '#E30613',   # merah Mestika
+        'logo_text':   'MDH',
+        'description': 'Rekening Giro & Giro PRK Bank Mestika (Rekening Koran / Account Statement)',
+        'formats':     ['Rekening Koran / Account Statement'],
+        'enabled':     True,   # ✓ Aktif — parser Rekening Koran sudah divalidasi checksum
     },
 }
 
