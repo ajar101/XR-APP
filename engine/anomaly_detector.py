@@ -81,6 +81,7 @@ def detect_anomalies(pdf_path, saldo_per_bulan: dict,
     findings = []
 
     findings += _check_saldo_balance(saldo_per_bulan, transaksi_per_bulan)
+    findings += _check_kontinuitas_antar_bulan(saldo_per_bulan)
     findings += _check_duplikasi(transaksi_per_bulan, saldo_per_bulan)
     findings += _check_gap_transaksi(transaksi_per_bulan)
     findings += _check_setoran_tunai_libur(transaksi_per_bulan, saldo_per_bulan)
@@ -169,6 +170,76 @@ def _check_saldo_balance(saldo_per_bulan, transaksi_per_bulan):
                 'detail': (
                     f'Saldo Awal {saldo_awal:,} + Kredit {kredit:,} − Debit {debit:,} '
                     f'= {expected:,}, tapi Saldo Akhir tercatat {saldo_akhir:,}'
+                ),
+                'nilai_rp': selisih,
+            })
+    return out
+
+
+# ============================================================
+# CHECK 2 — Kontinuitas saldo antar bulan
+# ============================================================
+
+def _check_kontinuitas_antar_bulan(saldo_per_bulan):
+    """
+    Saldo akhir suatu bulan harus sama dengan saldo awal bulan berikutnya
+    (bulan-bulan yang berurutan langsung, tahun ikut dipakai supaya laporan
+    yang melintasi pergantian tahun tetap terurut benar). Kalau tidak sama,
+    itu indikasi ada mutasi yang tidak tercatat, halaman/blok yang hilang,
+    atau penyesuaian saldo yang tidak dijelaskan.
+
+    Bulan yang tidak berurutan langsung (ada bulan yang tidak tercakup
+    laporan di antaranya) sengaja DILEWATI — celah semacam itu bukan
+    ketidaksinkronan, hanya bulan yang memang tidak diupload/tidak ada di PDF.
+    """
+    out = []
+
+    entri = []
+    for bulan, info in saldo_per_bulan.items():
+        if bulan.startswith('_'):
+            continue
+        df_s = info.get('df')
+        tahun = info.get('tahun')
+        bulan_num = BULAN_TO_NUM.get(bulan)
+        if df_s is None or df_s.empty or not tahun or not bulan_num:
+            continue
+        saldo_akhir = int(df_s['Saldo Akhir Harian'].iloc[-1])
+        entri.append({
+            'bulan': bulan,
+            'urutan': (int(tahun), bulan_num),
+            'saldo_akhir': saldo_akhir,
+        })
+
+    entri.sort(key=lambda e: e['urutan'])
+
+    for kini, berikut in zip(entri, entri[1:]):
+        tahun_kini, bulan_num_kini = kini['urutan']
+        tahun_berikut, bulan_num_berikut = berikut['urutan']
+        # Hanya bandingkan pasangan bulan yang BERURUTAN LANGSUNG di kalender
+        # (mis. Maret 2024 -> April 2024, atau Desember 2024 -> Januari 2025).
+        lanjut_tahun_sama = (tahun_berikut == tahun_kini and bulan_num_berikut == bulan_num_kini + 1)
+        lanjut_ganti_tahun = (tahun_berikut == tahun_kini + 1 and bulan_num_kini == 12 and bulan_num_berikut == 1)
+        if not (lanjut_tahun_sama or lanjut_ganti_tahun):
+            continue
+
+        saldo_awal_berikut = saldo_per_bulan.get(f"_saldo_awal_{berikut['bulan']}")
+        if saldo_awal_berikut is None:
+            continue
+
+        selisih = int(saldo_awal_berikut) - kini['saldo_akhir']
+        if abs(selisih) > TOLERANSI_SALDO:
+            out.append({
+                'kategori': 'Saldo Tidak Sinkron Antar Bulan',
+                'tingkat': 'Tinggi',
+                'bulan': berikut['bulan'], 'tanggal': '-', 'halaman': '-',
+                'deskripsi': (
+                    f"Saldo Akhir {kini['bulan']} {tahun_kini} tidak sama dengan "
+                    f"Saldo Awal {berikut['bulan']} {tahun_berikut}"
+                ),
+                'detail': (
+                    f"Saldo Akhir {kini['bulan']} {tahun_kini} = {kini['saldo_akhir']:,}, "
+                    f"tapi Saldo Awal {berikut['bulan']} {tahun_berikut} tercatat "
+                    f"{int(saldo_awal_berikut):,} (selisih {selisih:,})"
                 ),
                 'nilai_rp': selisih,
             })
