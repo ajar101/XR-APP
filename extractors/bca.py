@@ -14,6 +14,7 @@ import datetime
 import pdfplumber
 import pandas as pd
 
+from kalender import hari_bank_pertama
 from extractors.base import BaseExtractor
 
 BULAN_TO_NUM = {
@@ -27,11 +28,56 @@ BULAN_TO_NUM = {
 # satu bank tertentu dan diam-diam memberlakukannya juga ke bank lain.
 # Tempatnya di sini: aturan BCA dimiliki extractor BCA.
 #
-# Mulai periode Juni 2026, SEMUA jenis rekening BCA (Giro maupun Tabungan)
-# didebet tanggal 1. Sebelum itu jadwalnya beda per jenis rekening
-# (dikonfirmasi dari data riil):
-#   - GIRO    : tanggal terakhir bulan berjalan
-#   - TAHAPAN : Jumat minggu ke-3 bulan berjalan
+# ATURAN BARU — kutipan pengumuman resmi BCA, bukan parafrase:
+#
+#   "Efektif per tanggal 1 Juni 2026, pendebitan biaya administrasi bulanan
+#    akan dilakukan setiap AWAL BULAN."
+#
+# berlaku untuk: Tahapan, Tahapan Gold, Tahapan Xpresi, Tapres, BCA Dollar,
+# dan Giro.
+#
+# "AWAL BULAN", BUKAN "TANGGAL 1" — dan bedanya bukan soal kata. Kode ini
+# dulu menuliskannya sebagai tanggal 1, yaitu pengetatan yang KITA yang
+# menambahkan, bukan yang bank katakan. Akibatnya tiap bulan yang tanggal
+# 1-nya jatuh di akhir pekan menghasilkan temuan palsu bertingkat Sedang:
+# di 2026 itu Februari, Maret, Agustus, dan November. Ditemukan dari
+# pemakaian nyata — pendebetan 3 Agustus dilaporkan tidak wajar, padahal
+# 1 Agustus 2026 hari Sabtu.
+#
+# Karena pengumumannya tidak mendefinisikan "awal bulan" lebih jauh, yang
+# diterima TIGA HARI PERTAMA bulan itu — 1, 2, dan 3 — ditambah hari bank
+# pertama kalau ia jatuh di luar ketiganya.
+#
+# Jendela datar, bukan tanggal yang dihitung, dan itu keputusan sadar.
+# Mekanismenya memang belum diketahui: pemakai melaporkan melihat tanggal
+# 1, 2, MAUPUN 3, sementara "hari bank berikutnya" cuma bisa menghasilkan
+# tanggal 2 kalau tanggal 1 jatuh Minggu. Menebak mekanisme lalu
+# mengetatkan aturan menurut tebakan itu persis kesalahan yang sedang
+# diperbaiki di sini — kode ini dulu menyempitkan "awal bulan" jadi
+# "tanggal 1" dengan cara yang sama.
+#
+# BCA juga terbukti mendebet di akhir pekan untuk aturan lama (biaya GIRO
+# didebet Minggu 31 Mei 2026 di berkas referensi), jadi jendela yang
+# menolak akhir pekan memang tidak punya dasar.
+#
+# Tetap ketat: debet tanggal 5, 10, 15, atau 20 tetap tertangkap.
+#
+# Libur nasional bertanggal TETAP ikut dilompati (kalender.py), dan itu
+# bukan kasus pinggiran: dua dari empat libur tetap justru jatuh tanggal 1 —
+# Tahun Baru dan Hari Buruh — dan dari 2026 sampai 2030, delapan dari
+# sepuluh kejadiannya jatuh di hari kerja, yaitu saat liburnya benar-benar
+# menggeser pendebetan.
+#
+# Libur lunar/hijriah TIDAK ikut, karena kalendernya belum ada di aplikasi
+# ini (lihat butir hari libur di RINGKASAN §6.0). Sisanya diterima sadar:
+# kalau Lebaran mendorong debet ke tanggal 4, temuannya tetap muncul — dan
+# yang dihasilkannya temuan yang dibaca manusia, bukan angka yang salah
+# diam-diam.
+#
+# ATURAN LAMA (sebelum Juni 2026) — ini yang dikonfirmasi dari data riil,
+# dan justru karena itu tetap dicocokkan PERSIS satu tanggal:
+#   - GIRO    : tanggal terakhir bulan berjalan   (April tgl 30, Mei tgl 31)
+#   - TAHAPAN : Jumat minggu ke-3 bulan berjalan  (Mei 2026 tgl 15)
 BIAYA_ADM_CUTOVER = (2026, 6)   # (tahun, bulan) mulai berlaku aturan baru
 
 # Nilai kolom 'Nama Pengirim/Penerima' yang dipakai extractor ini untuk baris
@@ -273,15 +319,33 @@ class BCAExtractor(BaseExtractor):
         if not bulan_num:
             return None
 
-        if jenis_rekening not in ('GIRO', 'TAHAPAN'):
-            # Aturan cutover pun tidak diberlakukan di sini: kalau jenis
-            # rekeningnya sendiri tidak terbaca, kita tidak tahu ini rekening
-            # BCA jenis apa — menebaknya justru menghasilkan temuan palsu.
-            return None
-
         if (tahun, bulan_num) >= BIAYA_ADM_CUTOVER:
-            return {'tanggal': 1,
-                    'aturan': 'tanggal 1 (ketentuan BCA per Juni 2026)'}
+            # Sesudah cutover, jenis rekening TIDAK lagi menentukan jadwal:
+            # pengumumannya menyebut keenam jenis sekaligus dengan aturan
+            # yang sama. Jadi gerbang jenis rekening di bawah sengaja tidak
+            # berlaku di sini — kalau diberlakukan, rekening Tapres dan BCA
+            # Dollar kehilangan pemeriksaan yang justru sudah kita punya
+            # dasarnya (regex jenis rekening membaca "REKENING BCA DOLLAR"
+            # sebagai "BCA" dan "REKENING TAPRES" sebagai "TAPRES", dua-duanya
+            # di luar daftar lama).
+            hari_bank = hari_bank_pertama(tahun, bulan_num)
+            sah = {1, 2, 3}
+            if hari_bank:
+                sah.add(hari_bank)
+            sah = sorted(sah)
+            aturan = ('awal bulan/tanggal 1-3 (pengumuman BCA, efektif '
+                      '1 Juni 2026)')
+            if sah[-1] > 3:
+                aturan = (f'awal bulan/tanggal 1-3, atau tanggal {sah[-1]} '
+                          f'karena tiga hari pertama libur (pengumuman BCA, '
+                          f'efektif 1 Juni 2026)')
+            return {'tanggal': 1, 'tanggal_sah': sah, 'aturan': aturan}
+
+        if jenis_rekening not in ('GIRO', 'TAHAPAN'):
+            # Aturan SEBELUM cutover memang beda per jenis rekening, jadi di
+            # sini ketidaktahuan harus berarti melewatkan pemeriksaan, bukan
+            # menebak: menebak justru menghasilkan temuan palsu.
+            return None
 
         if jenis_rekening == 'GIRO':
             try:

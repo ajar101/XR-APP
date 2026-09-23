@@ -1481,7 +1481,12 @@
     },
     "Juni": {
      "tanggal": 1,
-     "aturan": "tanggal 1 (ketentuan BCA per Juni 2026)"
+     "tanggal_sah": [
+      1,
+      2,
+      3
+     ],
+     "aturan": "awal bulan/tanggal 1-3 (pengumuman BCA, efektif 1 Juni 2026)"
     }
    }
   },
