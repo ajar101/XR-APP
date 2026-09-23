@@ -3131,9 +3131,11 @@
     "Juni": {
      "tanggal": 1,
      "tanggal_sah": [
-      1
+      1,
+      2,
+      3
      ],
-     "aturan": "awal bulan (pengumuman BCA, efektif 1 Juni 2026)"
+     "aturan": "awal bulan/tanggal 1-3 (pengumuman BCA, efektif 1 Juni 2026)"
     },
     "Mei": {
      "tanggal": 15,
@@ -3142,9 +3144,11 @@
     "Juli": {
      "tanggal": 1,
      "tanggal_sah": [
-      1
+      1,
+      2,
+      3
      ],
-     "aturan": "awal bulan (pengumuman BCA, efektif 1 Juni 2026)"
+     "aturan": "awal bulan/tanggal 1-3 (pengumuman BCA, efektif 1 Juni 2026)"
     }
    }
   },

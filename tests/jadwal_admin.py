@@ -106,22 +106,52 @@ def periksa_libur_tidak_jadi_temuan() -> list:
     return masalah
 
 
+def periksa_tiga_hari_pertama_diterima() -> list:
+    """
+    Tanggal 1, 2, dan 3 diterima di SETIAP bulan pasca-cutover.
+
+    Jendelanya sengaja DATAR, bukan tanggal yang dihitung dari hari kerja.
+    Mekanismenya memang belum diketahui: pemakai melihat tanggal 1, 2,
+    maupun 3, sementara "hari bank berikutnya" cuma bisa menghasilkan
+    tanggal 2 kalau tanggal 1 jatuh Minggu. Menebak mekanisme lalu
+    mengetatkan aturan menurut tebakan itu persis kesalahan yang sedang
+    diperbaiki — "awal bulan" dulu dipersempit jadi "tanggal 1" dengan cara
+    yang sama.
+    """
+    masalah = []
+    for tahun in range(2026, 2031):
+        for bln in range(1, 13):
+            if (tahun, bln) < (2026, 6):
+                continue
+            for tanggal in (1, 2, 3):
+                if ada_temuan('TAHAPAN', BULAN[bln], tahun, tanggal):
+                    masalah.append(f'{BULAN[bln]} {tahun} tgl {tanggal} '
+                                   'dinilai tidak wajar')
+    return masalah
+
+
 def periksa_masih_ketat() -> list:
     """
     Jendela "awal bulan" tidak boleh jadi jendela untuk apa saja.
 
     Melonggarkan aturan selalu menggoda sampai tak ada lagi yang
-    tertangkap. Tanggal yang benar-benar menyimpang harus tetap muncul.
+    tertangkap. Diuji atas 2026-2030: tanggal tepat SESUDAH batas jendela
+    bulan itu harus tertangkap, begitu juga tanggal 10, 15, 20, dan 28.
     """
     masalah = []
-    for tanggal in (5, 10, 15, 20, 28):
-        if not ada_temuan('TAHAPAN', 'Agustus', 2026, tanggal):
-            masalah.append(f'Agustus 2026 tgl {tanggal} tidak tertangkap — '
-                           'jendelanya terlalu longgar')
-    # Bulan yang tanggal 1-nya hari kerja: tidak ada yang perlu dilonggarkan.
-    if not ada_temuan('TAHAPAN', 'Juli', 2026, 2):
-        masalah.append('Juli 2026 tgl 2 tidak tertangkap padahal 1 Juli Rabu '
-                       '— pelonggaran bocor ke bulan yang tidak membutuhkan')
+    for tahun in range(2026, 2031):
+        for bln in range(1, 13):
+            if (tahun, bln) < (2026, 6):
+                continue
+            entri = jadwal('TAHAPAN', BULAN[bln], tahun)
+            batas = max(entri['tanggal_sah'])
+            for tanggal in (batas + 1, 10, 15, 20, 28):
+                if tanggal <= batas:
+                    continue
+                if not ada_temuan('TAHAPAN', BULAN[bln], tahun, tanggal):
+                    masalah.append(f'{BULAN[bln]} {tahun} tgl {tanggal} tidak '
+                                   f'tertangkap padahal batas jendelanya '
+                                   f'{batas}')
     return masalah
 
 
@@ -165,9 +195,9 @@ def periksa_semua_jenis_sesudah_cutover() -> list:
             masalah.append(f'{jenis!r} dilewati sesudah cutover — '
                            'pemeriksaannya hilang padahal dasarnya ada')
             continue
-        if sorted(entri.get('tanggal_sah') or []) != [1, 3]:
+        if sorted(entri.get('tanggal_sah') or []) != [1, 2, 3]:
             masalah.append(f'{jenis!r} Agustus 2026: tanggal sah '
-                           f'{entri.get("tanggal_sah")!r}, harusnya [1, 3]')
+                           f'{entri.get("tanggal_sah")!r}, harusnya [1, 2, 3]')
     return masalah
 
 
@@ -200,6 +230,8 @@ def main() -> int:
     for nama, fungsi in (
         ('tanggal 1 yang libur tidak jadi temuan palsu',
          periksa_libur_tidak_jadi_temuan),
+        ('tanggal 1-3 diterima di semua bulan',
+         periksa_tiga_hari_pertama_diterima),
         ('jendela awal bulan masih ketat', periksa_masih_ketat),
         ('aturan sebelum Juni 2026 tidak tersentuh',
          periksa_aturan_lama_tidak_tersentuh),

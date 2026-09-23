@@ -45,13 +45,22 @@ BULAN_TO_NUM = {
 # 1 Agustus 2026 hari Sabtu.
 #
 # Karena pengumumannya tidak mendefinisikan "awal bulan" lebih jauh, yang
-# diterima DUA tanggal: tanggal 1 apa adanya, DAN hari kerja pertama bulan
-# itu. Keduanya, bukan salah satu — sebab BCA terbukti mendebet di akhir
-# pekan untuk aturan lama (biaya GIRO didebet Minggu 31 Mei 2026 di berkas
-# referensi), jadi tidak mustahil sebagian produk tetap mendebet tanggal 1
-# walau Sabtu sementara yang lain menggeser. Menerima keduanya benar di
-# kedua kemungkinan, dan tetap ketat: debet tanggal 5 atau 15 tetap
-# tertangkap.
+# diterima TIGA HARI PERTAMA bulan itu — 1, 2, dan 3 — ditambah hari bank
+# pertama kalau ia jatuh di luar ketiganya.
+#
+# Jendela datar, bukan tanggal yang dihitung, dan itu keputusan sadar.
+# Mekanismenya memang belum diketahui: pemakai melaporkan melihat tanggal
+# 1, 2, MAUPUN 3, sementara "hari bank berikutnya" cuma bisa menghasilkan
+# tanggal 2 kalau tanggal 1 jatuh Minggu. Menebak mekanisme lalu
+# mengetatkan aturan menurut tebakan itu persis kesalahan yang sedang
+# diperbaiki di sini — kode ini dulu menyempitkan "awal bulan" jadi
+# "tanggal 1" dengan cara yang sama.
+#
+# BCA juga terbukti mendebet di akhir pekan untuk aturan lama (biaya GIRO
+# didebet Minggu 31 Mei 2026 di berkas referensi), jadi jendela yang
+# menolak akhir pekan memang tidak punya dasar.
+#
+# Tetap ketat: debet tanggal 5, 10, 15, atau 20 tetap tertangkap.
 #
 # Libur nasional bertanggal TETAP ikut dilompati (kalender.py), dan itu
 # bukan kasus pinggiran: dua dari empat libur tetap justru jatuh tanggal 1 —
@@ -319,12 +328,17 @@ class BCAExtractor(BaseExtractor):
             # dasarnya (regex jenis rekening membaca "REKENING BCA DOLLAR"
             # sebagai "BCA" dan "REKENING TAPRES" sebagai "TAPRES", dua-duanya
             # di luar daftar lama).
-            hari_kerja = hari_bank_pertama(tahun, bulan_num)
-            sah = sorted({1, hari_kerja} if hari_kerja else {1})
-            aturan = 'awal bulan (pengumuman BCA, efektif 1 Juni 2026)'
-            if len(sah) > 1:
-                aturan += (f' — tanggal 1 jatuh di akhir pekan, jadi tanggal '
-                           f'{sah[-1]} juga diterima')
+            hari_bank = hari_bank_pertama(tahun, bulan_num)
+            sah = {1, 2, 3}
+            if hari_bank:
+                sah.add(hari_bank)
+            sah = sorted(sah)
+            aturan = ('awal bulan/tanggal 1-3 (pengumuman BCA, efektif '
+                      '1 Juni 2026)')
+            if sah[-1] > 3:
+                aturan = (f'awal bulan/tanggal 1-3, atau tanggal {sah[-1]} '
+                          f'karena tiga hari pertama libur (pengumuman BCA, '
+                          f'efektif 1 Juni 2026)')
             return {'tanggal': 1, 'tanggal_sah': sah, 'aturan': aturan}
 
         if jenis_rekening not in ('GIRO', 'TAHAPAN'):
