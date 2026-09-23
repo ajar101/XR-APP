@@ -744,7 +744,8 @@
   ["Mutasi Hilang / Gap Tidak Wajar", "Sedang", "Mei", "26-30", "-", "Tidak ada transaksi selama 5 hari berturut-turut", "Rekening aktif (399 transaksi di bulan Mei) tapi kosong tanggal 26 s.d. 30. Gap belum tentu janggal — libur panjang, rekening musiman, atau pola bisnis tertentu bisa menjelaskannya. Bandingkan dengan pola bulan lain sebelum menyimpulkan.", null],
   ["Nominal Bulat Berulang", "Rendah", "April", "-", "-", "124 transaksi bernilai sangat bulat (kelipatan Rp10 juta, ≥Rp50,000,000)", "61.7% dari total 201 transaksi bulan April — pola umum di transaksi rekayasa", 20090000000],
   ["Nominal Bulat Berulang", "Rendah", "Mei", "-", "-", "207 transaksi bernilai sangat bulat (kelipatan Rp10 juta, ≥Rp50,000,000)", "51.9% dari total 399 transaksi bulan Mei — pola umum di transaksi rekayasa", 51700000000],
-  ["Peringatan Pembacaan Dokumen", "Sedang", "April", "-", "-", "Rentang 2025-04-30..2025-04-30 tidak tercakup laporan mana pun", "Mutasi pada rentang itu tidak ikut terhitung di laporan ini. Laporan sebelumnya berakhir 2025-04-29, laporan berikutnya baru mulai 2025-05-01.", null]
+  ["Peringatan Pembacaan Dokumen", "Sedang", "April", "-", "-", "Rentang 2025-04-30..2025-04-30 tidak tercakup laporan mana pun", "Mutasi pada rentang itu tidak ikut terhitung di laporan ini. Laporan sebelumnya berakhir 2025-04-29, laporan berikutnya baru mulai 2025-05-01.", null],
+  ["Saldo Tidak Sinkron Antar Bulan", "Tinggi", "Mei", "-", "-", "Saldo Akhir April 2025 tidak sama dengan Saldo Awal Mei 2025", "Saldo Akhir April 2025 = 294,678,657, tapi Saldo Awal Mei 2025 tercatat 16,809,177 (selisih -277,869,480)", -277869480]
  ],
  "metadata": {
   "biaya_admin": {

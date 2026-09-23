@@ -2258,7 +2258,8 @@
   ["Peringatan Pembacaan Dokumen", "Tinggi", "Desember", "-", "-", "Ada rentang tanggal yang tidak dicakup laporan mana pun", "Laporan 2025-10-01..2025-10-31 berakhir 2025-10-31, laporan berikutnya baru mulai 2025-12-01 — 30 hari tidak tercakup.", null],
   ["Peringatan Pembacaan Dokumen", "Tinggi", "Desember", "-", "-", "Saldo antar laporan tidak bersambung", "Saldo akhir laporan 2025-10-01..2025-10-31 Rp2,719,366,519.20, tapi saldo awal laporan 2025-12-01..2025-12-31 Rp1,733,291,026.20 (selisih Rp-986,075,493.00).", null],
   ["Rasio Pajak Bunga Tidak Wajar", "Rendah", "Oktober", "25", "-", "Bunga tercatat tanpa pasangan Pajak Bunga (atau sebaliknya)", "Bunga: Rp224 | Pajak Bunga: Rp0 — cek apakah salah satunya hilang saat ekstraksi", null],
-  ["Rasio Pajak Bunga Tidak Wajar", "Rendah", "Oktober", "26", "-", "Bunga tercatat tanpa pasangan Pajak Bunga (atau sebaliknya)", "Bunga: Rp0 | Pajak Bunga: Rp44 — cek apakah salah satunya hilang saat ekstraksi", null]
+  ["Rasio Pajak Bunga Tidak Wajar", "Rendah", "Oktober", "26", "-", "Bunga tercatat tanpa pasangan Pajak Bunga (atau sebaliknya)", "Bunga: Rp0 | Pajak Bunga: Rp44 — cek apakah salah satunya hilang saat ekstraksi", null],
+  ["Saldo Tidak Sinkron Antar Bulan", "Tinggi", "April", "-", "-", "Saldo Akhir Maret 2026 tidak sama dengan Saldo Awal April 2026", "Saldo Akhir Maret 2026 = 26,349,462, tapi Saldo Awal April 2026 tercatat 44,347,961 (selisih 17,998,499)", 17998499]
  ],
  "metadata": {
   "biaya_admin": null,
