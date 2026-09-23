@@ -263,7 +263,8 @@
  ],
  "temuan": [
   ["Metadata PDF", "Rendah", "-", "-", "-", "Info metadata PDF (untuk review manual)", "Producer: iLovePDF | Creator: - | Created: - | Modified: D:20250805023506Z", null],
-  ["Metadata PDF Mencurigakan", "Sedang", "-", "-", "-", "PDF tercatat dibuat/diedit dengan software \"Ilovepdf\", bukan software cetak rekening umum", "Producer: iLovePDF | Creator: - — perlu verifikasi keaslian dokumen", null]
+  ["Metadata PDF Mencurigakan", "Sedang", "-", "-", "-", "PDF tercatat dibuat/diedit dengan software \"Ilovepdf\", bukan software cetak rekening umum", "Producer: iLovePDF | Creator: - — perlu verifikasi keaslian dokumen", null],
+  ["Saldo Tidak Sinkron Antar Bulan", "Tinggi", "Juni", "-", "-", "Saldo Akhir Mei 2025 tidak sama dengan Saldo Awal Juni 2025", "Saldo Akhir Mei 2025 = 2,453,135, tapi Saldo Awal Juni 2025 tercatat 274,948 (selisih -2,178,187)", -2178187]
  ],
  "metadata": {
   "biaya_admin": {
