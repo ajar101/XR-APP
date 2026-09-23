@@ -39,16 +39,10 @@ BULAN_ORDER = [
 ]
 BULAN_TO_NUM = {b: i + 1 for i, b in enumerate(BULAN_ORDER)}
 
-# Hari libur nasional tanggal-tetap (tidak mencakup libur berbasis kalender
-# lunar/hijriah seperti Lebaran, Nyepi, Imlek, dst — tanggalnya berubah tiap
-# tahun dan butuh referensi eksternal). Cukup untuk menyaring kasus paling
-# jelas; jangan dibaca sebagai daftar libur yang lengkap.
-LIBUR_TANGGAL_TETAP = {
-    (1, 1),   # Tahun Baru Masehi
-    (5, 1),   # Hari Buruh
-    (8, 17),  # Kemerdekaan RI
-    (12, 25), # Natal
-}
+# Daftar libur pindah ke kalender.py supaya extractor bisa memakainya juga
+# tanpa menyalinnya — lihat docstring di sana. Namanya tetap tersedia di
+# modul ini karena dipakai `_hari_libur` di bawah.
+from kalender import LIBUR_TANGGAL_TETAP          # noqa: E402,F401
 
 # Angka bergaya Eropa (titik ribuan, koma desimal) di antara baris berformat
 # standar: "15.840.000,B".
@@ -535,9 +529,24 @@ def _check_jadwal_biaya_adm(transaksi_per_bulan, saldo_per_bulan):
         tanggal_seharusnya = int(entri['tanggal'])
         aturan = entri.get('aturan') or f'tanggal {tanggal_seharusnya}'
 
+        # Sebagian jadwal bank tidak menunjuk SATU tanggal. Pengumuman BCA
+        # yang berlaku sejak Juni 2026, misalnya, berbunyi "setiap awal
+        # bulan" tanpa mendefinisikannya lebih jauh — dan mempersempitnya
+        # jadi satu tanggal adalah pengetatan yang kita tambahkan sendiri,
+        # bukan yang bank katakan. Extractor karena itu boleh mengirim
+        # 'tanggal_sah' berisi beberapa tanggal yang sama-sama benar.
+        #
+        # Kalau tidak dikirim, perilakunya persis seperti sebelumnya: satu
+        # tanggal, dicocokkan persis. Jadwal bank lain tidak tersentuh.
+        sah = entri.get('tanggal_sah') or [tanggal_seharusnya]
+        try:
+            sah = {int(t) for t in sah}
+        except (TypeError, ValueError):
+            sah = {tanggal_seharusnya}
+
         for _, row in rows.iterrows():
             tanggal_aktual = int(row['Tanggal'])
-            if tanggal_aktual == tanggal_seharusnya:
+            if tanggal_aktual in sah:
                 continue
             out.append({
                 'kategori': 'Jadwal Biaya Admin Tidak Wajar',
