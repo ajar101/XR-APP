@@ -8,6 +8,11 @@ Auto-detect format PDF BNI dan delegate ke extractor yang sesuai:
                   bergaris No. … Balance)                    → didukung
   - lainnya     : belum ada extractor-nya
 
+Satu PDF boleh memuat kedua format sekaligus (mis. Statement Juni, Inquiry
+Juli, Statement Agustus untuk rekening yang sama). Format dikenali per
+halaman; kalau ada lebih dari satu, tiap segmen diurai extractor formatnya
+sendiri lalu digabung oleh extractors/campuran.py.
+
 Format yang belum didukung ditolak di sini dengan pesan yang menyebut apa
 yang terbaca dari dokumennya. Sebelumnya satu extractor dipakai untuk PDF
 BNI apa pun; PDF bertata letak lain tidak ditolak, melainkan menghasilkan
@@ -19,7 +24,17 @@ import pdfplumber
 
 from extractors.base import BaseExtractor
 from extractors.bni_inquiry import BNIInquiryExtractor
-from extractors.bni_statement import BNIStatementExtractor
+from extractors.bni_statement import BNIStatementExtractor, TOLERANSI
+from extractors.campuran import bangun_extractor
+
+KELAS_FORMAT = {
+    'statement': BNIStatementExtractor,
+    'inquiry': BNIInquiryExtractor,
+}
+NAMA_FORMAT = {
+    'statement': 'ACCOUNT STATEMENT',
+    'inquiry': 'TRANSACTION INQUIRY',
+}
 
 
 class BNIExtractor(BaseExtractor):
@@ -29,11 +44,7 @@ class BNIExtractor(BaseExtractor):
         super().__init__(pdf_path)
         self.format_type = self._detect_format()
 
-        if self.format_type == 'statement':
-            self.extractor = BNIStatementExtractor(pdf_path)
-        elif self.format_type == 'inquiry':
-            self.extractor = BNIInquiryExtractor(pdf_path)
-        else:
+        if self.format_type not in KELAS_FORMAT:
             raise NotImplementedError(
                 "PDF ini terbaca sebagai dokumen BNI, tapi tata letaknya bukan "
                 "format yang didukung saat ini. Yang didukung: ACCOUNT STATEMENT "
@@ -44,6 +55,27 @@ class BNIExtractor(BaseExtractor):
                 "sebagai Account Statement atau hasil Transaction Inquiry dari "
                 "BNI Direct/BNI iBank."
             )
+
+        self.format_type, self.extractor = bangun_extractor(
+            pdf_path, self.format_type, KELAS_FORMAT, NAMA_FORMAT,
+            self._format_halaman, prefix='BNI', toleransi=TOLERANSI)
+
+    @staticmethod
+    def _format_halaman(teks: str):
+        """
+        Format satu halaman, dari judul laporan di kepala halamannya.
+
+        Keduanya mencetak judul di tiap halaman ("ACCOUNT STATEMENT" /
+        "TRANSACTION INQUIRY"). Hanya beberapa baris teratas yang dilihat,
+        supaya kata yang sama di kolom keterangan transaksi tidak ikut
+        terbaca sebagai judul.
+        """
+        kepala = '\n'.join(teks.split('\n')[:5]).upper()
+        if 'TRANSACTION INQUIRY' in kepala:
+            return 'inquiry'
+        if 'ACCOUNT STATEMENT' in kepala:
+            return 'statement'
+        return None
 
     def _detect_format(self) -> str:
         """

@@ -64,7 +64,6 @@ import calendar
 import re
 from datetime import date, timedelta
 
-import pdfplumber
 import pandas as pd
 
 from extractors.base import BaseExtractor
@@ -142,8 +141,8 @@ class BNIInquiryExtractor(NamaLawanBNI, PencatatPeringatan, BaseExtractor):
     STATEMENT, jadi aturannya tidak disalin ke dua tempat.
     """
 
-    def __init__(self, pdf_path: str):
-        super().__init__(pdf_path)
+    def __init__(self, pdf_path: str, halaman: list | None = None):
+        super().__init__(pdf_path, halaman)
         # Peringatan yang terkumpul selama parsing (dibaca app.py / pemanggil).
         self.warnings: list[str] = []
         # Bentuk terstruktur dari peringatan yang sama, untuk metadata
@@ -282,8 +281,9 @@ class BNIInquiryExtractor(NamaLawanBNI, PencatatPeringatan, BaseExtractor):
         blok, halaman, identitas = [], [], []
         kini = None
 
-        with pdfplumber.open(self.pdf_path) as pdf:
-            for urut, page in enumerate(pdf.pages, 1):
+        with self._buka_pdf() as pdf:
+            for page in pdf.pages:
+                urut = page.page_number
                 teks = page.extract_text() or ''
 
                 periode = None

@@ -137,12 +137,17 @@ def proses_ekstraksi(bank_code: str, berkas: list, folder_job: str) -> dict:
             if extractor_pertama is None:
                 extractor_pertama = extractor
 
-            # Checksum dikumpulkan per file — kalau hanya extractor terakhir
-            # yang diperiksa, file lain lolos tanpa validasi sama sekali.
-            if hasattr(extractor, 'validate'):
-                laporan_checksum.append((nama_asli, extractor.validate()))
-
-            saldo = extractor.extract_saldo()
+            try:
+                # Checksum dikumpulkan per file — kalau hanya extractor
+                # terakhir yang diperiksa, file lain lolos tanpa validasi.
+                if hasattr(extractor, 'validate'):
+                    laporan_checksum.append((nama_asli, extractor.validate()))
+                saldo = extractor.extract_saldo()
+            except MergeValidationError as e:
+                # PDF yang memuat beberapa format digabung per bagian
+                # (extractors/campuran.py) dengan aturan yang sama dengan
+                # penggabungan beberapa berkas.
+                raise GagalEkstraksi(f"File '{nama_asli}': {e}") from e
             # Cek keberadaan data BULAN, bukan sekadar dict tidak kosong.
             # Extractor mengembalikan metadata ('_nama_pemilik', dst) walau
             # tidak satu pun transaksi terbaca, sehingga `if not saldo` selalu
