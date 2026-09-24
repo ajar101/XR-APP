@@ -137,7 +137,7 @@ Laporan Excel tidak pernah ditulis ke disk.
 |---|---|
 | Ekstraksi PDF teks (bukan gambar) rekening BCA Giro & Tabungan | ✅ Aktif, sudah divalidasi total mutasi 100% cocok PDF sumber |
 | Upload multi-PDF sekaligus (tanpa merge manual) | ✅ Aktif — maks 6 bulan gabungan, validasi rekening & bulan bentrok |
-| Satu PDF berisi beberapa format (BNI Statement + Inquiry; Mandiri Kopra + e-Statement + Rekening Koran) | ✅ Aktif — format dikenali per halaman, tiap segmen diurai extractor formatnya, sambungan saldo & tanggal antar segmen diperiksa (`extractors/campuran.py`). Aturannya sama dengan multi-PDF: satu nomor rekening. BCA hanya punya satu format, jadi tidak terdampak |
+| Satu PDF berisi beberapa format (BNI Statement + Inquiry; Mandiri Kopra + e-Statement + Rekening Koran) | ✅ Aktif — format dikenali per halaman, tiap segmen diurai extractor formatnya, sambungan saldo & tanggal antar segmen diperiksa (`extractors/campuran.py`); dijaga tes regresi lewat `references/bni_campuran_5956688888.pdf` (Statement Juni + Inquiry Juli + Statement Agustus). Aturannya sama dengan multi-PDF: satu nomor rekening. BCA hanya punya satu format, jadi tidak terdampak |
 | Deteksi PDF hasil scan/foto | ✅ Aktif — ditolak dengan pesan jelas, bukan error generik |
 | Kategorisasi transaksi debit/kredit otomatis (keyword-based) | ✅ Aktif |
 | Analisis konsentrasi nasabah (HHI Score) | ✅ Aktif |
