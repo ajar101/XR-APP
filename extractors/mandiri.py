@@ -14,6 +14,11 @@ diarahkan ke extractor e-Statement — hasilnya bukan penolakan yang jelas,
 melainkan ekstraksi kosong yang baru meledak di pembuat Excel (HTTP 500).
 Format yang belum didukung harus gagal cepat dengan pesan yang menyebut
 formatnya, bukan gagal jauh di hilir.
+
+Satu PDF boleh memuat beberapa format sekaligus (mis. Kopra, e-Statement,
+dan Rekening Koran untuk rekening yang sama). Format dikenali per halaman;
+kalau ada lebih dari satu, tiap segmen diurai extractor formatnya sendiri
+lalu digabung oleh extractors/campuran.py.
 """
 
 import pdfplumber
@@ -21,6 +26,18 @@ from extractors.base import BaseExtractor
 from extractors.mandiri_kopra import MandiriKopraExtractor
 from extractors.mandiri_statement import MandiriStatementExtractor
 from extractors.mandiri_koran import MandiriKoranExtractor
+from extractors.campuran import bangun_extractor
+
+KELAS_FORMAT = {
+    'kopra': MandiriKopraExtractor,
+    'estatement': MandiriStatementExtractor,
+    'koran': MandiriKoranExtractor,
+}
+NAMA_FORMAT = {
+    'kopra': 'Kopra by Mandiri',
+    'estatement': 'e-Statement',
+    'koran': 'Laporan Rekening Koran',
+}
 
 # Import akan ditambahkan saat format lain sudah dibuat:
 # from extractors.mandiri_ebanking import MandiriEBankingExtractor
@@ -38,13 +55,7 @@ class MandiriExtractor(BaseExtractor):
         self.format_type = self._detect_format()
         
         # Delegate to appropriate sub-extractor
-        if self.format_type == 'kopra':
-            self.extractor = MandiriKopraExtractor(pdf_path)
-        elif self.format_type == 'estatement':
-            self.extractor = MandiriStatementExtractor(pdf_path)
-        elif self.format_type == 'koran':
-            self.extractor = MandiriKoranExtractor(pdf_path)
-        else:
+        if self.format_type not in KELAS_FORMAT:
             nama_format = {
                 'ebanking': 'E-Banking',
             }.get(self.format_type, self.format_type)
@@ -53,7 +64,30 @@ class MandiriExtractor(BaseExtractor):
                 f"didukung. Saat ini yang tersedia: Kopra by Mandiri, e-Statement "
                 f"(Livin'/Mandiri Online), dan Laporan Rekening Koran."
             )
-    
+
+        self.format_type, self.extractor = bangun_extractor(
+            pdf_path, self.format_type, KELAS_FORMAT, NAMA_FORMAT,
+            self._format_halaman, prefix='MANDIRI', toleransi=0.005)
+
+    @staticmethod
+    def _format_halaman(teks: str):
+        """
+        Format satu halaman, untuk memecah PDF yang memuat beberapa format.
+
+        Kopra dan e-Statement mencetak penandanya di SETIAP halaman; Rekening
+        Koran hanya di halaman pertama tiap laporan — halaman lanjutannya
+        tidak bertanda dan ikut format halaman sebelumnya (lihat
+        campuran.pecah_segmen). Urutannya sama dengan _detect_format().
+        """
+        u = teks.upper()
+        if 'KOPRA BY MANDIRI' in u or 'KOPRABYMANDIRI.COM' in u:
+            return 'kopra'
+        if 'E-STATEMENT' in u:
+            return 'estatement'
+        if 'REKENING KORAN' in u:
+            return 'koran'
+        return None
+
     def _detect_format(self) -> str:
         """
         Detect Mandiri format from PDF content.

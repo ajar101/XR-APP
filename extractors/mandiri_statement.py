@@ -34,7 +34,6 @@ tidak tahu apa pun soal Excel/styling.
 
 import re
 from datetime import date, timedelta
-import pdfplumber
 import pandas as pd
 
 from extractors.base import BaseExtractor
@@ -98,8 +97,8 @@ BANK_PREFIX = (
 
 class MandiriStatementExtractor(PencatatPeringatan, BaseExtractor):
 
-    def __init__(self, pdf_path: str):
-        super().__init__(pdf_path)
+    def __init__(self, pdf_path: str, halaman: list | None = None):
+        super().__init__(pdf_path, halaman)
         # Peringatan yang terkumpul selama parsing (dibaca app.py / pemanggil).
         self.warnings: list[str] = []
         # Bentuk terstruktur dari peringatan yang sama, untuk metadata
@@ -292,7 +291,7 @@ class MandiriStatementExtractor(PencatatPeringatan, BaseExtractor):
         meta = {'no_rekening': 'unknown', 'nama_pemilik': '-',
                 'jenis_rekening': '-', 'cabang': '-'}
 
-        with pdfplumber.open(self.pdf_path) as pdf:
+        with self._buka_pdf() as pdf:
             for page in pdf.pages:
                 text = page.extract_text() or ''
 

@@ -61,6 +61,7 @@ XR-APP/
 │   ├── mandiri_statement.py     #   Sub-extractor Mandiri e-Statement (Livin'/Mandiri Online)
 │   ├── mandiri_koran.py         #   Sub-extractor Mandiri Laporan Rekening Koran (tabel bergaris)
 │   ├── mandiri_nama.py          #   Pipeline nama lawan transaksi, dipakai bersama Kopra & Rekening Koran
+│   ├── campuran.py              #   Satu PDF berisi beberapa format: pecah per segmen halaman, lalu gabung
 │   ├── peringatan.py            #   Pencatatan peringatan pembacaan dokumen (bank-agnostic)
 │   └── pdf_utils.py             #   Deteksi PDF hasil scan/foto (bank-agnostic)
 ├── engine/                      # Lapisan pemrosesan (bank-agnostic)
@@ -136,6 +137,7 @@ Laporan Excel tidak pernah ditulis ke disk.
 |---|---|
 | Ekstraksi PDF teks (bukan gambar) rekening BCA Giro & Tabungan | ✅ Aktif, sudah divalidasi total mutasi 100% cocok PDF sumber |
 | Upload multi-PDF sekaligus (tanpa merge manual) | ✅ Aktif — maks 6 bulan gabungan, validasi rekening & bulan bentrok |
+| Satu PDF berisi beberapa format (BNI Statement + Inquiry; Mandiri Kopra + e-Statement + Rekening Koran) | ✅ Aktif — format dikenali per halaman, tiap segmen diurai extractor formatnya, sambungan saldo & tanggal antar segmen diperiksa (`extractors/campuran.py`). Aturannya sama dengan multi-PDF: satu nomor rekening. BCA hanya punya satu format, jadi tidak terdampak |
 | Deteksi PDF hasil scan/foto | ✅ Aktif — ditolak dengan pesan jelas, bukan error generik |
 | Kategorisasi transaksi debit/kredit otomatis (keyword-based) | ✅ Aktif |
 | Analisis konsentrasi nasabah (HHI Score) | ✅ Aktif |

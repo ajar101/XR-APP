@@ -154,8 +154,47 @@ class BaseExtractor(ABC):
         }
     """
 
-    def __init__(self, pdf_path: str):
+    def __init__(self, pdf_path: str, halaman: list | None = None):
         self.pdf_path = pdf_path
+        # Nomor halaman (1-based) yang menjadi bagian extractor ini; None =
+        # seluruh PDF. Dipakai saat satu PDF memuat beberapa format laporan
+        # sekaligus (lihat extractors/campuran.py): tiap segmen diurai oleh
+        # extractor formatnya sendiri. Halaman tetap bernomor asli
+        # (page.page_number), jadi jejak cetak & peringatan menunjuk halaman
+        # yang benar di PDF utuhnya.
+        self.halaman = halaman
+        self._pdf_terbuka = None
+
+    def _buka_pdf(self):
+        """
+        PDF yang dibaca _parse_document(), sudah dibatasi ke self.halaman.
+
+        Kalau pemanggil sudah membuka PDF-nya (lihat urai_dari()), dokumen
+        itu yang dipakai — tidak dibuka ulang dan tidak ditutup di sini.
+        """
+        if self._pdf_terbuka is not None:
+            return _TampilanPDF(self._pdf_terbuka, self.halaman)
+        import pdfplumber
+        return pdfplumber.open(self.pdf_path, pages=self.halaman)
+
+    def urai_dari(self, pdf) -> None:
+        """
+        Urai dokumen sekarang juga memakai PDF yang sudah dibuka pemanggil.
+
+        Hampir seluruh biaya ekstraksi ada di penguraian halaman oleh
+        pdfminer, dan pdfplumber menyimpan hasilnya per halaman selama
+        dokumennya terbuka. Dispatcher yang sudah membaca tiap halaman untuk
+        mengenali formatnya meneruskan dokumen yang sama ke sini, sehingga
+        tiap halaman cukup diurai SEKALI. Hasilnya di-cache extractor, jadi
+        sesudah ini PDF-nya boleh ditutup.
+
+        Hanya untuk extractor yang punya _parse_document() ber-cache.
+        """
+        self._pdf_terbuka = pdf
+        try:
+            self._parse_document()
+        finally:
+            self._pdf_terbuka = None
 
     @abstractmethod
     def extract_saldo(self) -> dict:
@@ -186,3 +225,20 @@ class BaseExtractor(ABC):
         Override di subclass.
         """
         return 'BANK'
+
+
+class _TampilanPDF:
+    """PDF terbuka milik pemanggil, dibatasi ke sebagian halamannya."""
+
+    def __init__(self, pdf, halaman: list | None):
+        if halaman is None:
+            self.pages = pdf.pages
+        else:
+            pilih = set(halaman)
+            self.pages = [p for p in pdf.pages if p.page_number in pilih]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
