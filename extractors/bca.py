@@ -461,8 +461,21 @@ class BCAExtractor(BaseExtractor):
                 while i < len(lines):
                     line = lines[i]
 
-                    # Lewati baris header/footer/noise
-                    if any(skip in line for skip in [
+                    # Lewati baris header/footer/noise.
+                    #
+                    # Baris yang DIAWALI TANGGAL (dd/mm) adalah baris transaksi
+                    # (atau SALDO AWAL, yang disaring tersendiri di
+                    # _parse_transaction) dan TIDAK PERNAH header/footer —
+                    # header kolom ("TANGGAL KETERANGAN CBG MUTASI SALDO"),
+                    # kaki laporan, dan catatan tidak diawali dd/mm. Dulu
+                    # saringan kata-kunci ini dijalankan atas semua baris,
+                    # sehingga transaksi yang keterangannya kebetulan memuat
+                    # salah satu kata itu ikut terbuang diam-diam, mis.
+                    # "13/07 ND-LAINNYA BY MUTASI 0106 25,000.00 DB" (kata
+                    # MUTASI) — Rp25.000 dan 1 transaksi debit hilang dari
+                    # total, dan saldo tidak balance.
+                    awal_tanggal = re.match(r'^\d{2}/\d{2}\s', line) is not None
+                    if not awal_tanggal and any(skip in line for skip in [
                         'KETERANGAN', 'CBG', 'MUTASI', 'SALDO',
                         'Bersambung', 'HALAMAN', 'CATATAN'
                     ]):
@@ -613,28 +626,29 @@ class BCAExtractor(BaseExtractor):
 
         nominal_str = nominal_matches[0]
 
-        # Tentukan jenis mutasi — HANYA dari baris pertama (header transaksi), bukan
-        # dari full_text gabungan. full_text ikut memuat baris nama/keterangan lanjutan,
-        # dan scan " DB" di situ bisa salah kena nama seperti "DBS" (Bank DBS Indonesia)
-        # atau "S WIDYANINGSIH" -> transaksi Kredit jadi salah tercatat sebagai Debit.
-        first_line = lines[0] if lines else ''
-        first_line_upper = first_line.upper()
-
-        if 'KR OTOMATIS' in full_text or re.match(r'^KR\b', first_line_upper):
-            is_debit = False
-        elif re.search(r'\bCR\b', first_line_upper):
-            # "TRSF E-BANKING CR", "BI-FAST CR ... DR 002", "SWITCHING CR DR 008", dst.
-            # "DR" di baris ini adalah kode bank pengirim, bukan penanda Debit — CR menang.
-            is_debit = False
-        elif re.search(r'\bDB\b', first_line_upper):
-            # "TRSF E-BANKING DB", "SWITCHING DB KE", "DB OTOMATIS B.ADM KLIRING", dst.
-            is_debit = True
-        else:
-            has_tarikan = 'TARIKAN' in first_line_upper
-            has_biaya = ('BIAYA ADM' in first_line_upper or 'BIAYA TRANSFER' in first_line_upper or
-                         'BIAYA ADMINISTRASI' in first_line_upper or 'BIAYA TXN' in first_line_upper)
-            has_pajak = 'PAJAK' in first_line_upper
-            is_debit = has_tarikan or has_biaya or has_pajak
+        # Tentukan jenis mutasi dari PENANDA DI KOLOM MUTASI, bukan dari label
+        # jenis transaksi di kolom KETERANGAN.
+        #
+        # BCA menandai debit dengan sufiks "DB" tepat setelah nominal mutasi
+        # ("12,000.00 DB"); kredit dicetak tanpa sufiks. Label transaksi di
+        # kolom keterangan TIDAK bisa dijadikan patokan: "BI-FAST DB BIF BIAYA
+        # TXN KE ... SUPER EKONOMI RETA" memuat kata DB di labelnya, tetapi
+        # nominalnya dicetak tanpa sufiks DB dan saldo di barisnya NAIK —
+        # artinya kredit. Aturan lama (\bDB\b di baris pertama) salah membaca
+        # baris-baris itu sebagai Debit: 3 baris di Juni (Rp110.692.623) dan
+        # 1 baris di Agustus (Rp19.474.586), sehingga jumlah & total debit/
+        # kredit meleset dari ringkasan resmi di kaki laporan.
+        #
+        # nominal_matches[0] adalah nominal mutasi (kolom MUTASI mendahului
+        # SALDO), jadi cukup periksa teks yang langsung mengikutinya. Diperiksa
+        # pada teks gabungan supaya tetap benar bila "DB" terbungkus ke baris
+        # berikutnya. Nominal yang sama di keterangan tidak mengecoh karena
+        # yang dipakai adalah kemunculan PERTAMA.
+        m_nom = next(re.finditer(
+            r'(?<![\d.])\d{1,3}(?:,\d{3})*\.\d{2}(?!\d)', full_text), None)
+        is_debit = bool(
+            m_nom and re.match(r'\s*DB\b', full_text[m_nom.end():])
+        )
 
         try:
             nominal = int(nominal_str.replace(',', '').split('.')[0])
@@ -662,8 +676,13 @@ class BCAExtractor(BaseExtractor):
         # token yang berbentuk nominal — mis. "... TGL: 09/06 ... 34.42" —
         # dan kalau ikut terbaca, angka itu dikira saldo berjalan lalu
         # seluruh rantai saldo dilaporkan meleset.
+        #
+        # Tanda minus DITANGKAP: giro bisa overdraft dan BCA mencetak saldonya
+        # negatif ("-855,191,608.61"). Regex nominal di atas sengaja tanpa
+        # minus (mutasi tidak pernah negatif), tetapi untuk saldo itu membuat
+        # saldo negatif terbaca positif dan rantai saldo meleset ratusan juta.
         baris_pertama = re.findall(
-            r'(?<![\d.])\d{1,3}(?:,\d{3})*\.\d{2}(?!\d)', lines[0]
+            r'(?<![\d.])-?\d{1,3}(?:,\d{3})*\.\d{2}(?!\d)', lines[0]
         )
         saldo_tercetak = None
         if len(baris_pertama) > 1:
