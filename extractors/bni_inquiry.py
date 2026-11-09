@@ -336,7 +336,29 @@ class BNIInquiryExtractor(NamaLawanBNI, PencatatPeringatan, BaseExtractor):
                     if not any(v.strip() for v in sel.values()):
                         continue
 
-                    nomor = sel.get('no', '').strip()
+                    # Nomor urut >= 1000 tidak muat di kolom "No." dan dicetak
+                    # terpotong dua baris ("100" / "0"), jadi pecahannya
+                    # dirangkai RAPAT (tanpa spasi) sebelum dicek.
+                    nomor = ''.join(sel.get('no', '').split())
+
+                    # Baris BARU selalu punya isi angka (tanggal/nominal/Db-Cr).
+                    # Serpihan nomor di awal halaman ("8" dari 1088 yang
+                    # terpotong batas halaman) hanya membawa jam "00.00.00"
+                    # dan teks Branch — itu sambungan, bukan baris baru.
+                    punya_isi = bool(
+                        RE_TANGGAL.match((sel.get('tanggal', '') or '').split(' ')[0])
+                        or sel.get('nominal', '').strip()
+                        or sel.get('dbcr', '').strip())
+                    if nomor.isdigit() and not punya_isi and kini['baris']:
+                        # Sambungkan serpihan ke nomor baris sebelumnya, tapi
+                        # hanya kalau hasilnya persis nomor berikutnya dalam
+                        # urutan (108|8 -> 1088, setelah 1087).
+                        if len(kini['baris']) >= 2:
+                            hasil_no = int(str(kini['baris'][-1]['no']) + nomor)
+                            if hasil_no == kini['baris'][-2]['no'] + 1:
+                                kini['baris'][-1]['no'] = hasil_no
+                        nomor = ''
+
                     if nomor.isdigit():
                         kini['baris'].append({
                             'no': int(nomor),
